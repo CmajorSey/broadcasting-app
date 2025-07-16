@@ -66,20 +66,23 @@ export default function Navbar({ loggedInUser, setLoggedInUser, users }) {
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
         {loggedInUser && (
-          <div className="flex items-center gap-2">
-            <span className="text-sm">
-              Logged in as: <strong>{loggedInUser.name}</strong>
-            </span>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleLogout}
-              className="text-white bg-red-600 hover:bg-red-700 border-none"
-            >
-              <LogOut className="w-4 h-4 mr-1" />
-              Logout
-            </Button>
-          </div>
+          function LiveClock() {
+  const [time, setTime] = useState(
+    new Date().toLocaleTimeString("en-GB", { timeZone: "Indian/Mahe" })
+  );
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTime(
+        new Date().toLocaleTimeString("en-GB", { timeZone: "Indian/Mahe" })
+      );
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return <div className="text-sm text-gray-100">🕒 {time}</div>;
+}
+
         )}
 
         {users && users.length > 0 && (

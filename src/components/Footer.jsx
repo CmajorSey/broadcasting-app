@@ -2,7 +2,11 @@
 import pkg from "../../package.json";
 
 const version = pkg.version || "0.0.1";
-const buildDate = process.env.BUILD_DATE || "unknown";
+const buildDate = new Date(
+  process.env.BUILD_DATE || Date.now()
+).toLocaleString("en-GB", {
+  timeZone: "Indian/Mahe"
+});
 
 export default function Footer() {
   return (
