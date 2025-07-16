@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import StatusBadge from "@/components/StatusBadge";
 import API_BASE from "@/api";
 
-<h1>Broadcasting App v0.2 🚀</h1>
+
 
 const daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -54,6 +54,7 @@ export default function HomePage() {
 
   return (
     <div className="p-6 space-y-6">
+      
       <div className="flex justify-between items-center">
         <button
           onClick={goPrevious}

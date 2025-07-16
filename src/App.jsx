@@ -125,6 +125,7 @@ useEffect(() => {
         setLoggedInUser={setLoggedInUser}
         users={users}
       />
+        <h1 className="text-xl font-bold text-blue-600 mb-4">Broadcasting App v0.2 🚀</h1>
       <Routes>
         <Route
           path="/"
