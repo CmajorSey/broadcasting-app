@@ -1,0 +1,9 @@
+{
+  "appId": "com.major.broadcastingapp",
+  "appName": "Lo Board",
+  "webDir": "dist",
+  "server": {
+    "url": "http://192.168.137.1:4000",
+    "cleartext": true
+  }
+}

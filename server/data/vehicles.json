@@ -1,0 +1,18 @@
+[
+  {
+    "id": 101,
+    "name": "Nissan NV200",
+    "status": "In Garage",
+    "notes": "Cleaned and fueled",
+    "insuranceExpiry": "2025-09-18",
+    "patentExpiry": "2025-12-01"
+  },
+  {
+    "id": 102,
+    "name": "Kia Niro",
+    "status": "In Garage",
+    "notes": "Cleaned and Fueled",
+    "insuranceExpiry": "2025-10-15",
+    "patentExpiry": "2026-01-01"
+  }
+]

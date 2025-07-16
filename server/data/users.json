@@ -1,0 +1,45 @@
+[
+  {
+    "id": 1,
+    "name": "Admin",
+    "password": "admin123",
+    "roles": [
+      "admin"
+    ]
+  },
+  {
+    "id": 2,
+    "name": "Producer",
+    "password": "prod456",
+    "roles": [
+      "producer"
+    ]
+  },
+  {
+    "id": 3,
+    "name": "CamOp",
+    "password": "cam789",
+    "roles": [
+      "camOp"
+    ]
+  },
+  {
+    "id": 4,
+    "name": "Driver",
+    "password": "drive321",
+    "roles": [
+      "driver"
+    ]
+  },
+  {
+    "id": "1752347101457",
+    "name": "John Doe",
+    "roles": [
+      "admin"
+    ],
+    "description": "",
+    "hiddenRoles": [],
+    "password": "John4",
+    "requiresPasswordReset": false
+  }
+]

@@ -1,0 +1,944 @@
+import React, { useState, useEffect, useRef } from "react";
+import { Trash2, Pencil, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
+import StatusBadge from "../components/StatusBadge";
+import MultiSelectCombobox from "@/components/MultiSelectCombobox";
+import DutyBadge from "@/components/DutyBadge";
+import API_BASE from "@/api";
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+  AlertDialogDescription,
+} from "@/components/ui/alert-dialog";
+
+
+
+function getWeekStart(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString().slice(0, 10);
+}
+
+async function fetchRosterForDate(dateISO) {
+  const weekStart = getWeekStart(dateISO);
+  if (rosterCache.current[weekStart]) {
+    return rosterCache.current[weekStart];
+  }
+
+ try {
+  const res = await fetch(`${API_BASE}/rosters/${weekStart}`);
+  if (!res.ok) throw new Error("Roster not found");
+  const data = await res.json();
+  rosterCache.current[weekStart] = data;
+  return data;
+} catch (err) {
+  console.warn("No roster for week:", weekStart);
+  return [];
+}
+}
+
+async function getTodayRoster(dateISO) {
+  const week = await fetchRosterForDate(dateISO);
+  const day = week.find((d) => d.date === dateISO);
+  return day || null;
+}
+function DutyBadgeWrapper({ date, filmingTime, names }) {
+  const [duty, setDuty] = useState(null);
+  const filmingHour = parseInt(filmingTime?.split(":")[0] || "0", 10);
+  const dutyDate = date?.slice(0, 10);
+
+  useEffect(() => {
+    if (dutyDate) {
+      getTodayRoster(dutyDate).then(setDuty);
+    }
+  }, [dutyDate]);
+
+  return (
+    <div className="flex flex-col gap-1">
+      {names.map((name, i) => {
+        let badge = null;
+        if (duty) {
+          if (duty.off?.includes(name)) {
+            badge = <DutyBadge label="Off Duty" color="red" />;
+          } else if (duty.afternoonShift?.includes(name) && filmingHour < 12) {
+            badge = <DutyBadge label="Afternoon Shift" color="yellow" />;
+          } else if (duty.primary?.includes(name) && filmingHour >= 14) {
+            badge = <DutyBadge label="Directing News" color="blue" />;
+          }
+        }
+        return (
+          <div key={i} className="flex items-center justify-center gap-2">
+            <span>{name}</span>
+            {badge}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+export default function TicketPage({ users, vehicles, loggedInUser }) {
+  const [tickets, setTickets] = useState([]);
+  const rosterCache = useRef({});
+  async function fetchRosterForDate(dateISO) {
+  const weekStart = getWeekStart(dateISO);
+  if (rosterCache.current[weekStart]) {
+    return rosterCache.current[weekStart];
+  }
+
+ try {
+  const res = await fetch(`${API_BASE}/rosters/${weekStart}`);
+  if (!res.ok) throw new Error("Roster not found");
+  const data = await res.json();
+  rosterCache.current[weekStart] = data;
+  return data;
+} catch (err) {
+  console.warn("No roster for week:", weekStart);
+  return [];
+}
+}
+
+async function getTodayRoster(dateISO) {
+  const week = await fetchRosterForDate(dateISO);
+  const day = week.find((d) => d.date === dateISO);
+  return day || null;
+}
+
+  const [selectedTickets, setSelectedTickets] = useState([]);
+  const [showSelectBoxes, setShowSelectBoxes] = useState(false);
+  const [showRecycleModal, setShowRecycleModal] = useState(false);
+  const [selectedDeleted, setSelectedDeleted] = useState([]);
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [showPermanentDeleteModal, setShowPermanentDeleteModal] = useState(false);
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [newNotes, setNewNotes] = useState({});
+  const [editData, setEditData] = useState({});
+  const [expandedRows, setExpandedRows] = useState([]);
+  const [expandAll, setExpandAll] = useState(false);
+  const isAdmin = loggedInUser?.roles?.includes("admin");
+  const isProducer = loggedInUser?.roles?.includes("producer");
+  const isDriver = loggedInUser?.roles?.includes("driver");
+  const [showArchived, setShowArchived] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const canEditAny = isAdmin || isProducer || loggedInUser?.roles?.includes("journalist");
+  const canEditVehicle = isAdmin || isProducer || isDriver;
+  const canAddNotes = isAdmin || isDriver;
+
+  const driverOptions = users.filter(
+    (u) => u.roles.includes("driver") || u.roles.includes("driver_limited")
+  );
+  const camOpOptions = users.filter((u) => u.roles.includes("camOp"));
+
+  useEffect(() => {
+    fetch(`${API_BASE}/tickets`)
+      .then(async (res) => {
+  if (!res.ok) throw new Error("Failed to fetch tickets");
+  return await res.json();
+})
+      .then((data) => setTickets(data))
+      .catch((err) => {
+        console.error("Failed to fetch tickets:", err);
+        setTickets([]);
+      });
+  }, []);
+  
+  const startEditing = (index) => {
+  const ticket = tickets[index];
+
+  let autoDriver = ticket.assignedDriver || "";
+
+  // Nelson logic
+  const nelson = driverOptions.find(
+    (u) => u.name === "Nelson Joseph" && !u.isOff
+  );
+  if (!autoDriver && nelson) {
+    autoDriver = "Nelson Joseph";
+  }
+
+  setEditingIndex(index);
+  setEditData({
+    ...ticket,
+    assignedDriver: autoDriver,
+    assignedCamOps: ticket.assignedCamOps || [],
+    vehicle: ticket.vehicle || "",
+    priority: ticket.priority || "Normal",
+    assignmentStatus: ticket.assignmentStatus || "Pending",
+    departureTime: ticket.departureTime?.slice(0, 5) || "",
+    filmingTime: ticket.filmingTime?.slice(0, 5) || "",
+    location: ticket.location || "",
+    title: ticket.title || "",
+  });
+};
+  const saveEditing = async (index) => {
+  const updatedTickets = [...tickets];
+  const updatedData = { ...editData };
+
+  if (
+    updatedData.assignmentStatus === "Unassigned" &&
+    updatedData.assignedDriver &&
+    Array.isArray(updatedData.assignedCamOps) &&
+    updatedData.assignedCamOps.length > 0
+  ) {
+    updatedData.assignmentStatus = "Assigned";
+  }
+
+  updatedData.vehicle = updatedData.vehicle ? String(updatedData.vehicle) : "";
+
+  const updatedTicket = {
+    ...updatedTickets[index],
+    ...updatedData,
+    assignedBy: loggedInUser?.name || "Unknown",
+  };
+
+  try {
+     const res = await fetch(`${API_BASE}/tickets/${updatedTicket.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updatedTicket),
+    });
+
+    if (!res.ok) throw new Error("Failed to update ticket");
+
+    const savedTicket = await res.json();
+    updatedTickets[index] = savedTicket;
+
+    setTickets(updatedTickets);
+    setEditingIndex(null);
+  } catch (err) {
+    console.error("Failed to save ticket edits:", err);
+    alert("Failed to save changes. Please try again.");
+  }
+};
+  const cancelEditing = () => {
+    setEditingIndex(null);
+    setEditData({});
+  };
+
+  const toggleSelect = (index) => {
+    if (selectedTickets.includes(index)) {
+      setSelectedTickets(selectedTickets.filter((i) => i !== index));
+    } else {
+      setSelectedTickets([...selectedTickets, index]);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedTickets.length === tickets.length) {
+      setSelectedTickets([]);
+    } else {
+      setSelectedTickets(tickets.map((_, idx) => idx));
+    }
+  };
+
+  const toggleRow = (index) => {
+    if (expandedRows.includes(index)) {
+      setExpandedRows(expandedRows.filter((i) => i !== index));
+    } else {
+      setExpandedRows([...expandedRows, index]);
+    }
+  };
+
+  const toggleExpandAll = () => {
+    if (expandAll) {
+      setExpandedRows([]);
+      setExpandAll(false);
+    } else {
+      setExpandedRows(tickets.map((_, i) => i));
+      setExpandAll(true);
+    }
+  };
+
+  const handleAddNote = async (index) => {
+  const text = newNotes[index];
+  if (!text || !text.trim()) return;
+  const timestamp = new Date().toLocaleString();
+  const updatedTickets = [...tickets];
+  const ticketToUpdate = { ...updatedTickets[index] };
+
+  if (!Array.isArray(ticketToUpdate.notes)) {
+    ticketToUpdate.notes = [];
+  }
+
+  const newNote = {
+    text: text.trim(),
+    author: loggedInUser?.name || "Unknown",
+    timestamp,
+  };
+
+  ticketToUpdate.notes.push(newNote);
+
+  try {
+   await fetch(`${API_BASE}/tickets/${ticketToUpdate.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes: ticketToUpdate.notes }),
+    });
+
+    updatedTickets[index] = ticketToUpdate;
+    setTickets(updatedTickets);
+    setNewNotes({ ...newNotes, [index]: "" });
+  } catch (err) {
+    console.error("Failed to add note:", err);
+  }
+};
+  return (
+    <div className="p-4">
+      <h2 className="text-xl font-bold mb-4">All Tickets</h2>
+
+      <div className="flex flex-wrap items-center mb-2 gap-2">
+        <button
+          onClick={() => {
+            setShowSelectBoxes(!showSelectBoxes);
+            setSelectedTickets([]);
+          }}
+          className="px-3 py-1 border rounded"
+        >
+          {showSelectBoxes ? "Hide Selection" : "Select Tickets"}
+        </button>
+        {showSelectBoxes && (
+          <button
+            onClick={toggleSelectAll}
+            className="px-3 py-1 border rounded"
+          >
+            {selectedTickets.length === tickets.length
+              ? "Deselect All"
+              : "Select All"}
+          </button>
+        )}
+        <button
+          onClick={toggleExpandAll}
+          className="px-3 py-1 border rounded"
+        >
+          {expandAll ? "Collapse All" : "Expand All"}
+        </button>
+      </div>
+     {selectedTickets.length > 0 && (
+  <div className="flex gap-2 mb-2">
+    <button
+      onClick={async () => {
+  try {
+    const toArchive = selectedTickets.map((i) => tickets[i]);
+
+    for (const ticket of toArchive) {
+  await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ archived: true }),
+  });
+}
+
+// ✅ Refresh from backend after update
+const res = await fetch(`${API_BASE}/tickets`);
+const updated = await res.json();
+setTickets(updated);
+setSelectedTickets([]);
+
+  } catch (err) {
+    console.error("Failed to archive tickets:", err);
+  }
+}}
+      className="text-yellow-600 border border-yellow-600 hover:bg-yellow-100 px-3 py-1 rounded-md transition"
+    >
+      Send to Archive
+    </button>
+
+    <button
+      onClick={() => setShowRecycleModal(true)}
+      className="text-red-500 border border-red-500 hover:bg-red-100 px-3 py-1 rounded-md transition"
+    >
+      Send to Recycle Bin
+    </button>
+  </div>
+)}
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm border border-gray-300">
+          <thead className="bg-blue-800 text-white">
+  <tr>
+    {showSelectBoxes && <th className="p-2 text-center">Select</th>}
+    {[
+      "Title",
+      "Filming Date & Time",
+      "Departure Time",
+      "Location",
+      "Cam Ops",
+      "Driver",
+      "Status",
+      "Actions",
+    ].map((header) => (
+      <th key={header} className="p-2 text-center whitespace-nowrap">
+        {header}
+      </th>
+    ))}
+  </tr>
+</thead>
+         <tbody>
+  {tickets
+  .filter((t) => !t.deleted && !t.archived)
+  .map((ticket, index) => {
+    const isEditing = editingIndex === index;
+    const isExpanded = expandedRows.includes(index);
+
+    return (
+      <React.Fragment key={ticket.id || index}>
+        <tr
+          className={`${
+            ticket.priority === "Urgent" || ticket.shootType === "Live"
+              ? "bg-red-100"
+              : index % 2 === 0
+              ? "bg-white"
+              : "bg-gray-50"
+          } border-b`}
+        >
+          {showSelectBoxes && (
+            <td className="p-2 text-center">
+              <input
+                type="checkbox"
+                checked={selectedTickets.includes(index)}
+                onChange={() => toggleSelect(index)}
+              />
+            </td>
+          )}
+
+          {/* Title */}
+          <td className="p-2 text-center whitespace-nowrap">
+            {isEditing ? (
+              <input
+                type="text"
+                value={editData.title || ""}
+                onChange={(e) =>
+                  setEditData({ ...editData, title: e.target.value })
+                }
+                className="border px-2 py-1 rounded w-full"
+              />
+            ) : (
+              ticket.title
+            )}
+          </td>
+
+       {/* Filming Date & Time */}
+<td className="p-2 text-center whitespace-nowrap">
+  {(() => {
+    const filmingISO = ticket.date?.trim?.(); // full datetime now stored in `date`
+    if (!filmingISO) return "-";
+
+    const filmingDate = new Date(filmingISO);
+    if (isNaN(filmingDate.getTime())) {
+      console.warn("Invalid filming date format:", filmingISO);
+      return filmingISO;
+    }
+
+    const day = String(filmingDate.getDate()).padStart(2, "0");
+const month = filmingDate.toLocaleString("en-US", { month: "short" });
+const year = String(filmingDate.getFullYear()).slice(2);
+const hours = String(filmingDate.getHours()).padStart(2, "0");
+const minutes = String(filmingDate.getMinutes()).padStart(2, "0");
+
+return `${day}-${month}-${year}, ${hours}:${minutes}`;
+
+  })()}
+</td>
+
+{/* Departure Time */}
+<td className="p-2 text-center whitespace-nowrap">
+  {isEditing ? (
+    <input
+      type="time"
+      step="300"
+      value={editData.departureTime || ""}
+      onChange={(e) =>
+        setEditData({ ...editData, departureTime: e.target.value })
+      }
+      className="border px-2 py-1 rounded"
+    />
+  ) : (
+    ticket.departureTime || "-"
+  )}
+</td>
+
+          {/* Location */}
+          <td className="p-2 text-center whitespace-nowrap">
+            {isEditing ? (
+              <input
+                type="text"
+                value={editData.location || ""}
+                onChange={(e) =>
+                  setEditData({ ...editData, location: e.target.value })
+                }
+                className="border px-2 py-1 rounded w-full"
+              />
+            ) : (
+              ticket.location || "-"
+            )}
+          </td>
+
+          {/* Cam Ops */}
+          <td className="p-2 text-center whitespace-nowrap">
+           {isEditing ? (
+  <MultiSelectCombobox
+    options={camOpOptions.map((u) => u.name)}
+    selected={editData.assignedCamOps || []}
+    onChange={(value) =>
+      setEditData({ ...editData, assignedCamOps: value })
+    }
+  />
+) : Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0 ? (
+  <DutyBadgeWrapper
+    date={ticket.date}
+    filmingTime={ticket.filmingTime}
+    names={ticket.assignedCamOps}
+  />
+) : (
+  "-"
+)}
+</td>
+          {/* Driver */}
+          <td className="p-2 text-center whitespace-nowrap">
+            {isEditing ? (
+              <select
+                value={editData.assignedDriver || ""}
+                onChange={(e) =>
+                  setEditData({ ...editData, assignedDriver: e.target.value })
+                }
+                className="border px-2 py-1 rounded"
+              >
+                <option value="">Select Driver</option>
+                {driverOptions.map((u) => (
+                  <option key={u.name} value={u.name}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              ticket.assignedDriver || "-"
+            )}
+          </td>
+
+          {/* Status */}
+          <td className="p-2 text-center whitespace-nowrap">
+            <StatusBadge status={ticket.assignmentStatus || "Unassigned"} />
+          </td>
+
+          {/* Actions */}
+          <td className="p-2 text-center whitespace-nowrap">
+            {isEditing ? (
+              <div className="flex gap-2 justify-center">
+                <button
+                  className="text-green-600 hover:underline text-xs"
+                  onClick={() => saveEditing(index)}
+                >
+                  Save
+                </button>
+                <button
+                  className="text-gray-600 hover:underline text-xs"
+                  onClick={cancelEditing}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2 justify-center">
+                {canEditAny && (
+                  <button
+                    className="text-blue-600 hover:underline text-xs"
+                    onClick={() => startEditing(index)}
+                  >
+                    Edit
+                  </button>
+                )}
+                <button
+                  className="text-yellow-600 hover:underline text-xs"
+                  onClick={() => toggleRow(index)}
+                >
+                  {isExpanded ? "Collapse" : "Expand"}
+                </button>
+              </div>
+            )}
+          </td>
+        </tr>
+
+        {/* Expanded Row */}
+        {isExpanded && (
+          <tr className="bg-gray-100">
+            <td
+              colSpan={showSelectBoxes ? 9 : 8}
+              className="p-4 text-sm text-gray-700"
+            >
+             <div className="mb-2">
+  <strong>Assigned By:</strong>{" "}
+  <span className="text-gray-700 font-medium">
+    {ticket.assignedBy || "Unknown"}
+  </span>
+</div>
+
+<div>
+  <strong>Notes:</strong>
+  {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
+    <ul className="list-disc list-inside ml-2 mt-1">
+      {ticket.notes.map((note, noteIdx) => (
+        <li key={noteIdx}>
+          {note.text}{" "}
+          <span className="text-gray-500 text-xs">
+            — {note.author}, {note.timestamp}
+          </span>
+        </li>
+      ))}
+    </ul>
+  ) : (
+    <p className="text-gray-500 italic">No notes</p>
+  )}
+</div>
+              {canAddNotes && (
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    placeholder="Add note"
+                    value={newNotes[index] || ""}
+                    onChange={(e) =>
+                      setNewNotes({ ...newNotes, [index]: e.target.value })
+                    }
+                    className="border rounded p-1 w-2/3 mr-2"
+                  />
+                  <button
+                    onClick={() => handleAddNote(index)}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    Add Note
+                  </button>
+                </div>
+              )}
+            </td>
+          </tr>
+        )}
+      </React.Fragment>
+    );
+  })}
+</tbody>
+        </table>
+      </div>
+    {/* Archived Tickets */}
+<div className="mt-6">
+  <button
+    onClick={() => setShowArchived(!showArchived)}
+    className="flex items-center gap-1 text-sm underline"
+  >
+    {showArchived ? (
+      <>
+        <ChevronUp size={16} /> Hide Archived (
+        {tickets.filter((t) => t.archived).length})
+      </>
+    ) : (
+      <>
+        <ChevronDown size={16} /> Show Archived (
+        {tickets.filter((t) => t.archived).length})
+      </>
+    )}
+  </button>
+  {showArchived && (
+    <div className="mt-3 border rounded shadow">
+      {tickets.filter((t) => t.archived).length === 0 ? (
+        <p className="text-gray-500 px-2 py-2">No archived tickets.</p>
+      ) : (
+        <>
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-200">
+  <tr>
+    <th className="p-2 text-center">Title</th>
+    <th className="p-2 text-center">Filming</th>
+    <th className="p-2 text-center">Departure</th>
+    <th className="p-2 text-center">Location</th>
+    <th className="p-2 text-center">Driver</th>
+    <th className="p-2 text-center">Status</th>
+    <th className="p-2 text-center">Priority</th>
+  </tr>
+</thead>
+<tbody>
+  {tickets
+    .filter((t) => t.archived)
+    .map((ticket, idx) => {
+      const date = ticket.date?.trim?.();
+      const d = new Date(date);
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = d.toLocaleString("en-US", { month: "short" });
+      const year = String(d.getFullYear()).slice(2);
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      const formatted = !isNaN(d.getTime()) ? `${day}-${month}-${year}, ${hh}:${mm}` : "-";
+
+      return (
+        <tr
+          key={ticket.id || idx}
+          className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
+        >
+          <td className="p-2 text-center">{ticket.title}</td>
+          <td className="p-2 text-center">{formatted}</td>
+          <td className="p-2 text-center">{ticket.departureTime || "-"}</td>
+          <td className="p-2 text-center">{ticket.location || "-"}</td>
+          <td className="p-2 text-center">{ticket.assignedDriver || "-"}</td>
+          <td className="p-2 text-center">
+            <StatusBadge status={ticket.assignmentStatus || "Unassigned"} />
+          </td>
+          <td className="p-2 text-center">{ticket.priority || "Normal"}</td>
+        </tr>
+      );
+    })}
+</tbody>
+
+          </table>
+        </>
+      )}
+    </div>
+  )}
+</div>
+     {/* Recycle Bin */}
+<div className="mt-6">
+  <button
+    onClick={() => setShowDeleted(!showDeleted)}
+    className="flex items-center gap-1 text-sm underline"
+  >
+    {showDeleted ? (
+      <>
+        <ChevronUp size={16} /> Hide Recycle Bin ({tickets.filter(t => t.deleted).length})
+      </>
+    ) : (
+      <>
+        <ChevronDown size={16} /> Show Recycle Bin ({tickets.filter(t => t.deleted).length})
+      </>
+    )}
+  </button>
+  {showDeleted && (
+    <div className="mt-3 border rounded shadow">
+      <div className="flex items-center justify-between p-2">
+        <button
+          className="text-sm text-blue-600 underline"
+          onClick={() => {
+            const deleted = tickets.filter((t) => t.deleted);
+            if (selectedDeleted.length === deleted.length) {
+              setSelectedDeleted([]);
+            } else {
+              setSelectedDeleted(deleted.map((_, i) => i));
+            }
+          }}
+        >
+          {selectedDeleted.length === tickets.filter(t => t.deleted).length
+            ? "Deselect All"
+            : "Select All in Recycle Bin"}
+        </button>
+
+      {selectedDeleted.length > 0 && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowRestoreModal(true)}
+            className="px-3 py-1 border rounded text-green-600 border-green-600 hover:bg-green-50"
+          >
+            Restore Selected
+          </button>
+          <button
+            onClick={() => setShowPermanentDeleteModal(true)}
+            className="px-3 py-1 border rounded text-red-600 border-red-600 hover:bg-red-100"
+          >
+            Permanently Delete
+          </button>
+        </div>
+      )}
+    </div>
+
+    {tickets.filter((t) => t.deleted).length === 0 ? (
+      <p className="text-gray-500 px-2 py-2">No deleted tickets.</p>
+    ) : (
+      <table className="min-w-full text-sm">
+    <thead className="bg-gray-200">
+  <tr>
+    <th className="p-2 text-center">Select</th>
+    <th className="p-2 text-center">Title</th>
+    <th className="p-2 text-center">Filming</th>
+    <th className="p-2 text-center">Departure</th>
+    <th className="p-2 text-center">Location</th>
+    <th className="p-2 text-center">Driver</th>
+    <th className="p-2 text-center">Status</th>
+    <th className="p-2 text-center">Priority</th>
+  </tr>
+</thead>
+<tbody>
+  {tickets.filter((t) => t.deleted).map((ticket, idx) => {
+    const isSelected = selectedDeleted.includes(idx);
+    const date = ticket.date?.trim?.();
+    const d = new Date(date);
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = d.toLocaleString("en-US", { month: "short" });
+    const year = String(d.getFullYear()).slice(2);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const formatted = !isNaN(d.getTime()) ? `${day}-${month}-${year}, ${hh}:${mm}` : "-";
+
+    return (
+      <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+        <td className="p-2 text-center">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => {
+              if (isSelected) {
+                setSelectedDeleted(selectedDeleted.filter((i) => i !== idx));
+              } else {
+                setSelectedDeleted([...selectedDeleted, idx]);
+              }
+            }}
+          />
+        </td>
+        <td className="p-2 text-center">{ticket.title}</td>
+        <td className="p-2 text-center">{formatted}</td>
+        <td className="p-2 text-center">{ticket.departureTime || "-"}</td>
+        <td className="p-2 text-center">{ticket.location || "-"}</td>
+        <td className="p-2 text-center">{ticket.assignedDriver || "-"}</td>
+        <td className="p-2 text-center">
+          <StatusBadge status={ticket.assignmentStatus || "Unassigned"} />
+        </td>
+        <td className="p-2 text-center">{ticket.priority || "Normal"}</td>
+      </tr>
+    );
+  })}
+</tbody>
+
+      </table>
+    )}
+  </div>
+)}
+      </div>
+    {/* Recycle Modal */}
+<AlertDialog open={showRecycleModal} onOpenChange={setShowRecycleModal}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Send selected tickets to Recycle Bin?</AlertDialogTitle>
+      <AlertDialogDescription>
+        These tickets will be moved to the Recycle Bin. You can restore them later.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction
+        className="bg-red-600 hover:bg-red-700 text-white"
+       onClick={async () => {
+  try {
+    const toDelete = selectedTickets.map((i) => tickets[i]);
+
+ for (const ticket of toDelete) {
+  await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deleted: true }),
+  });
+}
+
+
+// ✅ Refresh from backend after update
+const res = await fetch(`${API_BASE}/tickets`);
+const updated = await res.json();
+setTickets(updated);
+setSelectedTickets([]);
+setShowRecycleModal(false);
+
+  } catch (err) {
+    console.error("Failed to recycle tickets:", err);
+  }
+}}
+
+      >
+        Confirm
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+
+{/* Restore Modal */}
+<AlertDialog open={showRestoreModal} onOpenChange={setShowRestoreModal}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Restore selected tickets?</AlertDialogTitle>
+      <AlertDialogDescription>
+        These tickets will be restored to the main list.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction
+        className="bg-green-600 hover:bg-green-700 text-white"
+        onClick={async () => {
+  try {
+    const toRestore = selectedDeleted.map((i) => tickets.filter((t) => t.deleted)[i]);
+
+   for (const ticket of toRestore) {
+  await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deleted: false }),
+  });
+}
+
+    setSelectedDeleted([]);
+    setShowRestoreModal(false);
+
+   // Optionally re-fetch tickets here instead of merging manually
+const response = await fetch(`${API_BASE}/tickets`);
+const data = await response.json();
+setTickets(data);
+} catch (err) {
+  console.error("Failed to restore tickets:", err);
+}
+}}
+      >
+        Restore
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+
+{/* Permanently Delete Modal */}
+<AlertDialog open={showPermanentDeleteModal} onOpenChange={setShowPermanentDeleteModal}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Permanently delete selected tickets?</AlertDialogTitle>
+      <AlertDialogDescription className="text-red-600 font-semibold">
+        This action cannot be undone. The selected tickets will be deleted forever.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction
+        className="bg-red-600 hover:bg-red-700 text-white"
+       onClick={async () => {
+ try {
+  const toDelete = selectedDeleted.map((i) => tickets.filter((t) => t.deleted)[i]);
+  for (const ticket of toDelete) {
+    await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+      method: "DELETE",
+    });
+  }
+
+    setSelectedDeleted([]);
+    setShowPermanentDeleteModal(false);
+
+   // Optionally re-fetch tickets here instead of local filtering
+const response = await fetch(`${API_BASE}/tickets`);
+const data = await response.json();
+setTickets(data);
+} catch (err) {
+  console.error("Failed to permanently delete tickets:", err);
+}
+}}
+
+      >
+        Delete Forever
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+</div>
+  );
+}
