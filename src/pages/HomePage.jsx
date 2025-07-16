@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import StatusBadge from "@/components/StatusBadge";
 import API_BASE from "@/api";
 
+<h1>Broadcasting App v0.2 🚀</h1>
 
 const daysOfWeek = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
