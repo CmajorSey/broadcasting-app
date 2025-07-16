@@ -1,5 +1,40 @@
 [
   {
+    "title": "Test",
+    "type": "News",
+    "category": "Interview",
+    "subtype": "",
+    "date": "2025-07-16T23:00",
+    "location": "Town",
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "notes": [],
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "22:30",
+    "filmingTime": "23:00",
+    "assignedCamOps": [
+      "CamOp"
+    ],
+    "assignedDriver": "Driver",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2025-07-16T18:24:33.308Z",
+    "id": "1752690273614",
+    "assignedBy": "Admin",
+    "deleted": true
+  },
+  {
     "title": "Test From Phone",
     "type": "News",
     "category": "Interview",
@@ -69,7 +104,8 @@
     "vehicleStatus": "",
     "createdBy": "Admin",
     "createdAt": "2025-07-13T16:11:24.001Z",
-    "id": "1752423086298"
+    "id": "1752423086298",
+    "deleted": true
   },
   {
     "title": "Test 4",
@@ -101,7 +137,7 @@
     "createdBy": "User Demo",
     "createdAt": "2025-07-12T13:35:21.803Z",
     "id": "1752327321807",
-    "deleted": false
+    "deleted": true
   },
   {
     "title": "test",
@@ -133,7 +169,7 @@
     "createdBy": "User Demo",
     "createdAt": "2025-07-12T13:30:54.256Z",
     "id": "1752327054261",
-    "deleted": false,
+    "deleted": true,
     "archived": true
   }
 ]

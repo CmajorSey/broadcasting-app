@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import Footer from "@/components/Footer";
 import {
   BrowserRouter as Router,
   Routes,
@@ -119,13 +120,13 @@ useEffect(() => {
     }
   }, []);
   return (
-    <>
-      <Navbar
-        loggedInUser={loggedInUser}
-        setLoggedInUser={setLoggedInUser}
-        users={users}
-      />
-        <h1 className="text-xl font-bold text-blue-600 mb-4">Broadcasting App v0.2 🚀</h1>
+  <>
+    <Navbar
+      loggedInUser={loggedInUser}
+      setLoggedInUser={setLoggedInUser}
+      users={users}
+    />
+    <div className="p-4 min-h-[80vh]">
       <Routes>
         <Route
           path="/"
@@ -222,8 +223,10 @@ useEffect(() => {
           }
         />
       </Routes>
-    </>
-  );
+    </div>
+    <Footer />
+  </>
+);
 }
 
 export default AppWrapper;

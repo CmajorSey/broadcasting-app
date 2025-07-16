@@ -10,8 +10,9 @@ export default defineConfig({
     },
   },
   define: {
-    "process.env.API_BASE": JSON.stringify(process.env.API_BASE || ""),
-  },
+  "process.env.API_BASE": JSON.stringify(process.env.API_BASE || ""),
+  "process.env.BUILD_DATE": JSON.stringify(new Date().toLocaleString()),
+},
   server: {
     https: false,
     host: true,
