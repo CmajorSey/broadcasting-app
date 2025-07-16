@@ -9,6 +9,9 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  define: {
+    "process.env.API_BASE": JSON.stringify(process.env.API_BASE || ""),
+  },
   server: {
     https: false,
     host: true,
