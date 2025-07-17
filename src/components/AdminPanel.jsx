@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -177,6 +177,37 @@ if (response && response.id) {
   setNewUserDesc("");
   setShowAddUserDialog(false);
 };
+const [branding, setBranding] = useState({ siteName: "" });
+
+useEffect(() => {
+  fetch(`${API_BASE}/settings`)
+    .then((res) => res.json())
+    .then((data) => {
+      setBranding({
+        siteName: data.siteName || "",
+      });
+    })
+    .catch((err) => console.error("Failed to load branding:", err));
+}, 
+[]);
+const saveBranding = () => {
+  fetch(`${API_BASE}/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(branding),
+  })
+    .then((res) => res.json())
+    .then((data) => {
+      alert("✅ Branding updated");
+    })
+    .catch((err) => {
+      console.error("Branding update failed:", err);
+      alert("⚠️ Failed to update branding");
+    });
+};
+
+
+
   return (
     <div className="bg-white p-6 rounded-xl shadow-md w-full max-w-4xl space-y-6">
       <h2 className="text-xl font-bold text-gray-800">User Management</h2>
@@ -250,6 +281,27 @@ if (response && response.id) {
         ))}
     </select>
   </div>
+<div className="bg-white rounded shadow p-6 space-y-4 mt-6">
+  <h2 className="text-lg font-semibold text-gray-700">Site Branding</h2>
+
+  <div className="space-y-2">
+    <label className="block text-sm text-gray-600">Welcome Text</label>
+    <input
+      type="text"
+      value={branding.siteName}
+      onChange={(e) => setBranding({ siteName: e.target.value })}
+      className="input w-full"
+      placeholder="Enter login screen title"
+    />
+  </div>
+<button
+    onClick={saveBranding}
+    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+  >
+    Save Branding
+  </button>
+</div>
+
 
   {/* Role Reordering UI */}
   <div className="mt-2 space-y-1 text-sm text-gray-700">

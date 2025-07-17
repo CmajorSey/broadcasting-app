@@ -9,42 +9,42 @@ export default function LoginPage({ users, setLoggedInUser }) {
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
+  const [siteName, setSiteName] = useState("Lo Board");
 
   useEffect(() => {
-    const rememberedId = localStorage.getItem("rememberedUser");
+    // Always fetch site branding
+    fetch(`${API_BASE}/settings`)
+      .then((res) => res.json())
+      .then((data) => {
+        console.log("🎯 SETTINGS LOADED:", data);
+        setSiteName(data?.siteName ?? "Lo Board");
+      })
+      .catch((err) => {
+        console.warn("Settings fetch failed", err);
+        setSiteName("Lo Board");
+      });
 
-    // Only pre-fill name; don't auto-login
+    // Only check remembered user if not already logged in
     const alreadyLoggedIn = JSON.parse(localStorage.getItem("loggedInUser"));
     if (alreadyLoggedIn) return;
 
+    const rememberedId = localStorage.getItem("rememberedUser");
     if (rememberedId) {
-  fetch(`${API_BASE}/users/${rememberedId}`)
-    .then((res) => res.json())
-    .then((user) => {
-      if (user?.name) {
-        setName(user.name);
-        setRemember(true);
-      }
-    })
-    .catch((err) => console.error("Error fetching remembered user", err));
-}
-
-    // 🔍 Test backend connectivity immediately on load
-    fetch("http://jsonplaceholder.typicode.com/users")
-      .then((res) => {
-        if (!res.ok) throw new Error("Status " + res.status);
-        return res.json();
-      })
-      .then((data) =>
-        setDebugMessage("✅ Connected: " + data.length + " users")
-      )
-      .catch((err) =>
-        setDebugMessage("❌ Fetch failed: " + err.message)
-      );
+      fetch(`${API_BASE}/users/${rememberedId}`)
+        .then((res) => res.json())
+        .then((user) => {
+          if (user?.name) {
+            setName(user.name);
+            setRemember(true);
+          }
+        })
+        .catch((err) => console.error("Error fetching remembered user", err));
+    }
   }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setDebugMessage("");
 
     try {
       const res = await fetch(`${API_BASE}/users`);
@@ -55,12 +55,12 @@ export default function LoginPage({ users, setLoggedInUser }) {
       );
 
       if (!match) {
-        alert("User not found");
+        setDebugMessage("❌ User not found.");
         return;
       }
 
       if (password !== match.password) {
-        alert("Incorrect password");
+        setDebugMessage("❌ Incorrect password.");
         return;
       }
 
@@ -81,18 +81,27 @@ export default function LoginPage({ users, setLoggedInUser }) {
       navigate("/");
     } catch (err) {
       console.error("Login failed:", err.message);
-      alert("Failed to fetch user list: " + err.message);
+      setDebugMessage("❌ Login failed: " + err.message);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 p-6">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 px-4 py-8">
+      <div className="flex flex-col items-center mb-6 space-y-2">
+        <h1 className="text-3xl font-bold text-gray-800">{siteName}</h1>
+      </div>
+
       <form
         onSubmit={handleLogin}
         className="bg-white p-8 rounded shadow-md w-full max-w-md space-y-4"
       >
-        <h1 className="text-2xl font-bold text-center text-gray-800">Login</h1>
-        <p className="text-xs text-center text-red-500">{debugMessage}</p>
+        <h2 className="text-xl font-semibold text-center text-gray-700">Login</h2>
+
+        {debugMessage && (
+          <div className="text-center text-sm text-red-600 font-medium">
+            {debugMessage}
+          </div>
+        )}
 
         <input
           type="text"

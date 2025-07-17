@@ -64,44 +64,40 @@ export default function Navbar({ loggedInUser, setLoggedInUser, users }) {
         )}
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-        {loggedInUser && (
-          function LiveClock() {
-  const [time, setTime] = useState(
-    new Date().toLocaleTimeString("en-GB", { timeZone: "Indian/Mahe" })
-  );
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTime(
-        new Date().toLocaleTimeString("en-GB", { timeZone: "Indian/Mahe" })
-      );
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  return <div className="text-sm text-gray-100">🕒 {time}</div>;
-}
-
-        )}
-
-        {users && users.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="text-xs opacity-70">Switch User:</span>
-            {users.map((u) => (
-              <Button
-                key={u.id}
-                size="xs"
-                variant="secondary"
-                className="text-xs"
-                onClick={() => handleRoleSwitch(u.name)}
-              >
-                {u.name}
-              </Button>
-            ))}
-          </div>
-        )}
+         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 flex-wrap">
+  {loggedInUser?.roles?.includes("admin") &&
+    window.location.hostname === "localhost" &&
+    users &&
+    users.length > 0 && (
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="text-xs opacity-70">Switch User:</span>
+        {users.map((u) => (
+          <Button
+            key={u.id}
+            size="xs"
+            variant="secondary"
+            className="text-xs"
+            onClick={() => handleRoleSwitch(u.name)}
+          >
+            {u.name}
+          </Button>
+        ))}
       </div>
+    )}
+
+  {loggedInUser && (
+    <Button
+      variant="destructive"
+      size="sm"
+      onClick={handleLogout}
+      className="flex items-center gap-2"
+    >
+      <span className="text-xs">{loggedInUser.name.split(" ")[0]}</span>
+      <LogOut size={16} />
+      <span className="text-xs">Logout</span>
+    </Button>
+  )}
+</div>
     </nav>
   );
 }

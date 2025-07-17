@@ -35,7 +35,8 @@
     "id": "1752347101457",
     "name": "John Doe",
     "roles": [
-      "admin"
+      "driver_limited",
+      "camOp"
     ],
     "description": "",
     "hiddenRoles": [],

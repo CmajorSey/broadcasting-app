@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import Footer from "@/components/Footer";
 import {
   BrowserRouter as Router,
   Routes,
@@ -7,8 +6,9 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
-import API_BASE from "@/api";
 import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
+import API_BASE from "@/api";
 import TicketForm from "@/components/TicketForm";
 import AdminPanel from "@/components/AdminPanel";
 import TicketFormPage from "@/pages/TicketFormPage";
@@ -20,7 +20,6 @@ import TicketPage from "@/pages/TicketPage";
 import HomeCarousel from "@/components/HomeCarousel";
 import FleetPage from "@/pages/FleetPage";
 
-
 function AppWrapper() {
   return (
     <Router>
@@ -28,8 +27,6 @@ function AppWrapper() {
     </Router>
   );
 }
-<h1>Broadcasting App v0.2 🚀</h1>
-
 
 function App() {
   const [loggedInUser, setLoggedInUser] = useState(() => {
@@ -39,39 +36,19 @@ function App() {
 
   const [users, setUsers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
- const [tickets, setTickets] = useState([]);
-
-useEffect(() => {
-  const fetchTickets = async () => {
-    try {
-      const response = await fetch(`${API_BASE}/tickets`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      setTickets(data);
-    } catch (error) {
-      console.error("Failed to fetch tickets from backend:", error);
-      setTickets([]); // fallback to empty array on failure
-    }
-  };
-
-  fetchTickets();
-}, []);
-
-
+  const [tickets, setTickets] = useState([]);
   const [archivedTickets, setArchivedTickets] = useState(() => {
     const stored = localStorage.getItem("archivedTickets");
     return stored ? JSON.parse(stored) : [];
   });
-
   const [deletedTickets, setDeletedTickets] = useState(() => {
     const stored = localStorage.getItem("deletedTickets");
     return stored ? JSON.parse(stored) : [];
   });
 
-  const navigate = useNavigate();
   const location = useLocation();
+  const navigate = useNavigate();
+  const hideLayout = location.pathname === "/login";
 
   useEffect(() => {
     if (!loggedInUser && location.pathname !== "/login" && location.pathname !== "/set-password") {
@@ -79,21 +56,35 @@ useEffect(() => {
     }
   }, [loggedInUser, location]);
 
- useEffect(() => {
-  fetch(`${API_BASE}/users`)
-    .then((res) => res.json())
-    .then((data) => setUsers(data))
-    .catch((err) => console.error("Failed to load users:", err));
-}, []);
-
+  useEffect(() => {
+    fetch(`${API_BASE}/users`)
+      .then((res) => res.json())
+      .then((data) => setUsers(data))
+      .catch((err) => console.error("Failed to load users:", err));
+  }, []);
 
   useEffect(() => {
-  fetch(`${API_BASE}/vehicles`)
-    .then((res) => res.json())
-    .then((data) => setVehicles(data))
-    .catch((err) => console.error("Failed to load vehicles:", err));
-}, []);
+    fetch(`${API_BASE}/vehicles`)
+      .then((res) => res.json())
+      .then((data) => setVehicles(data))
+      .catch((err) => console.error("Failed to load vehicles:", err));
+  }, []);
 
+  useEffect(() => {
+    const fetchTickets = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/tickets`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        setTickets(data);
+      } catch (error) {
+        console.error("Failed to fetch tickets from backend:", error);
+        setTickets([]);
+      }
+    };
+
+    fetchTickets();
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("loggedInUser", JSON.stringify(loggedInUser));
@@ -119,114 +110,119 @@ useEffect(() => {
       setUsers(migrated);
     }
   }, []);
+
   return (
-  <>
-    <Navbar
-      loggedInUser={loggedInUser}
-      setLoggedInUser={setLoggedInUser}
-      users={users}
-    />
-    <div className="p-4 min-h-[80vh]">
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <HomeCarousel
-              tickets={tickets}
-              users={users}
-              vehicles={vehicles}
-              loggedInUser={loggedInUser}
-              setTickets={setTickets}
-            />
-          }
+    <>
+      {!hideLayout && (
+        <Navbar
+          loggedInUser={loggedInUser}
+          setLoggedInUser={setLoggedInUser}
+          users={users}
         />
-        <Route
-          path="/operations"
-          element={
-            <OperationsPage
-              users={users}
-              setUsers={setUsers}
-              tickets={tickets}
-              loggedInUser={loggedInUser}
-            />
-          }
-        />
-        <Route
-          path="/fleet"
-          element={
-            <FleetPage
-              vehicles={vehicles}
-              setVehicles={setVehicles}
-              loggedInUser={loggedInUser}
-              tickets={tickets}
-            />
-          }
-        />
-        <Route
-          path="/admin"
-          element={
-            loggedInUser?.roles?.includes("admin") ? (
-              <AdminPage users={users} setUsers={setUsers} />
-            ) : (
+      )}
+
+      <div className="p-4 min-h-[80vh]">
+        <Routes>
+          <Route
+            path="/"
+            element={
               <HomeCarousel
                 tickets={tickets}
                 users={users}
+                vehicles={vehicles}
                 loggedInUser={loggedInUser}
                 setTickets={setTickets}
               />
-            )
-          }
-        />
-        <Route
-          path="/login"
-          element={<LoginPage users={users} setLoggedInUser={setLoggedInUser} />}
-        />
-        <Route path="/set-password" element={<SetPasswordPage />} />
-        <Route
-          path="/tickets"
-          element={
-            <TicketPage
-              tickets={tickets}
-              setTickets={setTickets}
-              archivedTickets={archivedTickets}
-              setArchivedTickets={setArchivedTickets}
-              deletedTickets={deletedTickets}
-              setDeletedTickets={setDeletedTickets}
-              users={users}
-              vehicles={vehicles}
-              loggedInUser={loggedInUser}
-            />
-          }
-        />
-        <Route
-          path="/create"
-          element={
-            <TicketForm
-              users={users}
-              tickets={tickets}
-              setTickets={setTickets}
-              loggedInUser={loggedInUser}
-              vehicles={vehicles}
-            />
-          }
-        />
-        <Route
-          path="*"
-          element={
-            <HomeCarousel
-              tickets={tickets}
-              users={users}
-              vehicles={vehicles}
-              loggedInUser={loggedInUser}
-              setTickets={setTickets}
-            />
-          }
-        />
-      </Routes>
-    </div>
-    <Footer />
-  </>
-);
+            }
+          />
+          <Route
+            path="/operations"
+            element={
+              <OperationsPage
+                users={users}
+                setUsers={setUsers}
+                tickets={tickets}
+                loggedInUser={loggedInUser}
+              />
+            }
+          />
+          <Route
+            path="/fleet"
+            element={
+              <FleetPage
+                vehicles={vehicles}
+                setVehicles={setVehicles}
+                loggedInUser={loggedInUser}
+                tickets={tickets}
+              />
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              loggedInUser?.roles?.includes("admin") ? (
+                <AdminPage users={users} setUsers={setUsers} />
+              ) : (
+                <HomeCarousel
+                  tickets={tickets}
+                  users={users}
+                  loggedInUser={loggedInUser}
+                  setTickets={setTickets}
+                />
+              )
+            }
+          />
+          <Route
+            path="/login"
+            element={<LoginPage users={users} setLoggedInUser={setLoggedInUser} />}
+          />
+          <Route path="/set-password" element={<SetPasswordPage />} />
+          <Route
+            path="/tickets"
+            element={
+              <TicketPage
+                tickets={tickets}
+                setTickets={setTickets}
+                archivedTickets={archivedTickets}
+                setArchivedTickets={setArchivedTickets}
+                deletedTickets={deletedTickets}
+                setDeletedTickets={setDeletedTickets}
+                users={users}
+                vehicles={vehicles}
+                loggedInUser={loggedInUser}
+              />
+            }
+          />
+          <Route
+            path="/create"
+            element={
+              <TicketForm
+                users={users}
+                tickets={tickets}
+                setTickets={setTickets}
+                loggedInUser={loggedInUser}
+                vehicles={vehicles}
+              />
+            }
+          />
+          <Route
+            path="*"
+            element={
+              <HomeCarousel
+                tickets={tickets}
+                users={users}
+                vehicles={vehicles}
+                loggedInUser={loggedInUser}
+                setTickets={setTickets}
+              />
+            }
+          />
+        </Routes>
+      </div>
+
+      {!hideLayout && <Footer />}
+    </>
+  );
 }
 
 export default AppWrapper;

@@ -1,5 +1,9 @@
 const fs = require("fs");
 const path = require("path");
+
+const DATA_DIR = path.join(__dirname, "data");
+const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
+
 const express = require("express");
 const http = require("http");
 const cors = require("cors");
@@ -12,8 +16,6 @@ const options = {
   cert: fs.readFileSync(path.join(__dirname, "192.168.137.1.pem")),
 };
 
-
-const DATA_DIR = path.join(__dirname, "data");
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const VEHICLES_FILE = path.join(DATA_DIR, "vehicles.json");
@@ -47,6 +49,42 @@ if (!fs.existsSync(USERS_FILE)) {
     )
   );
 }
+if (!fs.existsSync(SETTINGS_FILE)) {
+  fs.writeFileSync(
+    SETTINGS_FILE,
+    JSON.stringify(
+      {
+        siteName: "Byenveni Lo Board"
+      },
+      null,
+      2
+    )
+  );
+}
+
+app.get("/settings", (req, res) => {
+  try {
+   const data = fs.readFileSync(SETTINGS_FILE, "utf-8");
+    res.json(JSON.parse(data));
+  } catch (err) {
+    console.error("Error reading settings:", err);
+    res.status(500).json({ error: "Failed to read settings" });
+  }
+});
+
+app.patch("/settings", (req, res) => {
+  try {
+    const current = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8"));
+    const updated = { ...current, ...req.body };
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(updated, null, 2));
+    res.json(updated);
+  } catch (err) {
+    console.error("Error writing settings:", err);
+    res.status(500).json({ error: "Failed to update settings" });
+  }
+});
+
+
 
 // ✅ Get all users
 app.get("/users", (req, res) => {
@@ -254,7 +292,7 @@ app.get(/^\/(?!api\/|users|tickets|vehicles|seed-vehicles).*/, (req, res) => {
 
 // ✅ Start HTTPS server on LAN
 http.createServer(options, app).listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ HTTP Server running at http://192.168.137.1:${PORT}`);
+  console.log(`✅ HTTP Server running at http://192.168.88.54:${PORT}`);
 });
 
 
