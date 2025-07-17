@@ -84,7 +84,6 @@ export default function Navbar({ loggedInUser, setLoggedInUser, users }) {
         ))}
       </div>
     )}
-
   {loggedInUser && (
     <Button
       variant="destructive"
@@ -94,7 +93,7 @@ export default function Navbar({ loggedInUser, setLoggedInUser, users }) {
     >
       <span className="text-xs">{loggedInUser.name.split(" ")[0]}</span>
       <LogOut size={16} />
-      <span className="text-xs">Logout</span>
+      <span className="text-xs">LogOut</span>
     </Button>
   )}
 </div>
