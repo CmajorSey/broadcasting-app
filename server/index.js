@@ -97,6 +97,21 @@ app.patch("/users/:id", async (req, res) => {
   res.json({ success: true, user: db.data.users[userIndex] });
 });
 
+app.delete("/vehicles/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const index = db.data.vehicles.findIndex((v) => v.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ error: "Vehicle not found" });
+  }
+
+  db.data.vehicles.splice(index, 1);
+  await db.write();
+
+  res.json({ success: true, deletedId: id });
+});
+
+
 app.delete("/users/:id", async (req, res) => {
   const idParam = req.params.id;
 

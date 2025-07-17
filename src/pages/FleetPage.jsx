@@ -29,6 +29,20 @@ const [noteOptions, setNoteOptions] = useState([
   "Ready for Use",
   "Issue Reported",
 ]);
+  const handleSelectAll = () => {
+    const allIds = vehicles.map((v) => v.id);
+    setSelectedIds(allIds);
+  };
+
+  const handleUnselectOriginals = () => {
+   const rentalIds = vehicles.filter((v) => v.permanent !== true).map((v) => v.id);
+    setSelectedIds(rentalIds);
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedIds([]);
+  };
+
 
 const [accessDenied, setAccessDenied] = useState(!isAdmin && !isDriver);
 const [showSeeder, setShowSeeder] = useState(isAdmin && vehicles.length === 0);
@@ -52,6 +66,8 @@ const [showSeeder, setShowSeeder] = useState(isAdmin && vehicles.length === 0);
   console.error("Failed to update vehicle status:", err);
 }
 };
+const [selectedIds, setSelectedIds] = useState([]);
+
 
  const handleNoteSelect = async (id, note) => {
   const updated = vehicles.map((v) =>
@@ -96,6 +112,7 @@ const [newVehicle, setNewVehicle] = useState({
   status: "Available",
   insuranceExpiry: "",
   patentExpiry: "",
+  licensePlate: "",
 });
 
 const handleDeleteOption = (note) => {
@@ -201,25 +218,137 @@ useEffect(() => {
   return (
   <div className="max-w-3xl mx-auto space-y-6">
     <h1 className="text-2xl font-bold">Fleet Management</h1>
+{(isAdmin || isDriver) && (
+ <div className="flex flex-wrap gap-2 justify-between items-center">
+  <div className="flex flex-wrap gap-2">
+    {selectedIds.length === vehicles.length ? (
+      <button
+        onClick={() => setSelectedIds([])}
+        className="px-3 py-1 bg-gray-200 text-gray-700 rounded"
+      >
+        Unselect All
+      </button>
+    ) : (
+      <button
+        onClick={() =>
+          setSelectedIds(vehicles.map((v) => v.id))
+        }
+        className="px-3 py-1 bg-blue-100 text-blue-800 rounded"
+      >
+        Select All
+      </button>
+    )}
+  </div>
+  {selectedIds.length > 0 && (
+    <button
+      onClick={async () => {
+        const confirmed = confirm(
+          `Are you sure you want to delete ${selectedIds.length} vehicle(s)?`
+        );
+        if (!confirmed) return;
+
+        const remaining = [...vehicles];
+        for (const id of selectedIds) {
+          try {
+            await fetch(`${API_BASE}/vehicles/${id}`, {
+              method: "DELETE",
+            });
+            const idx = remaining.findIndex((v) => v.id === id);
+            if (idx !== -1) remaining.splice(idx, 1);
+          } catch (err) {
+            console.error(`Failed to delete vehicle ${id}:`, err);
+          }
+        }
+
+        setVehicles(remaining);
+        setSelectedIds([]);
+      }}
+      className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
+    >
+      🗑️ Delete Selected ({selectedIds.length})
+    </button>
+  )}
+</div>
+)}
 
     <ul className="space-y-4">
       {vehicles.map((v) => (
-        <li key={v.id} className="bg-white p-4 shadow rounded border space-y-2 relative z-0">
-          <div className="flex justify-between">
-            <span className="font-semibold">{v.name}</span>
-            <span
-              className={`text-sm font-medium ${
-                v.status === "Available"
-                  ? "text-green-700"
-                  : v.status === "In Garage"
-                  ? "text-yellow-700"
-                  : "text-red-700"
-              }`}
-            >
-              {v.status}
-            </span>
-          </div>
+        <li
+  key={v.id}
+  className={`bg-white p-4 shadow rounded border space-y-2 relative z-0 ${
+    v.permanent === false ? "border-yellow-400" : "border-gray-200"
+  }`}
+>
+  {(isAdmin || isDriver) && (
+   <input
+  type="checkbox"
+  className="absolute top-2 right-2"
+  checked={selectedIds.includes(v.id)}
+  onChange={() => {
+    if (selectedIds.includes(v.id)) {
+      setSelectedIds((prev) => prev.filter((x) => x !== v.id));
+    } else {
+      setSelectedIds((prev) => [...prev, v.id]);
+    }
+  }}
+/>
+  )}
 
+
+        <div className="flex justify-between items-start sm:items-center flex-col sm:flex-row">
+  <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+    <div className="flex items-center gap-2">
+      <span className="font-semibold text-lg">{v.name}</span>
+      {(isAdmin || isDriver) ? (
+        <input
+          type="text"
+          value={v.licensePlate || ""}
+          onChange={async (e) => {
+            const updatedPlate = e.target.value;
+            const updated = vehicles.map((veh) =>
+              veh.id === v.id ? { ...veh, licensePlate: updatedPlate } : veh
+            );
+            setVehicles(updated);
+            try {
+              await fetch(`${API_BASE}/vehicles/${v.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ licensePlate: updatedPlate }),
+              });
+            } catch (err) {
+              console.error("Failed to update plate:", err);
+            }
+          }}
+          className="text-sm text-gray-600 border border-gray-300 rounded px-1 py-0.5 w-28"
+          placeholder="Plate"
+        />
+      ) : (
+        v.licensePlate && (
+          <span className="text-sm text-gray-500">({v.licensePlate})</span>
+        )
+      )}
+    </div>
+    {v.permanent === false && (
+  <span className="inline-block text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800">
+    Rental
+  </span>
+)}
+
+  </div>
+
+
+  <span
+    className={`text-sm font-medium mt-1 sm:mt-0 ${
+      v.status === "Available"
+        ? "text-green-700"
+        : v.status === "In Garage"
+        ? "text-yellow-700"
+        : "text-red-700"
+    }`}
+  >
+    {v.status}
+  </span>
+</div>
           <p className="text-sm text-gray-600">
             <strong>Note:</strong> {v.notes || "No notes"}
           </p>
@@ -371,58 +500,88 @@ useEffect(() => {
           </AlertDialogHeader>
 
           {/* Form Inputs */}
-          <div className="space-y-4">
-            <input
-              type="text"
-              placeholder="Vehicle Name"
-              className="w-full border rounded p-2"
-              value={newVehicle.name}
-              onChange={(e) =>
-                setNewVehicle((prev) => ({ ...prev, name: e.target.value }))
-              }
-            />
-            <select
-              className="w-full border rounded p-2"
-              value={newVehicle.status}
-              onChange={(e) =>
-                setNewVehicle((prev) => ({ ...prev, status: e.target.value }))
-              }
-            >
-              <option value="Available">Available</option>
-              <option value="In Garage">In Garage</option>
-              <option value="Issue Reported">Issue Reported</option>
-            </select>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-sm font-semibold mb-1">Insurance Expiry</label>
-                <input
-                  type="date"
-                  className="w-full border rounded p-2"
-                  value={newVehicle.insuranceExpiry}
-                  onChange={(e) =>
-                    setNewVehicle((prev) => ({
-                      ...prev,
-                      insuranceExpiry: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold mb-1">Patent Expiry</label>
-                <input
-                  type="date"
-                  className="w-full border rounded p-2"
-                  value={newVehicle.patentExpiry}
-                  onChange={(e) =>
-                    setNewVehicle((prev) => ({
-                      ...prev,
-                      patentExpiry: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-            </div>
-          </div>
+         <div className="space-y-4">
+  <input
+    type="text"
+    placeholder="Vehicle Name"
+    className="w-full border rounded p-2"
+    value={newVehicle.name}
+    onChange={(e) =>
+      setNewVehicle((prev) => ({ ...prev, name: e.target.value }))
+    }
+  />
+  <input
+    type="text"
+    placeholder="License Plate (optional)"
+    className="w-full border rounded p-2"
+    value={newVehicle.licensePlate || ""}
+    onChange={(e) =>
+      setNewVehicle((prev) => ({
+        ...prev,
+        licensePlate: e.target.value,
+      }))
+    }
+  />
+  <select
+    className="w-full border rounded p-2"
+    value={newVehicle.status}
+    onChange={(e) =>
+      setNewVehicle((prev) => ({ ...prev, status: e.target.value }))
+    }
+  >
+    <option value="Available">Available</option>
+    <option value="In Garage">In Garage</option>
+    <option value="Issue Reported">Issue Reported</option>
+  </select>
+  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+  <div>
+    <label className="block text-sm font-semibold mb-1">Insurance Expiry</label>
+    <input
+      type="date"
+      className="w-full border rounded p-2"
+      value={newVehicle.insuranceExpiry}
+      onChange={(e) =>
+        setNewVehicle((prev) => ({
+          ...prev,
+          insuranceExpiry: e.target.value,
+        }))
+      }
+    />
+  </div>
+  <div>
+    <label className="block text-sm font-semibold mb-1">Patent Expiry</label>
+    <input
+      type="date"
+      className="w-full border rounded p-2"
+      value={newVehicle.patentExpiry}
+      onChange={(e) =>
+        setNewVehicle((prev) => ({
+          ...prev,
+          patentExpiry: e.target.value,
+        }))
+      }
+    />
+  </div>
+  <div>
+    <label className="block text-sm font-semibold mb-1">Type</label>
+    <select
+      className="w-full border rounded p-2"
+      value={newVehicle.permanent ? "Permanent" : "Rental"}
+      onChange={(e) =>
+        setNewVehicle((prev) => ({
+          ...prev,
+          permanent: e.target.value === "Permanent",
+        }))
+      }
+    >
+      <option value="Permanent">Permanent</option>
+      <option value="Rental">Rental</option>
+    </select>
+  </div>
+</div>
+
+</div>
+
 
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -435,10 +594,12 @@ useEffect(() => {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                      ...newVehicle,
-                      name: newVehicle.name.trim(),
-                      notes: "",
-                    }),
+  ...newVehicle,
+  name: newVehicle.name.trim(),
+  notes: "",
+  licensePlate: newVehicle.licensePlate?.trim() || "",
+}),
+
                   });
 
                   if (res.ok) {
@@ -449,6 +610,7 @@ useEffect(() => {
                       status: "Available",
                       insuranceExpiry: "",
                       patentExpiry: "",
+                      licensePlate: "",
                     });
                   } else {
                     alert("Failed to create vehicle");

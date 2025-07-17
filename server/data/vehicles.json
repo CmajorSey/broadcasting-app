@@ -2,17 +2,21 @@
   {
     "id": 101,
     "name": "Nissan NV200",
-    "status": "In Garage",
+    "licensePlate": "S39223",
+    "status": "Available",
     "notes": "Cleaned and fueled",
     "insuranceExpiry": "2025-08-15",
-    "patentExpiry": "2025-08-16"
+    "patentExpiry": "2025-08-16",
+    "permanent": true
   },
   {
     "id": 102,
     "name": "Kia Niro",
-    "status": "In Garage",
+    "licensePlate": "S32533",
+    "status": "Available",
     "notes": "Cleaned and Fueled",
     "insuranceExpiry": "2025-10-15",
-    "patentExpiry": "2026-01-01"
+    "patentExpiry": "2026-01-01",
+    "permanent": true
   }
 ]

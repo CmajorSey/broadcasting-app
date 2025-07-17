@@ -196,6 +196,22 @@ app.patch("/vehicles/:id", (req, res) => {
   res.json(vehicles[index]);
 });
 
+// ✅ Delete vehicle
+app.delete("/vehicles/:id", (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  let vehicles = JSON.parse(fs.readFileSync(VEHICLES_FILE, "utf-8"));
+  const index = vehicles.findIndex((v) => v.id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ message: "Vehicle not found" });
+  }
+
+  vehicles.splice(index, 1);
+  fs.writeFileSync(VEHICLES_FILE, JSON.stringify(vehicles, null, 2));
+  res.json({ success: true, deletedId: id });
+});
+
+
 // ✅ Get all tickets
 app.get("/tickets", (req, res) => {
   const tickets = JSON.parse(fs.readFileSync(TICKETS_FILE, "utf-8"));
@@ -292,7 +308,7 @@ app.get(/^\/(?!api\/|users|tickets|vehicles|seed-vehicles).*/, (req, res) => {
 
 // ✅ Start HTTPS server on LAN
 http.createServer(options, app).listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ HTTP Server running at http://192.168.88.54:${PORT}`);
+  console.log(`✅ HTTP Server running at http://192.168.100.61:${PORT}`);
 });
 
 
