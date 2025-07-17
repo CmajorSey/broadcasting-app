@@ -38,8 +38,19 @@ await db.write();
 
 // ROUTES
 
+// ROUTES
+
 app.get("/version", (req, res) => {
   res.json({ version: db.data.version });
+});
+
+// Serve static frontend
+const frontendPath = path.join(__dirname, "dist"); // or "build" depending on your setup
+app.use(express.static(frontendPath));
+
+// Catch-all: send index.html for unknown routes
+app.get("*", (req, res) => {
+  res.sendFile(path.join(frontendPath, "index.html"));
 });
 
 // USERS

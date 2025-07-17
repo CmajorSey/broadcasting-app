@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import API_BASE from "@/api";
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -136,22 +137,44 @@ const cancelDeleteNoteOption = () => {
   }
 };
 
- const handleDateChange = async (id, field, value) => {
-  const updated = vehicles.map((v) =>
-    v.id === id ? { ...v, [field]: value } : v
-  );
-  setVehicles(updated);
+const handleDateChange = async (id, field, value) => {
   try {
-   const updatedVehicle = updated.find((v) => v.id === id);
-await fetch(`${API_BASE}/vehicles/${id}`, {
+    const updatedVehicle = vehicles.find((v) => v.id === id);
+    if (!updatedVehicle) return;
+
+    const updated = { ...updatedVehicle, [field]: value };
+
+    // Send PATCH request to backend
+    const res = await fetch(`${API_BASE}/vehicles/${id}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updatedVehicle),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ [field]: value }),
     });
+
+    if (!res.ok) throw new Error("Failed to update vehicle");
+
+    // Update local state after success
+    const newList = vehicles.map((v) => (v.id === id ? updated : v));
+    setVehicles(newList);
   } catch (err) {
-    console.error("Failed to update date:", err);
+    console.error("Error updating vehicle date:", err);
   }
 };
+useEffect(() => {
+  const handleClickOutside = (event) => {
+    const openDropdown = document.querySelector(`[data-dropdown-id='${openDropdownId}']`);
+    if (openDropdown && !openDropdown.contains(event.target)) {
+      setOpenDropdownId(null);
+    }
+  };
+  document.addEventListener("mousedown", handleClickOutside);
+  return () => {
+    document.removeEventListener("mousedown", handleClickOutside);
+  };
+}, [openDropdownId]);
+
 
   const getExpiryColor = (dateStr) => {
     if (!dateStr) return "text-gray-500";
@@ -172,6 +195,8 @@ await fetch(`${API_BASE}/vehicles/${id}`, {
     if (diffDays <= 45) return `${label} is nearly due`;
     return null;
   };
+  console.log("🚚 Vehicles loaded:", vehicles);
+
 
   return (
   <div className="max-w-3xl mx-auto space-y-6">
@@ -179,7 +204,7 @@ await fetch(`${API_BASE}/vehicles/${id}`, {
 
     <ul className="space-y-4">
       {vehicles.map((v) => (
-        <li key={v.id} className="bg-white p-4 shadow rounded border space-y-2 relative">
+        <li key={v.id} className="bg-white p-4 shadow rounded border space-y-2 relative z-0">
           <div className="flex justify-between">
             <span className="font-semibold">{v.name}</span>
             <span
@@ -229,13 +254,17 @@ await fetch(`${API_BASE}/vehicles/${id}`, {
                 </div>
 
                 {openDropdownId === v.id && (
-                  <div className="absolute mt-1 w-full bg-white border rounded shadow z-10 max-h-60 overflow-y-auto">
-                    {noteOptions.map((note) => (
-                      <div
-                        key={note}
-                        className="flex justify-between items-center px-3 py-2 hover:bg-gray-100 group"
-                        onClick={() => handleNoteSelect(v.id, note)}
-                      >
+  <div
+    data-dropdown-id={v.id}
+    className="absolute mt-1 w-full bg-white border rounded shadow z-10 max-h-60 overflow-y-auto"
+  >
+    {noteOptions.map((note) => (
+      <div
+        key={note}
+        className="flex justify-between items-center px-3 py-2 hover:bg-gray-100 group"
+        onClick={() => handleNoteSelect(v.id, note)}
+      >
+
                         <span>{note}</span>
                         <button
                           type="button"
@@ -266,40 +295,43 @@ await fetch(`${API_BASE}/vehicles/${id}`, {
               </div>
 
               {/* Expiry Dates */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
-                <div>
-                  <label className="block text-sm font-semibold">Insurance Expiry</label>
-                  <input
-                    type="date"
-                    value={v.insuranceExpiry || ""}
-                    onChange={(e) =>
-                      handleDateChange(v.id, "insuranceExpiry", e.target.value)
-                    }
-                    className="border rounded p-2 w-full"
-                  />
-                  {v.insuranceExpiry && (
-                    <span className={`text-xs ${getExpiryColor(v.insuranceExpiry)}`}>
-                      Expires {new Date(v.insuranceExpiry).toLocaleDateString()}
-                    </span>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold">Patent Expiry</label>
-                  <input
-                    type="date"
-                    value={v.patentExpiry || ""}
-                    onChange={(e) =>
-                      handleDateChange(v.id, "patentExpiry", e.target.value)
-                    }
-                    className="border rounded p-2 w-full"
-                  />
-                  {v.patentExpiry && (
-                    <span className={`text-xs ${getExpiryColor(v.patentExpiry)}`}>
-                      Expires {new Date(v.patentExpiry).toLocaleDateString()}
-                    </span>
-                  )}
-                </div>
-              </div>
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+  <div>
+    <label className="block text-sm font-semibold">Insurance Expiry</label>
+    <input
+      type="date"
+      value={v.insuranceExpiry || ""}
+      onChange={(e) => {
+        console.log("Insurance changed to:", e.target.value);
+        handleDateChange(v.id, "insuranceExpiry", e.target.value);
+      }}
+      className="border rounded p-2 w-full"
+    />
+    {v.insuranceExpiry && (
+      <span className={`text-xs ${getExpiryColor(v.insuranceExpiry)}`}>
+        Expires {new Date(v.insuranceExpiry).toLocaleDateString()}
+      </span>
+    )}
+  </div>
+  <div>
+    <label className="block text-sm font-semibold">Patent Expiry</label>
+    <input
+      type="date"
+      value={v.patentExpiry || ""}
+      onChange={(e) => {
+        console.log("Patent changed to:", e.target.value);
+        handleDateChange(v.id, "patentExpiry", e.target.value);
+      }}
+      className="border rounded p-2 w-full"
+    />
+    {v.patentExpiry && (
+      <span className={`text-xs ${getExpiryColor(v.patentExpiry)}`}>
+        Expires {new Date(v.patentExpiry).toLocaleDateString()}
+      </span>
+    )}
+  </div>
+</div>
+
             </div>
           ) : null}
 
