@@ -161,8 +161,11 @@ app.patch("/rosters/:weekStart", async (req, res) => {
 });
 
 // START SERVER
-http.createServer(options, app).listen(PORT, () => {
-  console.log(`HTTP Server running on http://localhost:${PORT}`);
+const https = require("https");
+
+https.createServer(options, app).listen(PORT, () => {
+  console.log(`✅ HTTPS Server running on https://localhost:${PORT}`);
 });
+
 
 
