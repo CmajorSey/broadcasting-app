@@ -20,7 +20,12 @@ const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const VEHICLES_FILE = path.join(DATA_DIR, "vehicles.json");
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    "https://lo-board.netlify.app",
+    "http://localhost:5173"
+  ]
+}));
 app.use(express.json());
 
 // 🔧 Ensure data directory and files exist
