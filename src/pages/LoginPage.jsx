@@ -84,7 +84,6 @@ export default function LoginPage({ users, setLoggedInUser }) {
       setDebugMessage("❌ Login failed: " + err.message);
     }
   };
-  
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 px-4 py-8">
       <div className="flex flex-col items-center mb-6 space-y-2">
