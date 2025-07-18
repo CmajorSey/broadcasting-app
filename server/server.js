@@ -22,7 +22,7 @@ const VEHICLES_FILE = path.join(DATA_DIR, "vehicles.json");
 
 app.use(cors({
   origin: [
-    "https://lo-board.netlify.app",
+    "https://loboard.netlify.app",
     "http://localhost:5173"
   ]
 }));
