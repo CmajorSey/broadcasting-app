@@ -312,8 +312,9 @@ app.get(/^\/(?!api\/|users|tickets|vehicles|seed-vehicles).*/, (req, res) => {
 
 
 // ✅ Start HTTPS server on LAN
-http.createServer(options, app).listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ HTTP Server running at http://192.168.100.61:${PORT}`);
+app.listen(PORT, () => {
+  console.log(`✅ Backend server is running on port ${PORT}`);
 });
+
 
 

@@ -12,9 +12,6 @@ const options = {
   cert: fs.readFileSync(path.join(__dirname, "localhost+2.pem")),
 };
 
-app.use(cors());
-app.use(express.json());
-
 // ⚠️ Do not call app.listen() — use https.createServer below
 
 
@@ -187,11 +184,10 @@ app.patch("/rosters/:weekStart", async (req, res) => {
 });
 
 // START SERVER
-const https = require("https");
-
-https.createServer(options, app).listen(PORT, () => {
-  console.log(`✅ HTTPS Server running on https://localhost:${PORT}`);
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
 });
+
 
 
 
