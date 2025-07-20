@@ -14,7 +14,7 @@ export default function ChangelogDialog({ open, onClose }) {
     <AlertDialog open={open}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>📦 What’s New in Version 0.3.2</AlertDialogTitle>
+          <AlertDialogTitle>📦 What’s New in Version 0.5.0</AlertDialogTitle>
         </AlertDialogHeader>
         <div className="max-h-64 overflow-y-auto text-sm space-y-2">
           <ul className="list-disc ml-4">
