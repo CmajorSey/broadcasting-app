@@ -118,6 +118,14 @@ const [userToDelete, setUserToDelete] = useState(null);
   setNewRoleInput("");
   setShowAddRoleDialog(false);
 };
+const [newUserRoles, setNewUserRoles] = useState([]);
+const [showBatchDialog, setShowBatchDialog] = useState(false);
+const [batchRole, setBatchRole] = useState("");
+const [batchUsers, setBatchUsers] = useState([
+  { name: "", description: "" },
+]);
+
+
 
 const confirmDeleteUser = async () => {
   if (!userToDelete) return;
@@ -137,46 +145,56 @@ const confirmDeleteUser = async () => {
 };
 
 const handleAddUser = async () => {
-  if (!newUserName.trim()) return;
+  if (!newUserName.trim()) {
+    alert("Name is required");
+    return;
+  }
+
+  const name = newUserName.trim();
+  const firstName = name.split(" ")[0] || "User";
+  const autoPassword = `${firstName}1`;
 
   const newUser = {
-    name: newUserName.trim(),
-    roles: [],
+    name,
+    password: autoPassword,
+    roles: newUserRoles,
     description: newUserDesc.trim(),
     hiddenRoles: [],
+    requiresPasswordReset: true,
   };
 
-
   try {
-   const res = await fetch(`${API_BASE}/users`, {
+    const res = await fetch(`${API_BASE}/users`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(newUser),
     });
 
     if (!res.ok) {
-  const errorText = await res.text();
-  throw new Error(`Failed to add user: ${res.status} — ${errorText}`);
-}
+      const errorText = await res.text();
+      throw new Error(`Failed to add user: ${res.status} — ${errorText}`);
+    }
 
+    const response = await res.json();
 
-   const response = await res.json();
-
-if (response && response.id) {
-  setUsers((prev) => [...prev, response]);
-} else {
-  console.error("Invalid user object returned:", response);
-  throw new Error("Invalid user response from server");
-}
-
+    if (response && response.id) {
+      setUsers((prev) => [...prev, response]);
+    } else {
+      console.error("Invalid user object returned:", response);
+      throw new Error("Invalid user response from server");
+    }
   } catch (err) {
     alert("Error adding user: " + err.message);
   }
 
   setNewUserName("");
   setNewUserDesc("");
+  setNewUserPassword(""); // safe cleanup
+  setNewUserRoles([]);
   setShowAddUserDialog(false);
 };
+const [userBeingEdited, setUserBeingEdited] = useState(null);
+
 const [branding, setBranding] = useState({ siteName: "" });
 
 useEffect(() => {
@@ -214,39 +232,52 @@ const saveBranding = () => {
 
       <div className="space-y-4">
         {users.map((user) => (
-          <div
-            key={user.id}
-            className="border p-4 rounded-lg shadow-sm bg-gray-50 space-y-3"
-          >
-            <div className="flex items-center justify-between">
-  <h3 className="font-semibold text-lg text-gray-700">{user.name}</h3>
-  <button
-    className="text-red-600 text-sm underline hover:text-red-800"
-    onClick={() => setUserToDelete(user)}
+  <div
+    key={user.id}
+    className="border p-4 rounded-lg shadow-sm bg-gray-50 space-y-3"
   >
-    Delete
-  </button>
-</div>
-            <div className="flex flex-wrap gap-4">
-              {availableRoles.map((role) => {
-                // Hide admin role UI if user has it in hiddenRoles
-                const isHidden = user.hiddenRoles?.includes(role);
-                if (role === "admin" && isHidden) return null;
+    <div className="flex items-center justify-between">
+      <div>
+        <h3 className="font-semibold text-lg text-gray-700">{user.name}</h3>
+        {user.description && (
+          <p className="text-sm text-gray-500">{user.description}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          className="text-blue-600 text-sm underline hover:text-blue-800"
+          onClick={() => setUserBeingEdited(user)}
+        >
+          ✏️ Edit
+        </button>
+        <button
+          className="text-red-600 text-sm underline hover:text-red-800"
+          onClick={() => setUserToDelete(user)}
+        >
+          Delete
+        </button>
+      </div>
+    </div>
 
-                return (
-                  <label key={role} className="flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={(user.roles || []).includes(role)}
-                      onChange={() => handleRoleChange(user.id, role)}
-                    />
-                    <span>{role}</span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+    <div className="flex flex-wrap gap-4">
+      {availableRoles.map((role) => {
+        const isHidden = user.hiddenRoles?.includes(role);
+        if (role === "admin" && isHidden) return null;
+
+        return (
+          <label key={role} className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={(user.roles || []).includes(role)}
+              onChange={() => handleRoleChange(user.id, role)}
+            />
+            <span>{role}</span>
+          </label>
+        );
+      })}
+    </div>
+  </div>
+))}
       </div>
 
       <div className="flex flex-col gap-4 pt-4 border-t">
@@ -257,6 +288,12 @@ const saveBranding = () => {
     >
       ➕ Add New User
     </button>
+    <button
+  className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"
+  onClick={() => setShowBatchDialog(true)}
+>
+  ➕ Add Users in Batch
+</button>
     <button
       className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
       onClick={() => setShowAddRoleDialog(true)}
@@ -341,6 +378,73 @@ const saveBranding = () => {
     ))}
   </div>
 </div>
+{/* --- Edit User Modal --- */}
+<AlertDialog open={!!userBeingEdited} onOpenChange={() => setUserBeingEdited(null)}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Edit User</AlertDialogTitle>
+      <AlertDialogDescription>
+        Update the name, description, or password for <span className="font-medium">{userBeingEdited?.name}</span>.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+
+    {userBeingEdited && (
+      <>
+        <input
+          className="w-full border rounded px-3 py-2 mb-2"
+          placeholder="Full name"
+          value={userBeingEdited.name}
+          onChange={(e) =>
+            setUserBeingEdited((prev) => ({ ...prev, name: e.target.value }))
+          }
+        />
+        <input
+          className="w-full border rounded px-3 py-2 mb-2"
+          placeholder="Description (optional)"
+          value={userBeingEdited.description || ""}
+          onChange={(e) =>
+            setUserBeingEdited((prev) => ({ ...prev, description: e.target.value }))
+          }
+        />
+      </>
+    )}
+
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction
+        onClick={async () => {
+          try {
+            const { id, name, description, password } = userBeingEdited;
+            const updateFields = {
+              name: name.trim(),
+              description: description?.trim() || "",
+            };
+            if (password?.trim()) updateFields.password = password.trim();
+
+            const res = await fetch(`${API_BASE}/users/${id}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(updateFields),
+            });
+
+            if (!res.ok) throw new Error("Failed to update user");
+
+            const updated = await res.json();
+            setUsers((prev) =>
+              prev.map((u) => (u.id === id ? updated : u))
+            );
+            setUserBeingEdited(null);
+          } catch (err) {
+            alert("Error updating user: " + err.message);
+          }
+        }}
+      >
+        Save Changes
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+
       {/* --- Add Role Dialog --- */}
 <AlertDialog open={showAddRoleDialog} onOpenChange={setShowAddRoleDialog}>
   <AlertDialogContent>
@@ -369,27 +473,51 @@ const saveBranding = () => {
     <AlertDialogHeader>
       <AlertDialogTitle>Add New User</AlertDialogTitle>
       <AlertDialogDescription>
-        Enter the full name and optional description of the new user.
+        Fill in the new user's details below.
       </AlertDialogDescription>
     </AlertDialogHeader>
+
     <input
       className="w-full border rounded px-3 py-2 mb-2"
       placeholder="Full name"
       value={newUserName}
       onChange={(e) => setNewUserName(e.target.value)}
     />
+
     <input
-      className="w-full border rounded px-3 py-2"
+      className="w-full border rounded px-3 py-2 mb-2"
       placeholder="Description (optional)"
       value={newUserDesc}
       onChange={(e) => setNewUserDesc(e.target.value)}
     />
+
+    <div className="text-sm text-gray-600 font-medium mb-1">Assign Roles</div>
+    <div className="flex flex-wrap gap-3 mb-4">
+      {availableRoles.map((role) => (
+        <label key={role} className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={newUserRoles.includes(role)}
+            onChange={() => {
+              setNewUserRoles((prev) =>
+                prev.includes(role)
+                  ? prev.filter((r) => r !== role)
+                  : [...prev, role]
+              );
+            }}
+          />
+          <span>{role}</span>
+        </label>
+      ))}
+    </div>
+
     <AlertDialogFooter>
       <AlertDialogCancel>Cancel</AlertDialogCancel>
       <AlertDialogAction onClick={handleAddUser}>Add</AlertDialogAction>
     </AlertDialogFooter>
   </AlertDialogContent>
 </AlertDialog>
+
 
 {/* --- Confirm Delete Role Dialog --- */}
 <AlertDialog open={!!roleToDelete} onOpenChange={() => setRoleToDelete(null)}>
@@ -423,6 +551,130 @@ const saveBranding = () => {
     </AlertDialogFooter>
   </AlertDialogContent>
 </AlertDialog>
+{/* --- Batch Add Users Dialog --- */}
+<AlertDialog open={showBatchDialog} onOpenChange={setShowBatchDialog}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Add Users in Batch</AlertDialogTitle>
+      <AlertDialogDescription>
+        Select a role and add multiple users below. Passwords will be auto-generated as <code>FirstName1</code>.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+
+    <select
+      className="w-full border rounded px-3 py-2 mb-2"
+      value={batchRole}
+      onChange={(e) => setBatchRole(e.target.value)}
+    >
+      <option value="">-- Select Role --</option>
+      {availableRoles.map((role) => (
+        <option key={role} value={role}>{role}</option>
+      ))}
+    </select>
+
+    <div className="space-y-2 max-h-60 overflow-y-auto">
+      {batchUsers.map((user, index) => (
+        <div key={index} className="flex items-center gap-2">
+          <input
+            className="border px-2 py-1 rounded w-1/2"
+            placeholder="Full name"
+            value={user.name}
+            onChange={(e) => {
+              const updated = [...batchUsers];
+              updated[index].name = e.target.value;
+              setBatchUsers(updated);
+            }}
+          />
+          <input
+            className="border px-2 py-1 rounded w-1/2"
+            placeholder="Description (optional)"
+            value={user.description}
+            onChange={(e) => {
+              const updated = [...batchUsers];
+              updated[index].description = e.target.value;
+              setBatchUsers(updated);
+            }}
+          />
+          <button
+            className="text-red-600 text-sm"
+            onClick={() => {
+              const updated = batchUsers.filter((_, i) => i !== index);
+              setBatchUsers(updated);
+            }}
+          >
+            ❌
+          </button>
+        </div>
+      ))}
+    </div>
+
+    <div className="pt-2">
+      <button
+        className="text-blue-600 text-sm"
+        onClick={() => setBatchUsers([...batchUsers, { name: "", description: "" }])}
+      >
+        ➕ Add Another Row
+      </button>
+    </div>
+
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction
+        onClick={async () => {
+          if (!batchRole || batchUsers.length === 0) {
+            alert("Select a role and add at least one user.");
+            return;
+          }
+
+          const created = [];
+
+          for (const u of batchUsers) {
+            if (!u.name.trim()) continue;
+
+            const name = u.name.trim();
+            const firstName = name.split(" ")[0] || "User";
+            const password = `${firstName}1`;
+
+            const newUser = {
+              name,
+              password,
+              roles: [batchRole],
+              description: u.description?.trim() || "",
+              hiddenRoles: [],
+              requiresPasswordReset: true,
+            };
+
+            try {
+              const res = await fetch(`${API_BASE}/users`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(newUser),
+              });
+
+              if (res.ok) {
+                const response = await res.json();
+                created.push(response);
+              }
+            } catch (err) {
+              console.error("Batch add error:", err);
+            }
+          }
+
+          if (created.length) {
+            setUsers((prev) => [...prev, ...created]);
+          }
+
+          setShowBatchDialog(false);
+          setBatchUsers([{ name: "", description: "" }]);
+          setBatchRole("");
+        }}
+      >
+        Add Batch
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+
 
     </div>
   );

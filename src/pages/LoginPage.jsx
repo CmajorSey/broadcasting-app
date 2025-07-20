@@ -104,7 +104,7 @@ export default function LoginPage({ users, setLoggedInUser }) {
 
         <input
           type="text"
-          placeholder="Full Name (e.g. Christopher Gabriel)"
+          placeholder="Full Name (e.g. John Doe)"
           value={name}
           onChange={(e) => setName(e.target.value)}
           className="input w-full"
@@ -112,7 +112,7 @@ export default function LoginPage({ users, setLoggedInUser }) {
 
         <input
           type="password"
-          placeholder="Password"
+          placeholder="First Name+1 (e.g. John1)"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           className="input w-full"

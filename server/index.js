@@ -12,8 +12,12 @@ const PORT = 4000;
 
 
 app.use(cors({
-  origin: ["https://loboard.netlify.app", "http://localhost:5173"],
-  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+ origin: [
+  "https://loboard.netlify.app",
+  "http://localhost:5173",
+  "http://192.168.100.61:5173"
+],
+   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true
 }));
@@ -29,11 +33,17 @@ const options = {
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const VEHICLES_FILE = path.join(DATA_DIR, "vehicles.json");
+const ROSTERS_FILE = path.join(DATA_DIR, "rosters.json");
 
 
 
 // 🔧 Ensure data directory and files exist
 fs.mkdirSync(DATA_DIR, { recursive: true });
+
+if (!fs.existsSync(ROSTERS_FILE)) {
+  fs.writeFileSync(ROSTERS_FILE, JSON.stringify({}, null, 2));
+}
+
 
 if (!fs.existsSync(VEHICLES_FILE)) {
   fs.writeFileSync(VEHICLES_FILE, JSON.stringify([]));
@@ -70,6 +80,40 @@ if (!fs.existsSync(SETTINGS_FILE)) {
     )
   );
 }
+// GET roster by weekStart
+app.get("/rosters/:weekStart", (req, res) => {
+  const { weekStart } = req.params;
+  const filePath = path.join(__dirname, "data", "rosters.json");
+
+  try {
+    const fileData = fs.readFileSync(filePath);
+    const rosters = JSON.parse(fileData);
+    const rosterForWeek = rosters[weekStart] || [];
+    res.json(rosterForWeek);
+  } catch (error) {
+    console.error("Error reading rosters:", error);
+    res.status(500).json({ error: "Failed to read rosters" });
+  }
+});
+app.patch("/rosters/:weekStart", (req, res) => {
+  const { weekStart } = req.params;
+  const filePath = path.join(__dirname, "data", "rosters.json");
+
+  try {
+    const fileData = fs.readFileSync(filePath);
+    const rosters = JSON.parse(fileData);
+
+    rosters[weekStart] = req.body;
+
+    fs.writeFileSync(filePath, JSON.stringify(rosters, null, 2));
+    res.json({ success: true, data: rosters[weekStart] });
+  } catch (error) {
+    console.error("Error updating roster:", error);
+    res.status(500).json({ error: "Failed to update roster" });
+  }
+});
+
+
 
 app.get("/settings", (req, res) => {
   try {
@@ -310,15 +354,18 @@ app.use(express.static(distPath));
 
 // Fallback to index.html for SPA routes
 // Fallback only for frontend (exclude API and static files)
-app.get(/^\/(?!api\/|users|tickets|vehicles|seed-vehicles).*/, (req, res) => {
+// Fallback only for frontend (exclude API and static files)
+app.get(/^\/(?!api\/|users|tickets|vehicles|rosters|seed-vehicles).*/, (req, res) => {
   res.sendFile(path.join(distPath, "index.html"));
 });
 
 
+
 // ✅ Start HTTPS server on LAN
-app.listen(PORT, () => {
-  console.log(`✅ Backend server is running on port ${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Backend server is running at http://0.0.0.0:${PORT} (LAN-enabled)`);
 });
+
 
 
 

@@ -271,9 +271,9 @@ const handleSubmit = async (e) => {
     ...formData,
     filmingTime: formData.filmingTime || filmingTimeFromDate || "",
     status: "Pending",
-    assignedCamOps: [],
-    assignedDriver: "",
-    vehicle: "",
+    assignedCamOps: formData.assignedCamOps || [],
+    assignedDriver: formData.assignedDriver || "",
+    vehicle: formData.vehicle || "",
     vehicleStatus: "",
     assignmentStatus: "Unassigned",
     isReady: false,
@@ -641,7 +641,7 @@ if (userRoles.includes("producer")) {
           })
         }
       />
-      <span>Only 1 cam op required (even for multiple cameras)</span>
+      <span>Only 1 Cam Op Required (Even For Multiple Cameras)</span>
     </label>
 
    <div className="space-y-2">
@@ -703,7 +703,7 @@ if (userRoles.includes("producer")) {
 
 {can("canAssignVehicle") && (
   <div className="space-y-4 border-t pt-4 mt-6">
-    <h3 className="text-lg font-semibold text-gray-800">Driver Section</h3>
+    <h3 className="text-lg font-semibold text-gray-800">Fleet Section</h3>
 
     <div>
       <label className="block font-medium mb-1">Assigned Vehicle</label>

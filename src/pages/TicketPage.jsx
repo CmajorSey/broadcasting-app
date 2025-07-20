@@ -15,6 +15,13 @@ import {
   AlertDialogAction,
   AlertDialogDescription,
 } from "@/components/ui/alert-dialog";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent
+} from "@/components/ui/popover";
+
+import { Badge } from "@/components/ui/badge";
 
 
 
@@ -27,89 +34,68 @@ function getWeekStart(date) {
   return d.toISOString().slice(0, 10);
 }
 
-async function fetchRosterForDate(dateISO) {
-  const weekStart = getWeekStart(dateISO);
-  if (rosterCache.current[weekStart]) {
-    return rosterCache.current[weekStart];
-  }
-
- try {
-  const res = await fetch(`${API_BASE}/rosters/${weekStart}`);
-  if (!res.ok) throw new Error("Roster not found");
-  const data = await res.json();
-  rosterCache.current[weekStart] = data;
-  return data;
-} catch (err) {
-  console.warn("No roster for week:", weekStart);
-  return [];
-}
-}
-
-async function getTodayRoster(dateISO) {
-  const week = await fetchRosterForDate(dateISO);
-  const day = week.find((d) => d.date === dateISO);
-  return day || null;
-}
-function DutyBadgeWrapper({ date, filmingTime, names }) {
-  const [duty, setDuty] = useState(null);
-  const filmingHour = parseInt(filmingTime?.split(":")[0] || "0", 10);
-  const dutyDate = date?.slice(0, 10);
-
-  useEffect(() => {
-    if (dutyDate) {
-      getTodayRoster(dutyDate).then(setDuty);
-    }
-  }, [dutyDate]);
-
-  return (
-    <div className="flex flex-col gap-1">
-      {names.map((name, i) => {
-        let badge = null;
-        if (duty) {
-          if (duty.off?.includes(name)) {
-            badge = <DutyBadge label="Off Duty" color="red" />;
-          } else if (duty.afternoonShift?.includes(name) && filmingHour < 12) {
-            badge = <DutyBadge label="Afternoon Shift" color="yellow" />;
-          } else if (duty.primary?.includes(name) && filmingHour >= 14) {
-            badge = <DutyBadge label="Directing News" color="blue" />;
-          }
-        }
-        return (
-          <div key={i} className="flex items-center justify-center gap-2">
-            <span>{name}</span>
-            {badge}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 export default function TicketPage({ users, vehicles, loggedInUser }) {
   const [tickets, setTickets] = useState([]);
   const rosterCache = useRef({});
+
   async function fetchRosterForDate(dateISO) {
-  const weekStart = getWeekStart(dateISO);
-  if (rosterCache.current[weekStart]) {
-    return rosterCache.current[weekStart];
+    const weekStart = getWeekStart(dateISO);
+    if (rosterCache.current[weekStart]) {
+      return rosterCache.current[weekStart];
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/rosters/${weekStart}`);
+      if (!res.ok) throw new Error("Roster not found");
+      const data = await res.json();
+      rosterCache.current[weekStart] = data;
+      return data;
+    } catch (err) {
+      console.warn("No roster for week:", weekStart);
+      return [];
+    }
   }
 
- try {
-  const res = await fetch(`${API_BASE}/rosters/${weekStart}`);
-  if (!res.ok) throw new Error("Roster not found");
-  const data = await res.json();
-  rosterCache.current[weekStart] = data;
-  return data;
-} catch (err) {
-  console.warn("No roster for week:", weekStart);
-  return [];
-}
-}
+  async function getTodayRoster(dateISO) {
+    const week = await fetchRosterForDate(dateISO);
+    const day = week.find((d) => d.date === dateISO);
+    return day || null;
+  }
 
-async function getTodayRoster(dateISO) {
-  const week = await fetchRosterForDate(dateISO);
-  const day = week.find((d) => d.date === dateISO);
-  return day || null;
-}
+  function DutyBadgeWrapper({ date, filmingTime, names }) {
+    const [duty, setDuty] = useState(null);
+    const filmingHour = parseInt(filmingTime?.split(":")[0] || "0", 10);
+    const dutyDate = date?.slice(0, 10);
+
+    useEffect(() => {
+      if (dutyDate) {
+        getTodayRoster(dutyDate).then(setDuty);
+      }
+    }, [dutyDate]);
+
+    return (
+      <div className="flex flex-col gap-1">
+        {names.map((name, i) => {
+          let badge = null;
+          if (duty) {
+            if (duty.off?.includes(name)) {
+              badge = <DutyBadge label="Off Duty" color="red" />;
+            } else if (duty.afternoonShift?.includes(name) && filmingHour < 12) {
+              badge = <DutyBadge label="Afternoon Shift" color="yellow" />;
+            } else if (duty.primary?.includes(name) && filmingHour >= 14) {
+              badge = <DutyBadge label="Directing News" color="blue" />;
+            }
+          }
+          return (
+            <div key={i} className="flex items-center justify-center gap-2">
+              <span>{name}</span>
+              {badge}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   const [selectedTickets, setSelectedTickets] = useState([]);
   const [showSelectBoxes, setShowSelectBoxes] = useState(false);
@@ -131,23 +117,44 @@ async function getTodayRoster(dateISO) {
   const canEditVehicle = isAdmin || isProducer || isDriver;
   const canAddNotes = isAdmin || isDriver;
 
+const handleStatusChange = async (ticketId, newStatus) => {
+  try {
+    const res = await fetch(`${API_BASE}/tickets/${ticketId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignmentStatus: newStatus }),
+    });
+
+    if (!res.ok) throw new Error("Failed to update status");
+
+    const updated = await res.json();
+    setTickets((prev) =>
+      prev.map((t) => (t.id === ticketId ? updated : t))
+    );
+  } catch (err) {
+    console.error("Error updating status:", err);
+  }
+};
   const driverOptions = users.filter(
     (u) => u.roles.includes("driver") || u.roles.includes("driver_limited")
   );
   const camOpOptions = users.filter((u) => u.roles.includes("camOp"));
 
-  useEffect(() => {
-    fetch(`${API_BASE}/tickets`)
-      .then(async (res) => {
-  if (!res.ok) throw new Error("Failed to fetch tickets");
-  return await res.json();
-})
-      .then((data) => setTickets(data))
-      .catch((err) => {
-        console.error("Failed to fetch tickets:", err);
-        setTickets([]);
-      });
-  }, []);
+ useEffect(() => {
+  fetch(`${API_BASE}/tickets`)
+    .then(async (res) => {
+      if (!res.ok) throw new Error("Failed to fetch tickets");
+      return await res.json();
+    })
+    .then((data) => {
+      setTickets(data); // include all tickets: active, deleted, and archived
+    })
+    .catch((err) => {
+      console.error("Failed to fetch tickets:", err);
+      setTickets([]);
+    });
+}, []);
+
   
   const startEditing = (index) => {
   const ticket = tickets[index];
@@ -388,14 +395,17 @@ setSelectedTickets([]);
     return (
       <React.Fragment key={ticket.id || index}>
         <tr
-          className={`${
-            ticket.priority === "Urgent" || ticket.shootType === "Live"
-              ? "bg-red-100"
-              : index % 2 === 0
-              ? "bg-white"
-              : "bg-gray-50"
-          } border-b`}
-        >
+            className={`${
+              index % 2 === 0 ? "bg-white" : "bg-gray-50"
+            } border-b ${
+              ticket.priority === "Urgent"
+                ? "border-l-4 border-l-red-600"
+                : ticket.shootType === "Live"
+                ? "border-l-4 border-l-blue-600"
+                : "border-l"
+            }`}
+          >
+
           {showSelectBoxes && (
             <td className="p-2 text-center">
               <input
@@ -424,8 +434,17 @@ setSelectedTickets([]);
 
        {/* Filming Date & Time */}
 <td className="p-2 text-center whitespace-nowrap">
-  {(() => {
-    const filmingISO = ticket.date?.trim?.(); // full datetime now stored in `date`
+  {isEditing ? (
+    <input
+      type="datetime-local"
+      value={editData.date?.slice(0, 16) || ""}
+      onChange={(e) =>
+        setEditData({ ...editData, date: e.target.value })
+      }
+      className="border px-2 py-1 rounded"
+    />
+  ) : (() => {
+    const filmingISO = ticket.date?.trim?.();
     if (!filmingISO) return "-";
 
     const filmingDate = new Date(filmingISO);
@@ -435,15 +454,15 @@ setSelectedTickets([]);
     }
 
     const day = String(filmingDate.getDate()).padStart(2, "0");
-const month = filmingDate.toLocaleString("en-US", { month: "short" });
-const year = String(filmingDate.getFullYear()).slice(2);
-const hours = String(filmingDate.getHours()).padStart(2, "0");
-const minutes = String(filmingDate.getMinutes()).padStart(2, "0");
+    const month = filmingDate.toLocaleString("en-US", { month: "short" });
+    const year = String(filmingDate.getFullYear()).slice(2);
+    const hours = String(filmingDate.getHours()).padStart(2, "0");
+    const minutes = String(filmingDate.getMinutes()).padStart(2, "0");
 
-return `${day}-${month}-${year}, ${hours}:${minutes}`;
-
+    return `${day}-${month}-${year}, ${hours}:${minutes}`;
   })()}
 </td>
+
 
 {/* Departure Time */}
 <td className="p-2 text-center whitespace-nowrap">
@@ -522,7 +541,43 @@ return `${day}-${month}-${year}, ${hours}:${minutes}`;
 
           {/* Status */}
           <td className="p-2 text-center whitespace-nowrap">
-            <StatusBadge status={ticket.assignmentStatus || "Unassigned"} />
+            <Popover>
+  <PopoverTrigger asChild>
+  <button type="button">
+    <Badge
+      variant={
+        ticket.assignmentStatus === "Completed"
+          ? "success"
+          : ticket.assignmentStatus === "In Progress"
+          ? "secondary"
+          : ticket.assignmentStatus === "Cancelled"
+          ? "destructive"
+          : ticket.assignmentStatus === "Postponed"
+          ? "outline"
+          : ticket.assignedCamOps?.length > 0
+          ? "default"
+          : "outline"
+      }
+      className="text-xs cursor-pointer"
+    >
+      {ticket.assignmentStatus || (ticket.assignedCamOps?.length > 0 ? "Assigned" : "Unassigned")}
+    </Badge>
+  </button>
+</PopoverTrigger>
+  <PopoverContent className="w-[180px] p-2">
+    <div className="space-y-1">
+      {["Assigned", "In Progress", "Completed", "Postponed", "Cancelled"].map((status) => (
+        <div
+          key={status}
+          onClick={() => handleStatusChange(ticket.id, status)}
+          className="cursor-pointer px-2 py-1 hover:bg-accent rounded text-sm"
+        >
+          {status}
+        </div>
+      ))}
+    </div>
+  </PopoverContent>
+</Popover>
           </td>
 
           {/* Actions */}
@@ -630,13 +685,11 @@ return `${day}-${month}-${year}, ${hours}:${minutes}`;
   >
     {showArchived ? (
       <>
-        <ChevronUp size={16} /> Hide Archived (
-        {tickets.filter((t) => t.archived).length})
+        <ChevronUp size={16} /> Hide Archived ({tickets.filter((t) => t.archived).length})
       </>
     ) : (
       <>
-        <ChevronDown size={16} /> Show Archived (
-        {tickets.filter((t) => t.archived).length})
+        <ChevronDown size={16} /> Show Archived ({tickets.filter((t) => t.archived).length})
       </>
     )}
   </button>
@@ -646,56 +699,142 @@ return `${day}-${month}-${year}, ${hours}:${minutes}`;
         <p className="text-gray-500 px-2 py-2">No archived tickets.</p>
       ) : (
         <>
+          <div className="flex items-center justify-between p-2">
+            <button
+              className="text-sm text-blue-600 underline"
+              onClick={() => {
+                const archived = tickets.filter((t) => t.archived);
+                if (selectedDeleted.length === archived.length) {
+                  setSelectedDeleted([]);
+                } else {
+                  setSelectedDeleted(archived.map((_, i) => i));
+                }
+              }}
+            >
+              {selectedDeleted.length === tickets.filter(t => t.archived).length
+                ? "Deselect All"
+                : "Select All in Archives"}
+            </button>
+
+            {selectedDeleted.length > 0 && (
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      const toRestore = selectedDeleted.map(
+                        (i) => tickets.filter((t) => t.archived)[i]
+                      );
+                      for (const ticket of toRestore) {
+                        await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ archived: false }),
+                        });
+                      }
+
+                      setSelectedDeleted([]);
+                      const response = await fetch(`${API_BASE}/tickets`);
+                      const data = await response.json();
+                      setTickets(data);
+                    } catch (err) {
+                      console.error("Failed to restore archived tickets:", err);
+                    }
+                  }}
+                  className="px-3 py-1 border rounded text-green-600 border-green-600 hover:bg-green-50"
+                >
+                  Restore Selected
+                </button>
+
+                <button
+                  onClick={async () => {
+                    try {
+                      const toRecycle = selectedDeleted.map(
+                        (i) => tickets.filter((t) => t.archived)[i]
+                      );
+                      for (const ticket of toRecycle) {
+                        await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ archived: false, deleted: true }),
+                        });
+                      }
+
+                      setSelectedDeleted([]);
+                      const response = await fetch(`${API_BASE}/tickets`);
+                      const data = await response.json();
+                      setTickets(data);
+                    } catch (err) {
+                      console.error("Failed to move archived tickets to recycle bin:", err);
+                    }
+                  }}
+                  className="px-3 py-1 border rounded text-red-600 border-red-600 hover:bg-red-100"
+                >
+                  Send to Recycle Bin
+                </button>
+              </div>
+            )}
+          </div>
+
           <table className="min-w-full text-sm">
             <thead className="bg-gray-200">
-  <tr>
-    <th className="p-2 text-center">Title</th>
-    <th className="p-2 text-center">Filming</th>
-    <th className="p-2 text-center">Departure</th>
-    <th className="p-2 text-center">Location</th>
-    <th className="p-2 text-center">Driver</th>
-    <th className="p-2 text-center">Status</th>
-    <th className="p-2 text-center">Priority</th>
-  </tr>
-</thead>
-<tbody>
-  {tickets
-    .filter((t) => t.archived)
-    .map((ticket, idx) => {
-      const date = ticket.date?.trim?.();
-      const d = new Date(date);
-      const day = String(d.getDate()).padStart(2, "0");
-      const month = d.toLocaleString("en-US", { month: "short" });
-      const year = String(d.getFullYear()).slice(2);
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      const formatted = !isNaN(d.getTime()) ? `${day}-${month}-${year}, ${hh}:${mm}` : "-";
+              <tr>
+                <th className="p-2 text-center">Select</th>
+                <th className="p-2 text-center">Title</th>
+                <th className="p-2 text-center">Filming</th>
+                <th className="p-2 text-center">Departure</th>
+                <th className="p-2 text-center">Location</th>
+                <th className="p-2 text-center">Driver</th>
+                <th className="p-2 text-center">Status</th>
+                <th className="p-2 text-center">Priority</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tickets.filter((t) => t.archived).map((ticket, idx) => {
+                const isSelected = selectedDeleted.includes(idx);
+                const date = ticket.date?.trim?.();
+                const d = new Date(date);
+                const day = String(d.getDate()).padStart(2, "0");
+                const month = d.toLocaleString("en-US", { month: "short" });
+                const year = String(d.getFullYear()).slice(2);
+                const hh = String(d.getHours()).padStart(2, "0");
+                const mm = String(d.getMinutes()).padStart(2, "0");
+                const formatted = !isNaN(d.getTime()) ? `${day}-${month}-${year}, ${hh}:${mm}` : "-";
 
-      return (
-        <tr
-          key={ticket.id || idx}
-          className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
-        >
-          <td className="p-2 text-center">{ticket.title}</td>
-          <td className="p-2 text-center">{formatted}</td>
-          <td className="p-2 text-center">{ticket.departureTime || "-"}</td>
-          <td className="p-2 text-center">{ticket.location || "-"}</td>
-          <td className="p-2 text-center">{ticket.assignedDriver || "-"}</td>
-          <td className="p-2 text-center">
-            <StatusBadge status={ticket.assignmentStatus || "Unassigned"} />
-          </td>
-          <td className="p-2 text-center">{ticket.priority || "Normal"}</td>
-        </tr>
-      );
-    })}
-</tbody>
-
+                return (
+                  <tr key={ticket.id || idx} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                    <td className="p-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {
+                          if (isSelected) {
+                            setSelectedDeleted(selectedDeleted.filter((i) => i !== idx));
+                          } else {
+                            setSelectedDeleted([...selectedDeleted, idx]);
+                          }
+                        }}
+                      />
+                    </td>
+                    <td className="p-2 text-center">{ticket.title}</td>
+                    <td className="p-2 text-center">{formatted}</td>
+                    <td className="p-2 text-center">{ticket.departureTime || "-"}</td>
+                    <td className="p-2 text-center">{ticket.location || "-"}</td>
+                    <td className="p-2 text-center">{ticket.assignedDriver || "-"}</td>
+                    <td className="p-2 text-center">
+                      <StatusBadge status={ticket.assignmentStatus || "Unassigned"} />
+                    </td>
+                    <td className="p-2 text-center">{ticket.priority || "Normal"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
           </table>
         </>
       )}
     </div>
   )}
 </div>
+
      {/* Recycle Bin */}
 <div className="mt-6">
   <button
@@ -811,7 +950,7 @@ return `${day}-${month}-${year}, ${hours}:${minutes}`;
   </div>
 )}
       </div>
-    {/* Recycle Modal */}
+  {/* Recycle Modal */}
 <AlertDialog open={showRecycleModal} onOpenChange={setShowRecycleModal}>
   <AlertDialogContent>
     <AlertDialogHeader>
@@ -824,31 +963,29 @@ return `${day}-${month}-${year}, ${hours}:${minutes}`;
       <AlertDialogCancel>Cancel</AlertDialogCancel>
       <AlertDialogAction
         className="bg-red-600 hover:bg-red-700 text-white"
-       onClick={async () => {
-  try {
-    const toDelete = selectedTickets.map((i) => tickets[i]);
+        onClick={async () => {
+          try {
+            const toDelete = selectedTickets.map(
+  (i) => tickets.filter((t) => !t.deleted && !t.archived)[i]
+);
 
- for (const ticket of toDelete) {
-  await fetch(`${API_BASE}/tickets/${ticket.id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ deleted: true }),
-  });
-}
+            for (const ticket of toDelete) {
+              await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ deleted: true }),
+              });
+            }
 
-
-// ✅ Refresh from backend after update
-const res = await fetch(`${API_BASE}/tickets`);
-const updated = await res.json();
-setTickets(updated);
-setSelectedTickets([]);
-setShowRecycleModal(false);
-
-  } catch (err) {
-    console.error("Failed to recycle tickets:", err);
-  }
-}}
-
+            const res = await fetch(`${API_BASE}/tickets`);
+            const updated = await res.json();
+            setTickets(updated);
+            setSelectedTickets([]);
+            setShowRecycleModal(false);
+          } catch (err) {
+            console.error("Failed to recycle tickets:", err);
+          }
+        }}
       >
         Confirm
       </AlertDialogAction>
@@ -870,28 +1007,29 @@ setShowRecycleModal(false);
       <AlertDialogAction
         className="bg-green-600 hover:bg-green-700 text-white"
         onClick={async () => {
-  try {
-    const toRestore = selectedDeleted.map((i) => tickets.filter((t) => t.deleted)[i]);
+          try {
+            const toRestore = selectedDeleted.map(
+              (i) => tickets.filter((t) => t.deleted)[i]
+            );
 
-   for (const ticket of toRestore) {
-  await fetch(`${API_BASE}/tickets/${ticket.id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ deleted: false }),
-  });
-}
+            for (const ticket of toRestore) {
+              await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ deleted: false }),
+              });
+            }
 
-    setSelectedDeleted([]);
-    setShowRestoreModal(false);
+            setSelectedDeleted([]);
+            setShowRestoreModal(false);
 
-   // Optionally re-fetch tickets here instead of merging manually
-const response = await fetch(`${API_BASE}/tickets`);
-const data = await response.json();
-setTickets(data);
-} catch (err) {
-  console.error("Failed to restore tickets:", err);
-}
-}}
+            const response = await fetch(`${API_BASE}/tickets`);
+            const data = await response.json();
+            setTickets(data);
+          } catch (err) {
+            console.error("Failed to restore tickets:", err);
+          }
+        }}
       >
         Restore
       </AlertDialogAction>
@@ -912,27 +1050,28 @@ setTickets(data);
       <AlertDialogCancel>Cancel</AlertDialogCancel>
       <AlertDialogAction
         className="bg-red-600 hover:bg-red-700 text-white"
-       onClick={async () => {
- try {
-  const toDelete = selectedDeleted.map((i) => tickets.filter((t) => t.deleted)[i]);
-  for (const ticket of toDelete) {
-    await fetch(`${API_BASE}/tickets/${ticket.id}`, {
-      method: "DELETE",
-    });
-  }
+        onClick={async () => {
+          try {
+            const toDelete = selectedDeleted.map(
+              (i) => tickets.filter((t) => t.deleted)[i]
+            );
 
-    setSelectedDeleted([]);
-    setShowPermanentDeleteModal(false);
+            for (const ticket of toDelete) {
+              await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+                method: "DELETE",
+              });
+            }
 
-   // Optionally re-fetch tickets here instead of local filtering
-const response = await fetch(`${API_BASE}/tickets`);
-const data = await response.json();
-setTickets(data);
-} catch (err) {
-  console.error("Failed to permanently delete tickets:", err);
-}
-}}
+            setSelectedDeleted([]);
+            setShowPermanentDeleteModal(false);
 
+            const response = await fetch(`${API_BASE}/tickets`);
+            const data = await response.json();
+            setTickets(data);
+          } catch (err) {
+            console.error("Failed to permanently delete tickets:", err);
+          }
+        }}
       >
         Delete Forever
       </AlertDialogAction>
