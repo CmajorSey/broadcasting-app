@@ -267,28 +267,29 @@ const handleSubmit = async (e) => {
     : "";
   const name = loggedInUser?.name || "Unknown";
 
-  const newTicket = {
-    ...formData,
-    filmingTime: formData.filmingTime || filmingTimeFromDate || "",
-    status: "Pending",
-    assignedCamOps: formData.assignedCamOps || [],
-    assignedDriver: formData.assignedDriver || "",
-    vehicle: formData.vehicle || "",
-    vehicleStatus: "",
-    assignmentStatus: "Unassigned",
-    isReady: false,
-    notes: formData.notes
-      ? [
-          {
-            text: formData.notes.trim(),
-            author: name,
-            timestamp: new Date().toLocaleString(),
-          },
-        ]
-      : [],
-    createdBy: name,
-    createdAt: new Date().toISOString(),
-  };
+ const newTicket = {
+  ...formData,
+  filmingTime: formData.filmingTime || filmingTimeFromDate || "",
+  status: "Pending",
+  assignedCamOps: formData.assignedCamOps || [],
+  assignedDriver: formData.assignedDriver || "",
+  vehicle: formData.vehicle || "",
+  vehicleStatus: "",
+  assignmentStatus: "Unassigned",
+  isReady: false,
+  assignedReporter: formData.assignedReporter || `${loggedInUser?.description || "Journalist"} ${name}`,
+  notes: formData.notes
+    ? [
+        {
+          text: formData.notes.trim(),
+          author: name,
+          timestamp: new Date().toLocaleString(),
+        },
+      ]
+    : [],
+  createdBy: name,
+  createdAt: new Date().toISOString(),
+};
 
   try {
     const res = await fetch(`${API_BASE}/tickets`, {
@@ -422,6 +423,96 @@ if (userRoles.includes("producer")) {
             >+ Add</button>
           </div>
         </div>
+
+     {/* Assigned Reporter Dropdown */}
+<div className="space-y-2">
+  <label className="block font-semibold mb-1">Assigned Journalist/Producer</label>
+  <select
+    name="assignedReporter"
+    value={formData.assignedReporter}
+    onChange={(e) =>
+      setFormData({ ...formData, assignedReporter: e.target.value })
+    }
+    className="input"
+  >
+    <option value="">-- Select Reporter --</option>
+
+    {/* Logged-in user shown first if relevant */}
+    {(() => {
+      const isJournalist = loggedInUser?.roles?.some((r) => r.toLowerCase() === "journalist");
+      const isSports = loggedInUser?.description?.toLowerCase().includes("sport") ||
+                       loggedInUser?.roles?.some((r) => r.toLowerCase() === "sports_journalist");
+      const isProducer = loggedInUser?.roles?.some((r) => r.toLowerCase() === "producer");
+
+      if (isJournalist)
+        return (
+          <option value={`Journalist: ${loggedInUser.name}`}>
+            Journalist: {loggedInUser.name} (You)
+          </option>
+        );
+      if (isSports)
+        return (
+          <option value={`Sports Journalist: ${loggedInUser.name}`}>
+            Sports Journalist: {loggedInUser.name} (You)
+          </option>
+        );
+      if (isProducer)
+        return (
+          <option value={`Producer: ${loggedInUser.name}`}>
+            Producer: {loggedInUser.name} (You)
+          </option>
+        );
+
+      return null;
+    })()}
+
+    <optgroup label="Journalists">
+      {users
+        .filter((u) =>
+          (u.roles || []).some((r) => r.toLowerCase() === "journalist") &&
+          u.name !== loggedInUser?.name
+        )
+        .map((u) => (
+          <option key={`journalist-${u.name}`} value={`Journalist: ${u.name}`}>
+            Journalist: {u.name}
+          </option>
+        ))}
+    </optgroup>
+
+    <optgroup label="Sports Journalists">
+      {users
+        .filter(
+          (u) =>
+            u.description?.toLowerCase().includes("sport") ||
+            (u.roles || []).some((r) => r.toLowerCase() === "sports_journalist")
+        )
+        .filter((u) => u.name !== loggedInUser?.name)
+        .map((u) => (
+          <option
+            key={`sports-${u.name}`}
+            value={`Sports Journalist: ${u.name}`}
+          >
+            Sports Journalist: {u.name}
+          </option>
+        ))}
+    </optgroup>
+
+    <optgroup label="Producers">
+      {users
+        .filter((u) =>
+          (u.roles || []).some((r) => r.toLowerCase() === "producer")
+        )
+        .filter((u) => u.name !== loggedInUser?.name)
+        .map((u) => (
+          <option key={`producer-${u.name}`} value={`Producer: ${u.name}`}>
+            Producer: {u.name}
+          </option>
+        ))}
+    </optgroup>
+  </select>
+</div>
+
+
 
         {/* News Dropdown */}
         {formData.type === "News" && (

@@ -472,6 +472,11 @@ function DutyBadgeWrapper({ date, filmingTime, names, rosterCache }) {
       <div>Driver: {ticket.assignedDriver || "None"}</div>
     </div>
 
+    {ticket.assignedReporter && (
+  <div>{ticket.assignedReporter}</div>
+)}
+
+
     <div className="text-xs text-gray-500 space-y-1">
       <div>
         Vehicle: {vehicleName}

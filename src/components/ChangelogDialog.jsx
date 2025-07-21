@@ -17,15 +17,17 @@ export default function ChangelogDialog({ open, onClose }) {
           <AlertDialogTitle>📦 What’s New in Version 0.5.0</AlertDialogTitle>
         </AlertDialogHeader>
         <div className="max-h-64 overflow-y-auto text-sm space-y-2">
-          <ul className="list-disc ml-4">
-            <li>Postponed tickets now support new date or 'no date' option.</li>
-            <li>Filming time and departure time are editable from the ticket table.</li>
-            <li>Archived and deleted ticket actions (restore, delete) are fully synced with backend.</li>
-            <li>Camera operator duty badges display directly on homepage carousel.</li>
-            <li>New ticket sections for “My Tickets” and weekly view (Mon–Sun).</li>
-            <li>Fleet system supports editing license plates and bulk delete of rentals.</li>
-            <li>Week selector added to Home and Operations pages.</li>
-          </ul>
+        <ul className="list-disc ml-4">
+          <li>Postponed tickets now support new date or 'no date' option.</li>
+          <li>Filming time and departure time are editable from the ticket table.</li>
+          <li>Archived and deleted ticket actions (restore, delete) are fully synced with backend.</li>
+          <li>Camera operator duty badges display directly on homepage carousel.</li>
+          <li>Assigned Journalist/Producer dropdown added to ticket form, with grouped selection.</li>
+          <li>Assigned reporter now displays on both Ticket Page and Home Carousel views.</li>
+          <li>New ticket sections for “My Tickets” and weekly view (Mon–Sun).</li>
+          <li>Fleet system supports editing license plates and bulk delete of rentals.</li>
+          <li>Week selector added to Home and Operations pages.</li>
+        </ul>
           <div className="mt-4">
             <strong className="block text-sm mb-1">🛣️ Coming Soon:</strong>
             <ul className="list-disc ml-4">

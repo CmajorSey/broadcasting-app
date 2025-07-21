@@ -370,19 +370,21 @@ setSelectedTickets([]);
   <tr>
     {showSelectBoxes && <th className="p-2 text-center">Select</th>}
     {[
-      "Title",
-      "Filming Date & Time",
-      "Departure Time",
-      "Location",
-      "Cam Ops",
-      "Driver",
-      "Status",
-      "Actions",
-    ].map((header) => (
-      <th key={header} className="p-2 text-center whitespace-nowrap">
-        {header}
-      </th>
-    ))}
+  "Title",
+  "Filming Date & Time",
+  "Departure Time",
+  "Location",
+  "Cam Ops",
+  "Driver",
+  "Assigned Reporter", // ✅ Add this line
+  "Status",
+  "Actions",
+].map((header) => (
+  <th key={header} className="p-2 text-center whitespace-nowrap">
+    {header}
+  </th>
+))}
+
   </tr>
 </thead>
          <tbody>
@@ -538,6 +540,11 @@ setSelectedTickets([]);
               ticket.assignedDriver || "-"
             )}
           </td>
+          {/* Assigned Reporter */}
+<td className="p-2 text-center whitespace-nowrap">
+  {ticket.assignedReporter || "-"}
+</td>
+
 
           {/* Status */}
           <td className="p-2 text-center whitespace-nowrap">
