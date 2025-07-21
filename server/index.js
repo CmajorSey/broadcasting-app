@@ -15,7 +15,7 @@ app.use(cors({
  origin: [
   "https://loboard.netlify.app",
   "http://localhost:5173",
-  "http://192.168.100.61:5173"
+  "http://192.168.88.54:5173"
 ],
    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
