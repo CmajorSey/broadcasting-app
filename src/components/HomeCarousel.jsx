@@ -136,7 +136,7 @@ useEffect(() => {
 }, []);
 
 useEffect(() => {
-  const hasSeen = localStorage.getItem("changelog_v032_dismissed");
+  const hasSeen = localStorage.getItem("changelog_v050_dismissed");
   if (!hasSeen) {
     setShowChangelog(true);
   }
