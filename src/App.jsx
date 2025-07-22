@@ -19,6 +19,8 @@ import SetPasswordPage from "@/pages/SetPasswordPage";
 import TicketPage from "@/pages/TicketPage";
 import HomeCarousel from "@/components/HomeCarousel";
 import FleetPage from "@/pages/FleetPage";
+import { Toaster } from "@/components/ui/toaster";
+import { useToast } from "@/hooks/use-toast"
 
 function AppWrapper() {
   return (
@@ -113,6 +115,7 @@ function App() {
 
   return (
     <>
+    <Toaster toastOptions={{ position: "top-center" }} />
       {!hideLayout && (
         <Navbar
           loggedInUser={loggedInUser}
@@ -221,6 +224,7 @@ function App() {
       </div>
 
       {!hideLayout && <Footer />}
+       <Toaster toastOptions={{ position: "top-center" }} />
     </>
   );
 }

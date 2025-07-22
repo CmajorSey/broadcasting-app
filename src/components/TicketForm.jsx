@@ -8,6 +8,9 @@ import MultiSelectCombobox from "@/components/MultiSelectCombobox";
 import "react-datepicker/dist/react-datepicker.css";
 import { useNavigate } from "react-router-dom";
 import API_BASE from "@/api";
+import { useToast } from "@/hooks/use-toast"
+import { Toaster } from "@/components/ui/toaster";
+
 
 const rolePermissions = {
   journalist: {
@@ -259,6 +262,8 @@ console.log("✅ All users data:", users);
     [name]: type === "checkbox" ? checked : value,
   }));
 };
+
+const { toast } = useToast();
 const handleSubmit = async (e) => {
   e.preventDefault();
 
@@ -267,29 +272,33 @@ const handleSubmit = async (e) => {
     : "";
   const name = loggedInUser?.name || "Unknown";
 
- const newTicket = {
-  ...formData,
-  filmingTime: formData.filmingTime || filmingTimeFromDate || "",
-  status: "Pending",
-  assignedCamOps: formData.assignedCamOps || [],
-  assignedDriver: formData.assignedDriver || "",
-  vehicle: formData.vehicle || "",
-  vehicleStatus: "",
-  assignmentStatus: "Unassigned",
-  isReady: false,
-  assignedReporter: formData.assignedReporter || `${loggedInUser?.description || "Journalist"} ${name}`,
-  notes: formData.notes
-    ? [
-        {
-          text: formData.notes.trim(),
-          author: name,
-          timestamp: new Date().toLocaleString(),
-        },
-      ]
-    : [],
-  createdBy: name,
-  createdAt: new Date().toISOString(),
-};
+  const newTicket = {
+    ...formData,
+    filmingTime: formData.filmingTime || filmingTimeFromDate || "",
+    status: "Pending",
+    assignedCamOps: formData.assignedCamOps || [],
+    assignedDriver: formData.assignedDriver || "",
+    vehicle: formData.vehicle || "",
+    vehicleStatus: "",
+    assignmentStatus: "Unassigned",
+    isReady: false,
+    assignedReporter:
+      formData.assignedReporter ||
+      `${loggedInUser?.description || "Journalist"} ${name}`,
+    notes: formData.notes
+      ? [
+          {
+            text: formData.notes.trim(),
+            author: name,
+            timestamp: new Date().toLocaleString(),
+          },
+        ]
+      : [],
+    createdBy: name,
+    createdAt: new Date().toISOString(),
+  };
+
+  console.log("🚀 handleSubmit triggered");
 
   try {
     const res = await fetch(`${API_BASE}/tickets`, {
@@ -306,11 +315,18 @@ const handleSubmit = async (e) => {
     setTickets(updatedTickets);
     setFormData(getInitialFormData());
     console.log("✅ Ticket submitted to backend by:", name);
+
+    toast({
+      title: "✅ Ticket Created",
+      description: "Your ticket was successfully submitted.",
+      duration: 2000,
+    });
   } catch (error) {
     console.error("❌ Error submitting ticket:", error);
     alert("Ticket submission failed. Please try again.");
   }
 };
+
   const removeFromList = (item, setList) => {
     setList((prev) => prev.filter((x) => x !== item));
   };
@@ -381,19 +397,22 @@ const handleSubmit = async (e) => {
   name="type"
   value={formData.type}
   onChange={(e) => {
+    const newType = e.target.value;
     const userRoles = loggedInUser?.roles?.map((r) => r.toLowerCase()) || [];
-let detectedRole = "journalist";
-if (userRoles.includes("producer")) {
-  detectedRole = "producer";
-} else if (userRoles.includes("admin")) {
-  detectedRole = "admin";
-} else if (
-  loggedInUser?.description?.toLowerCase().includes("sport")
-) {
-  detectedRole = "sports_journalist";
-} else if (userRoles.includes("journalist")) {
-  detectedRole = "journalist";
-}
+    let detectedRole = "journalist";
+
+    if (userRoles.includes("producer")) {
+      detectedRole = "producer";
+    } else if (userRoles.includes("admin")) {
+      detectedRole = "admin";
+    } else if (
+      loggedInUser?.description?.toLowerCase().includes("sport")
+    ) {
+      detectedRole = "sports_journalist";
+    } else if (userRoles.includes("journalist")) {
+      detectedRole = "journalist";
+    }
+
     const newShootType = getDefaultShootType(detectedRole, newType);
 
     setFormData({
@@ -404,8 +423,8 @@ if (userRoles.includes("producer")) {
       subtype: "",
     });
   }}
-              className="input flex-1"
-            >
+  className="input flex-1"
+>
               <option value="">Select Type</option>
               {jobTypes.map((type) => (
                 <option key={type} value={type}>{type}</option>
