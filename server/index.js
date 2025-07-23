@@ -309,7 +309,7 @@ app.post("/tickets", async (req, res) => {
 // ✅ Patch ticket (MongoDB version)
 app.patch("/tickets/:id", async (req, res) => {
   try {
-    const id = req.params.id;
+    const id = req.params.id.toString(); // ✅ force string match
     const updatedData = req.body;
 
     const result = await db.collection("tickets").findOneAndUpdate(
@@ -328,7 +328,6 @@ app.patch("/tickets/:id", async (req, res) => {
     res.status(500).json({ error: "Failed to update ticket" });
   }
 });
-
 
 // ✅ Delete ticket (MongoDB version)
 app.delete("/tickets/:id", async (req, res) => {
