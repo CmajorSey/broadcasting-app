@@ -28,7 +28,7 @@ export default function AssignResources({ tickets, setTickets, users, vehicles, 
           onClick={() => navigate("/tickets")}
           className="ml-4 text-blue-600 underline"
         >
-          Back to Tickets
+          Back To Tickets
         </button>
       </div>
     );
