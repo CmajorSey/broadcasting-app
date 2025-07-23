@@ -309,20 +309,20 @@ app.post("/tickets", async (req, res) => {
 // ✅ Patch ticket (MongoDB version)
 app.patch("/tickets/:id", async (req, res) => {
   try {
-    const id = req.params.id.toString();
+    const id = req.params.id.toString(); // ensure it's a string
     const updatedData = req.body;
 
-    console.log("🛠 PATCH request for ticket ID:", id);
-    console.log("📦 Update payload:", updatedData);
+    console.log("🛠 PATCH ID:", id);
+    console.log("📦 Update:", updatedData);
 
     const result = await db.collection("tickets").findOneAndUpdate(
       { id: id },
       { $set: updatedData },
-      { returnDocument: "after" }
+      { returnOriginal: false } // ✅ use this for compatibility
     );
 
     if (!result.value) {
-      console.warn("⚠️ No matching ticket found for ID:", id);
+      console.warn("⚠️ No ticket found for ID:", id);
       return res.status(404).json({ message: "Ticket not found" });
     }
 
@@ -332,7 +332,6 @@ app.patch("/tickets/:id", async (req, res) => {
     res.status(500).json({ error: "Failed to update ticket", reason: error.message });
   }
 });
-
 
 // ✅ Delete ticket (MongoDB version)
 app.delete("/tickets/:id", async (req, res) => {
