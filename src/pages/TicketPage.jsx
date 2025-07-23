@@ -119,22 +119,46 @@ export default function TicketPage({ users, vehicles, loggedInUser }) {
 
 const handleStatusChange = async (ticketId, newStatus) => {
   try {
+    const updatedFields = { assignmentStatus: newStatus };
+
+    // Optimistically update state first
+    setTickets((prev) =>
+      prev.map((t) =>
+        String(t.id) === String(ticketId) ? { ...t, ...updatedFields } : t
+      )
+    );
+
     const res = await fetch(`${API_BASE}/tickets/${ticketId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ assignmentStatus: newStatus }),
+      body: JSON.stringify(updatedFields),
     });
 
     if (!res.ok) throw new Error("Failed to update status");
 
-    const updated = await res.json();
+    const updatedFromServer = await res.json();
+
+    // Final sync with backend-confirmed result
     setTickets((prev) =>
-      prev.map((t) => (t.id === ticketId ? updated : t))
+      prev.map((t) =>
+        String(t.id) === String(ticketId) ? { ...t, ...updatedFromServer.updated } : t
+      )
     );
+
+    toast({
+      title: "Status updated",
+      description: `Ticket is now marked as "${newStatus}".`,
+    });
   } catch (err) {
     console.error("Error updating status:", err);
+    toast({
+      title: "Error",
+      description: "Failed to update status. Try again.",
+      variant: "destructive",
+    });
   }
 };
+
   const driverOptions = users.filter(
     (u) => u.roles.includes("driver") || u.roles.includes("driver_limited")
   );
