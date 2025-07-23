@@ -21,15 +21,14 @@ const PORT = process.env.PORT || 4000;
 
 
 app.use(cors({
- origin: [
-  "https://loboard.netlify.app",
-  "http://localhost:5173",
-  "http://192.168.100.61:5173"
-],
-   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  origin: [
+    "http://localhost:5173",
+    "https://loboard.netlify.app"
+  ],
+  methods: ["GET", "POST", "PATCH", "DELETE"],
   credentials: true
 }));
+
 
 app.use(express.json());
 
@@ -87,7 +86,7 @@ if (!fs.existsSync(SETTINGS_FILE)) {
 // GET roster by weekStart
 app.get("/rosters/:weekStart", (req, res) => {
   const { weekStart } = req.params;
-  const filePath = path.join(__dirname, "data", "rosters.json");
+  const filePath = ROSTERS_FILE;
 
   try {
     const fileData = fs.readFileSync(filePath);
@@ -101,7 +100,8 @@ app.get("/rosters/:weekStart", (req, res) => {
 });
 app.patch("/rosters/:weekStart", (req, res) => {
   const { weekStart } = req.params;
-  const filePath = path.join(__dirname, "data", "rosters.json");
+  const filePath = ROSTERS_FILE;
+
 
   try {
     const fileData = fs.readFileSync(filePath);
