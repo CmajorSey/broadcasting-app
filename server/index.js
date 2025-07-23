@@ -306,19 +306,21 @@ app.post("/tickets", async (req, res) => {
 });
 
 
-// ✅ Patch ticket (MongoDB version)
+// ✅ Patch ticket (MongoDB-safe version)
 app.patch("/tickets/:id", async (req, res) => {
   try {
-    const id = req.params.id.toString(); // ensure it's a string
-    const updatedData = req.body;
+    const id = req.params.id.toString();
+    const updatedData = { ...req.body };
+
+    delete updatedData._id; // 🔥 Critical: do NOT update _id
 
     console.log("🛠 PATCH ID:", id);
-    console.log("📦 Update:", updatedData);
+    console.log("📦 Cleaned update payload:", updatedData);
 
     const result = await db.collection("tickets").findOneAndUpdate(
-      { id: id },
+      { id },
       { $set: updatedData },
-      { returnOriginal: false } // ✅ legacy-compatible option
+      { returnOriginal: false }
     );
 
     if (!result.value) {
@@ -332,10 +334,11 @@ app.patch("/tickets/:id", async (req, res) => {
     res.status(500).json({
       error: "Failed to update ticket",
       reason: error.message,
-      stack: error.stack, // 🔍 for deeper debugging
+      stack: error.stack,
     });
   }
 });
+
 
 // ✅ Delete ticket (MongoDB version)
 app.delete("/tickets/:id", async (req, res) => {
