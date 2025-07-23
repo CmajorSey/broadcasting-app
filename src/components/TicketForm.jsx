@@ -389,59 +389,66 @@ const handleSubmit = async (e) => {
           onChange={handleChange}
         />
 
-        {/* Job Type */}
-        <div className="space-y-2">
-          <label className="block font-semibold mb-1">Request Type</label>
-          <div className="flex items-center gap-2">
-           <select
-  name="type"
-  value={formData.type}
-  onChange={(e) => {
-    const newType = e.target.value;
-    const userRoles = loggedInUser?.roles?.map((r) => r.toLowerCase()) || [];
-    let detectedRole = "journalist";
+         {/* Job Type */}
+    <div className="space-y-2">
+      <label className="block font-semibold mb-1">Request Type</label>
+      <div className="flex items-center gap-2">
+        <select
+          name="type"
+          value={formData.type}
+          onChange={(e) => {
+            const newType = e.target.value;
+            const userRoles = loggedInUser?.roles?.map((r) => r.toLowerCase()) || [];
+            let detectedRole = "journalist";
 
-    if (userRoles.includes("producer")) {
-      detectedRole = "producer";
-    } else if (userRoles.includes("admin")) {
-      detectedRole = "admin";
-    } else if (
-      loggedInUser?.description?.toLowerCase().includes("sport")
-    ) {
-      detectedRole = "sports_journalist";
-    } else if (userRoles.includes("journalist")) {
-      detectedRole = "journalist";
-    }
+            if (userRoles.includes("producer")) {
+              detectedRole = "producer";
+            } else if (userRoles.includes("admin")) {
+              detectedRole = "admin";
+            } else if (
+              loggedInUser?.description?.toLowerCase().includes("sport")
+            ) {
+              detectedRole = "sports_journalist";
+            } else if (userRoles.includes("journalist")) {
+              detectedRole = "journalist";
+            }
 
-    const newShootType = getDefaultShootType(detectedRole, newType);
+            const newShootType = getDefaultShootType(detectedRole, newType);
+            const existingDate = formData.date || new Date().toISOString().slice(0, 16);
 
-    setFormData({
-      ...formData,
-      type: newType,
-      shootType: newShootType,
-      category: "",
-      subtype: "",
-    });
-  }}
-  className="input flex-1"
->
-              <option value="">Select Type</option>
-              {jobTypes.map((type) => (
-                <option key={type} value={type}>{type}</option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => {
-                const newItem = prompt("Enter new type:");
-                if (newItem && !jobTypes.includes(newItem)) {
-                  setJobTypes([...jobTypes, newItem]);
-                }
-              }}
-              className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-            >+ Add</button>
-          </div>
-        </div>
+            setFormData({
+              ...formData,
+              type: newType,
+              shootType: newShootType,
+              category: "",
+              subtype: "",
+              date: existingDate, // ensures camOpStatuses get triggered
+            });
+          }}
+          className="input flex-1"
+        >
+          <option value="">Select Type</option>
+          {jobTypes.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => {
+            const newItem = prompt("Enter new type:");
+            if (newItem && !jobTypes.includes(newItem)) {
+              setJobTypes([...jobTypes, newItem]);
+            }
+          }}
+          className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+        >
+          + Add
+        </button>
+      </div>
+    </div>
+
 
      {/* Assigned Reporter Dropdown */}
 <div className="space-y-2">
@@ -485,18 +492,24 @@ const handleSubmit = async (e) => {
       return null;
     })()}
 
-    <optgroup label="Journalists">
-      {users
-        .filter((u) =>
-          (u.roles || []).some((r) => r.toLowerCase() === "journalist") &&
-          u.name !== loggedInUser?.name
-        )
-        .map((u) => (
-          <option key={`journalist-${u.name}`} value={`Journalist: ${u.name}`}>
-            Journalist: {u.name}
-          </option>
-        ))}
-    </optgroup>
+   <optgroup label="Journalists">
+  {users
+    .filter((u) => {
+      const roles = (u.roles || []).map((r) => r.toLowerCase());
+      const desc = (u.description || "").toLowerCase();
+      return (
+        roles.includes("journalist") &&
+        !desc.includes("sports") &&
+        u.name !== loggedInUser?.name
+      );
+    })
+    .map((u) => (
+      <option key={`journalist-${u.name}`} value={`Journalist: ${u.name}`}>
+        Journalist: {u.name}
+      </option>
+    ))}
+</optgroup>
+
 
     <optgroup label="Sports Journalists">
       {users
@@ -690,9 +703,8 @@ const handleSubmit = async (e) => {
           <option value="Normal">Normal</option>
           <option value="Urgent">Urgent</option>
         </select>
-
-        {/* Camera Ops Section */}
-  {loggedInUser?.roles?.includes("admin") && (
+  {/* Camera Ops Section */}
+{["News", "Sports", "Production"].includes(formData.type) && (
   <div className="space-y-2">
     <label className="block font-semibold mb-1">Number of Cameras Required</label>
  <div className="space-y-2">
@@ -735,25 +747,49 @@ const handleSubmit = async (e) => {
     />
   )}
 </div>
-    <label className="flex items-center space-x-2">
-      <input
-        type="checkbox"
-        checked={formData.onlyOneCamOp}
+    <div className="flex items-center gap-4">
+  <label className="flex items-center space-x-2">
+    <input
+      type="checkbox"
+      checked={formData.onlyOneCamOp}
+      onChange={(e) =>
+        setFormData({
+          ...formData,
+          onlyOneCamOp: e.target.checked,
+          expectedCamOps: e.target.checked ? 1 : formData.expectedCamOps || 1,
+          camAssignments: {
+            ...formData.camAssignments,
+            cam2: "",
+            cam3: "",
+          },
+        })
+      }
+    />
+    <span>Only 1 Cam Op Required (Even For Multiple Cameras)</span>
+  </label>
+
+  {!formData.onlyOneCamOp && (
+    <div className="flex items-center space-x-2">
+      <label className="text-sm font-medium">Cam Ops Needed:</label>
+      <select
+        className="border rounded px-2 py-1 text-sm"
+        value={formData.expectedCamOps || 1}
         onChange={(e) =>
           setFormData({
             ...formData,
-            onlyOneCamOp: e.target.checked,
-            camAssignments: {
-              ...formData.camAssignments,
-              cam2: "",
-              cam3: "",
-            },
+            expectedCamOps: parseInt(e.target.value),
           })
         }
-      />
-      <span>Only 1 Cam Op Required (Even For Multiple Cameras)</span>
-    </label>
-
+      >
+        {Array.from({ length: 8 }, (_, i) => i + 1).map((num) => (
+          <option key={num} value={num}>
+            {num}
+          </option>
+        ))}
+      </select>
+    </div>
+  )}
+</div>  
    <div className="space-y-2">
   <label className="block font-semibold">Assign Camera Operators:</label>
  <MultiSelectCombobox
@@ -786,6 +822,18 @@ const handleSubmit = async (e) => {
   }}
 />
 </div>
+  {/* ✅ Extra checkbox just for Production */}
+    {formData.type === "Production" && (
+      <label className="flex items-center space-x-2 mt-2">
+        <input
+          type="checkbox"
+          name="requireDriver"
+          checked={formData.requireDriver || false}
+          onChange={handleChange}
+        />
+        <span>Require Driver?</span>
+      </label>
+    )}
   </div>
 )}
         <select

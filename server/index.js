@@ -1,5 +1,12 @@
 const fs = require("fs");
 const path = require("path");
+const connectDB = require("./db");
+let db;
+
+connectDB().then(database => {
+  db = database;
+});
+
 
 const DATA_DIR = path.join(__dirname, "data");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
@@ -271,39 +278,64 @@ app.get("/tickets", (req, res) => {
   res.json(tickets);
 });
 
-// ✅ Add ticket
-app.post("/tickets", (req, res) => {
-  const newTicket = req.body;
-  const tickets = JSON.parse(fs.readFileSync(TICKETS_FILE, "utf-8"));
-  newTicket.id = newTicket.id || Date.now().toString();
+// ✅ Add ticket (MongoDB version)
+app.post("/tickets", async (req, res) => {
+  try {
+    const newTicket = req.body;
+    newTicket.id = newTicket.id || Date.now().toString();
 
-  tickets.unshift(newTicket);
-  fs.writeFileSync(TICKETS_FILE, JSON.stringify(tickets, null, 2));
-  res.status(201).json(newTicket);
+    const ticketsCollection = db.collection("tickets");
+    await ticketsCollection.insertOne(newTicket);
+
+    res.status(201).json(newTicket);
+  } catch (error) {
+    console.error("❌ Failed to save ticket to MongoDB:", error);
+    res.status(500).json({ error: "Failed to save ticket" });
+  }
 });
 
-// ✅ Patch ticket
-app.patch("/tickets/:id", (req, res) => {
-  const id = req.params.id;
-  const updatedData = req.body;
-  const tickets = JSON.parse(fs.readFileSync(TICKETS_FILE, "utf-8"));
-  const index = tickets.findIndex((t) => String(t.id) === String(id));
 
-  if (index === -1) return res.status(404).json({ message: "Ticket not found" });
+// ✅ Patch ticket (MongoDB version)
+app.patch("/tickets/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const updatedData = req.body;
 
-  tickets[index] = { ...tickets[index], ...updatedData };
-  fs.writeFileSync(TICKETS_FILE, JSON.stringify(tickets, null, 2));
-  res.json(tickets[index]);
+    const ticketsCollection = db.collection("tickets");
+    const result = await ticketsCollection.findOneAndUpdate(
+      { id: id },
+      { $set: updatedData },
+      { returnDocument: "after" }
+    );
+
+    if (!result.value) {
+      return res.status(404).json({ message: "Ticket not found" });
+    }
+
+    res.json(result.value);
+  } catch (error) {
+    console.error("❌ Failed to patch ticket:", error);
+    res.status(500).json({ error: "Failed to update ticket" });
+  }
 });
 
-// ✅ Delete ticket
-app.delete("/tickets/:id", (req, res) => {
-  const id = req.params.id;
-  const tickets = JSON.parse(fs.readFileSync(TICKETS_FILE, "utf-8"));
-  const updated = tickets.filter((t) => String(t.id) !== String(id));
+// ✅ Delete ticket (MongoDB version)
+app.delete("/tickets/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
 
-  fs.writeFileSync(TICKETS_FILE, JSON.stringify(updated, null, 2));
-  res.json({ message: "Deleted successfully" });
+    const ticketsCollection = db.collection("tickets");
+    const result = await ticketsCollection.deleteOne({ id: id });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "Ticket not found" });
+    }
+
+    res.json({ success: true, deletedId: id });
+  } catch (error) {
+    console.error("❌ Failed to delete ticket:", error);
+    res.status(500).json({ error: "Failed to delete ticket" });
+  }
 });
 
 // ✅ Optional ticket endpoint

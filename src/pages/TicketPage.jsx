@@ -418,21 +418,28 @@ setSelectedTickets([]);
             </td>
           )}
 
-          {/* Title */}
-          <td className="p-2 text-center whitespace-nowrap">
-            {isEditing ? (
-              <input
-                type="text"
-                value={editData.title || ""}
-                onChange={(e) =>
-                  setEditData({ ...editData, title: e.target.value })
-                }
-                className="border px-2 py-1 rounded w-full"
-              />
-            ) : (
-              ticket.title
-            )}
-          </td>
+          {/* Title with Cam Op + Cam Count badge */}
+<td className="p-2 text-center whitespace-nowrap">
+  {isEditing ? (
+    <input
+      type="text"
+      value={editData.title || ""}
+      onChange={(e) =>
+        setEditData({ ...editData, title: e.target.value })
+      }
+      className="border px-2 py-1 rounded w-full"
+    />
+  ) : (
+    <div className="flex items-center justify-center gap-2">
+      <span>{ticket.title}</span>
+      {(ticket.camCount > 1 || ticket.expectedCamOps > 1) && (
+        <Badge variant="secondary" className="text-xs">
+          👤{ticket.expectedCamOps || 1}🎥{ticket.camCount || 1}
+        </Badge>
+      )}
+    </div>
+  )}
+</td>
 
        {/* Filming Date & Time */}
 <td className="p-2 text-center whitespace-nowrap">
@@ -625,59 +632,84 @@ setSelectedTickets([]);
           </td>
         </tr>
 
-        {/* Expanded Row */}
-        {isExpanded && (
-          <tr className="bg-gray-100">
-            <td
-              colSpan={showSelectBoxes ? 9 : 8}
-              className="p-4 text-sm text-gray-700"
-            >
-             <div className="mb-2">
-  <strong>Assigned By:</strong>{" "}
-  <span className="text-gray-700 font-medium">
-    {ticket.assignedBy || "Unknown"}
-  </span>
-</div>
-
-<div>
-  <strong>Notes:</strong>
-  {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
-    <ul className="list-disc list-inside ml-2 mt-1">
-      {ticket.notes.map((note, noteIdx) => (
-        <li key={noteIdx}>
-          {note.text}{" "}
-          <span className="text-gray-500 text-xs">
-            — {note.author}, {note.timestamp}
-          </span>
-        </li>
-      ))}
-    </ul>
-  ) : (
-    <p className="text-gray-500 italic">No notes</p>
-  )}
-</div>
-              {canAddNotes && (
-                <div className="mt-2">
-                  <input
-                    type="text"
-                    placeholder="Add note"
-                    value={newNotes[index] || ""}
-                    onChange={(e) =>
-                      setNewNotes({ ...newNotes, [index]: e.target.value })
-                    }
-                    className="border rounded p-1 w-2/3 mr-2"
-                  />
-                  <button
-                    onClick={() => handleAddNote(index)}
-                    className="text-xs text-blue-600 hover:underline"
-                  >
-                    Add Note
-                  </button>
-                </div>
-              )}
-            </td>
-          </tr>
+        {/* Expanded Row with camera info and category/subtype */}
+{isExpanded && (
+  <tr className="bg-gray-100">
+    <td
+      colSpan={showSelectBoxes ? 9 : 8}
+      className="p-4 text-sm text-gray-700"
+    >
+      <div className="mb-2 space-y-1">
+  <div><strong>Number of Cameras:</strong> {ticket.camCount}</div>
+  <div>
+    <strong>Cam Op Requirement:</strong>{" "}
+    {ticket.expectedCamOps
+      ? `${ticket.expectedCamOps} operator${ticket.expectedCamOps > 1 ? "s" : ""} expected`
+      : ticket.onlyOneCamOp
+      ? "Only one operator required"
+      : "Multiple operators expected"}
+  </div>
+  <div>
+    <strong>Assigned Cam Ops:</strong>{" "}
+    {Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0
+      ? ticket.assignedCamOps.join(", ")
+      : "-"}
+  </div>
+        {ticket.type === "News" && ticket.category && (
+          <div><strong>News Category:</strong> {ticket.category}</div>
         )}
+        {ticket.type === "Sports" && ticket.subtype && (
+          <div><strong>Sports Subtype:</strong> {ticket.subtype}</div>
+        )}
+      </div>
+
+      <div className="mt-3">
+        <strong>Assigned By:</strong>{" "}
+        <span className="text-gray-700 font-medium">
+          {ticket.assignedBy || "Unknown"}
+        </span>
+      </div>
+
+      <div className="mt-2">
+        <strong>Notes:</strong>
+        {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
+          <ul className="list-disc list-inside ml-2 mt-1">
+            {ticket.notes.map((note, noteIdx) => (
+              <li key={noteIdx}>
+                {note.text}{" "}
+                <span className="text-gray-500 text-xs">
+                  — {note.author}, {note.timestamp}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-gray-500 italic">No notes</p>
+        )}
+      </div>
+
+      {canAddNotes && (
+        <div className="mt-2">
+          <input
+            type="text"
+            placeholder="Add note"
+            value={newNotes[index] || ""}
+            onChange={(e) =>
+              setNewNotes({ ...newNotes, [index]: e.target.value })
+            }
+            className="border rounded p-1 w-2/3 mr-2"
+          />
+          <button
+            onClick={() => handleAddNote(index)}
+            className="text-xs text-blue-600 hover:underline"
+          >
+            Add Note
+          </button>
+        </div>
+      )}
+    </td>
+  </tr>
+)}
       </React.Fragment>
     );
   })}

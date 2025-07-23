@@ -114,119 +114,118 @@ function App() {
   }, []);
 
   return (
-    <>
-    <Toaster toastOptions={{ position: "top-center" }} />
-      {!hideLayout && (
-        <Navbar
-          loggedInUser={loggedInUser}
-          setLoggedInUser={setLoggedInUser}
-          users={users}
+  <>
+    {!hideLayout && (
+      <Navbar
+        loggedInUser={loggedInUser}
+        setLoggedInUser={setLoggedInUser}
+        users={users}
+      />
+    )}
+
+    <div className="p-4 min-h-[80vh]">
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <HomeCarousel
+              tickets={tickets}
+              users={users}
+              vehicles={vehicles}
+              loggedInUser={loggedInUser}
+              setTickets={setTickets}
+            />
+          }
         />
-      )}
-
-      <div className="p-4 min-h-[80vh]">
-        <Routes>
-          <Route
-            path="/"
-            element={
+        <Route
+          path="/operations"
+          element={
+            <OperationsPage
+              users={users}
+              setUsers={setUsers}
+              tickets={tickets}
+              loggedInUser={loggedInUser}
+            />
+          }
+        />
+        <Route
+          path="/fleet"
+          element={
+            <FleetPage
+              vehicles={vehicles}
+              setVehicles={setVehicles}
+              loggedInUser={loggedInUser}
+              tickets={tickets}
+            />
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            loggedInUser?.roles?.includes("admin") ? (
+              <AdminPage users={users} setUsers={setUsers} />
+            ) : (
               <HomeCarousel
                 tickets={tickets}
                 users={users}
-                vehicles={vehicles}
                 loggedInUser={loggedInUser}
                 setTickets={setTickets}
               />
-            }
-          />
-          <Route
-            path="/operations"
-            element={
-              <OperationsPage
-                users={users}
-                setUsers={setUsers}
-                tickets={tickets}
-                loggedInUser={loggedInUser}
-              />
-            }
-          />
-          <Route
-            path="/fleet"
-            element={
-              <FleetPage
-                vehicles={vehicles}
-                setVehicles={setVehicles}
-                loggedInUser={loggedInUser}
-                tickets={tickets}
-              />
-            }
-          />
-          <Route
-            path="/admin"
-            element={
-              loggedInUser?.roles?.includes("admin") ? (
-                <AdminPage users={users} setUsers={setUsers} />
-              ) : (
-                <HomeCarousel
-                  tickets={tickets}
-                  users={users}
-                  loggedInUser={loggedInUser}
-                  setTickets={setTickets}
-                />
-              )
-            }
-          />
-          <Route
-            path="/login"
-            element={<LoginPage users={users} setLoggedInUser={setLoggedInUser} />}
-          />
-          <Route path="/set-password" element={<SetPasswordPage />} />
-          <Route
-            path="/tickets"
-            element={
-              <TicketPage
-                tickets={tickets}
-                setTickets={setTickets}
-                archivedTickets={archivedTickets}
-                setArchivedTickets={setArchivedTickets}
-                deletedTickets={deletedTickets}
-                setDeletedTickets={setDeletedTickets}
-                users={users}
-                vehicles={vehicles}
-                loggedInUser={loggedInUser}
-              />
-            }
-          />
-          <Route
-            path="/create"
-            element={
-              <TicketForm
-                users={users}
-                tickets={tickets}
-                setTickets={setTickets}
-                loggedInUser={loggedInUser}
-                vehicles={vehicles}
-              />
-            }
-          />
-          <Route
-            path="*"
-            element={
-              <HomeCarousel
-                tickets={tickets}
-                users={users}
-                vehicles={vehicles}
-                loggedInUser={loggedInUser}
-                setTickets={setTickets}
-              />
-            }
-          />
-        </Routes>
-      </div>
+            )
+          }
+        />
+        <Route
+          path="/login"
+          element={<LoginPage users={users} setLoggedInUser={setLoggedInUser} />}
+        />
+        <Route path="/set-password" element={<SetPasswordPage />} />
+        <Route
+          path="/tickets"
+          element={
+            <TicketPage
+              tickets={tickets}
+              setTickets={setTickets}
+              archivedTickets={archivedTickets}
+              setArchivedTickets={setArchivedTickets}
+              deletedTickets={deletedTickets}
+              setDeletedTickets={setDeletedTickets}
+              users={users}
+              vehicles={vehicles}
+              loggedInUser={loggedInUser}
+            />
+          }
+        />
+        <Route
+          path="/create"
+          element={
+            <TicketForm
+              users={users}
+              tickets={tickets}
+              setTickets={setTickets}
+              loggedInUser={loggedInUser}
+              vehicles={vehicles}
+            />
+          }
+        />
+        <Route
+          path="*"
+          element={
+            <HomeCarousel
+              tickets={tickets}
+              users={users}
+              vehicles={vehicles}
+              loggedInUser={loggedInUser}
+              setTickets={setTickets}
+            />
+          }
+        />
+      </Routes>
+    </div>
 
-      {!hideLayout && <Footer />}
-       <Toaster toastOptions={{ position: "top-center" }} />
-    </>
-  );
+    {!hideLayout && <Footer />}
+    <Toaster toastOptions={{ position: "top-center" }} />
+  </>
+);
 }
 
 export default AppWrapper;

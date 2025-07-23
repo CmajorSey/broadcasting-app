@@ -95,8 +95,7 @@
       "admin",
       "driver",
       "camOp",
-      "producer",
-      "journalist"
+      "producer"
     ],
     "description": "Channel Producer",
     "hiddenRoles": [],
@@ -163,7 +162,7 @@
   },
   {
     "id": "1752899657893",
-    "name": "Jiad Boniface",
+    "name": "Juiad Boniface",
     "roles": [
       "journalist",
       "driver_limited"
