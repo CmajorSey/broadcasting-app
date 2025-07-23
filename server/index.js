@@ -1,21 +1,24 @@
-const fs = require("fs");
-const path = require("path");
-const connectDB = require("./db");
-let db;
+import dotenv from "dotenv";
+import { MongoClient } from "mongodb";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import connectDB from "./db.js";
+import express from "express";
+import http from "http";
+import cors from "cors";
 
-connectDB().then(database => {
-  db = database;
-});
+dotenv.config();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const DATA_DIR = path.join(__dirname, "data");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 
-const express = require("express");
-const http = require("http");
-const cors = require("cors");
 const app = express();
 const PORT = 4000;
+
 
 
 app.use(cors({
@@ -273,10 +276,16 @@ app.delete("/vehicles/:id", (req, res) => {
 
 
 // ✅ Get all tickets
-app.get("/tickets", (req, res) => {
-  const tickets = JSON.parse(fs.readFileSync(TICKETS_FILE, "utf-8"));
-  res.json(tickets);
+app.get("/tickets", async (req, res) => {
+  try {
+    const tickets = await db.collection("tickets").find({}).toArray();
+    res.json(tickets);
+  } catch (error) {
+    console.error("❌ Failed to fetch tickets from MongoDB:", error);
+    res.status(500).json({ error: "Failed to fetch tickets" });
+  }
 });
+
 
 // ✅ Add ticket (MongoDB version)
 app.post("/tickets", async (req, res) => {
