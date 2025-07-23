@@ -119,46 +119,22 @@ export default function TicketPage({ users, vehicles, loggedInUser }) {
 
 const handleStatusChange = async (ticketId, newStatus) => {
   try {
-    const updatedFields = { assignmentStatus: newStatus };
-
-    // Optimistically update state first
-    setTickets((prev) =>
-      prev.map((t) =>
-        String(t.id) === String(ticketId) ? { ...t, ...updatedFields } : t
-      )
-    );
-
     const res = await fetch(`${API_BASE}/tickets/${ticketId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updatedFields),
+      body: JSON.stringify({ assignmentStatus: newStatus }),
     });
 
     if (!res.ok) throw new Error("Failed to update status");
 
-    const updatedFromServer = await res.json();
-
-    // Final sync with backend-confirmed result
+    const updated = await res.json();
     setTickets((prev) =>
-      prev.map((t) =>
-        String(t.id) === String(ticketId) ? { ...t, ...updatedFromServer.updated } : t
-      )
+      prev.map((t) => (t.id === ticketId ? updated : t))
     );
-
-    toast({
-      title: "Status updated",
-      description: `Ticket is now marked as "${newStatus}".`,
-    });
   } catch (err) {
     console.error("Error updating status:", err);
-    toast({
-      title: "Error",
-      description: "Failed to update status. Try again.",
-      variant: "destructive",
-    });
   }
 };
-
   const driverOptions = users.filter(
     (u) => u.roles.includes("driver") || u.roles.includes("driver_limited")
   );
@@ -221,25 +197,15 @@ const handleStatusChange = async (ticketId, newStatus) => {
   }
 
   updatedData.vehicle = updatedData.vehicle ? String(updatedData.vehicle) : "";
-  updatedData.title = updatedData.title || "";
-  updatedData.date = updatedData.date || tickets[index].date || "";
-  updatedData.filmingTime = updatedData.filmingTime || tickets[index].filmingTime || "";
-  updatedData.departureTime = updatedData.departureTime || tickets[index].departureTime || "";
-  updatedData.assignedCamOps = updatedData.assignedCamOps || tickets[index].assignedCamOps || [];
-  updatedData.location = updatedData.location || tickets[index].location || "";
 
   const updatedTicket = {
-    ...tickets[index],
+    ...updatedTickets[index],
     ...updatedData,
     assignedBy: loggedInUser?.name || "Unknown",
   };
 
-  // Optimistic UI update
-  updatedTickets[index] = updatedTicket;
-  setTickets(updatedTickets);
-
   try {
-    const res = await fetch(`${API_BASE}/tickets/${updatedTicket.id}`, {
+     const res = await fetch(`${API_BASE}/tickets/${updatedTicket.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedTicket),
@@ -249,25 +215,18 @@ const handleStatusChange = async (ticketId, newStatus) => {
 
     const savedTicket = await res.json();
     updatedTickets[index] = savedTicket;
-    setTickets(updatedTickets);
 
-    toast({
-      title: "Ticket updated",
-      description: `Updates to "${savedTicket.title}" saved successfully.`,
-    });
+    setTickets(updatedTickets);
+    setEditingIndex(null);
   } catch (err) {
     console.error("Failed to save ticket edits:", err);
-    toast({
-      title: "Error",
-      description: "Failed to save changes. Please try again.",
-      variant: "destructive",
-    });
-  } finally {
-    setEditingIndex(null);
+    alert("Failed to save changes. Please try again.");
   }
 };
-
-
+  const cancelEditing = () => {
+    setEditingIndex(null);
+    setEditData({});
+  };
 
   const toggleSelect = (index) => {
     if (selectedTickets.includes(index)) {
