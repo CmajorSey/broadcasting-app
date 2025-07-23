@@ -306,19 +306,19 @@ app.post("/tickets", async (req, res) => {
 });
 
 
-// ✅ Patch ticket (MongoDB-safe version)
+// ✅ PATCH with string+number fallback
 app.patch("/tickets/:id", async (req, res) => {
   try {
-    const id = req.params.id.toString();
+    const id = req.params.id;
     const updatedData = { ...req.body };
-
-    delete updatedData._id; // 🔥 Critical: do NOT update _id
+    delete updatedData._id;
 
     console.log("🛠 PATCH ID:", id);
     console.log("📦 Cleaned update payload:", updatedData);
 
+    // Try both string and number versions
     const result = await db.collection("tickets").findOneAndUpdate(
-      { id },
+      { $or: [{ id: id }, { id: Number(id) }] },
       { $set: updatedData },
       { returnOriginal: false }
     );
