@@ -11,7 +11,9 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DATA_DIR = path.join(__dirname, "data");
+// ✅ Use persistent disk if on Render Starter plan
+const DATA_DIR = "/data"; // this matches the mount path in Render disk settings
+
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 
 const app = express();
