@@ -318,7 +318,7 @@ app.patch("/tickets/:id", async (req, res) => {
     const result = await db.collection("tickets").findOneAndUpdate(
       { id: id },
       { $set: updatedData },
-      { returnOriginal: false } // ✅ use this for compatibility
+      { returnOriginal: false } // ✅ legacy-compatible option
     );
 
     if (!result.value) {
@@ -329,7 +329,11 @@ app.patch("/tickets/:id", async (req, res) => {
     res.json({ success: true, updated: result.value });
   } catch (error) {
     console.error("❌ Failed to patch ticket:", error);
-    res.status(500).json({ error: "Failed to update ticket", reason: error.message });
+    res.status(500).json({
+      error: "Failed to update ticket",
+      reason: error.message,
+      stack: error.stack, // 🔍 for deeper debugging
+    });
   }
 });
 
