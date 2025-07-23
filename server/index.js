@@ -76,6 +76,7 @@ if (!fs.existsSync(SETTINGS_FILE)) {
     )
   );
 }
+
 // GET roster by weekStart
 app.get("/rosters/:weekStart", (req, res) => {
   const { weekStart } = req.params;
