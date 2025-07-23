@@ -56,21 +56,14 @@ if (!fs.existsSync(TICKETS_FILE)) {
   fs.writeFileSync(TICKETS_FILE, JSON.stringify([]));
 }
 
+const USERS_DEFAULT_FILE = path.join(__dirname, "data", "users.json");
+
 if (!fs.existsSync(USERS_FILE)) {
-  fs.writeFileSync(
-    USERS_FILE,
-    JSON.stringify(
-      [
-        { id: 1, name: "Admin", password: "admin123", roles: ["admin"] },
-        { id: 2, name: "Producer", password: "prod456", roles: ["producer"] },
-        { id: 3, name: "CamOp", password: "cam789", roles: ["camOp"] },
-        { id: 4, name: "Driver", password: "drive321", roles: ["driver"] }
-      ],
-      null,
-      2
-    )
-  );
+  // If disk file doesn't exist, copy from Git-tracked default
+  const defaultUsers = fs.readFileSync(USERS_DEFAULT_FILE, "utf-8");
+  fs.writeFileSync(USERS_FILE, defaultUsers);
 }
+
 if (!fs.existsSync(SETTINGS_FILE)) {
   fs.writeFileSync(
     SETTINGS_FILE,
