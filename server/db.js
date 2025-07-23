@@ -5,7 +5,12 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const uri = process.env.MONGO_URI;
-const client = new MongoClient(uri);
+const client = new MongoClient(uri, {
+  tls: true,
+  retryWrites: true,
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+});
 
 
 async function connectDB() {
