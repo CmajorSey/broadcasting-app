@@ -319,7 +319,7 @@ app.patch("/tickets/:id", async (req, res) => {
     const result = await db.collection("tickets").findOneAndUpdate(
       { id: id }, // match ticket ID as string
       { $set: updatedData },
-      { returnOriginal: false }
+      { returnDocument: "after" } // ✅ modern MongoDB option
     );
 
     if (!result.value) {
