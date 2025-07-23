@@ -9,6 +9,7 @@ import http from "http";
 import cors from "cors";
 
 dotenv.config();
+let db; // 🔑 Declare `db` so it's accessible globally
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -404,15 +405,21 @@ app.get(/^\/(?!api\/|users|tickets|vehicles|rosters|seed-vehicles).*/, (req, res
 
 
 // ✅ Start HTTPS server on LAN
-connectDB().then(database => {
-  db = database;
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ Backend server is running at http://0.0.0.0:${PORT} (LAN-enabled)`);
+connectDB()
+  .then((database) => {
+    db = database;
+
+    // ✅ Start server
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`✅ Backend server is running at http://0.0.0.0:${PORT} (LAN-enabled)`);
+    });
+  })
+  .catch((err) => {
+    console.error("❌ Could not connect to MongoDB. Server not started.");
+    console.error(err);
   });
-}).catch(err => {
-  console.error("❌ Could not connect to MongoDB. Server not started.");
-  console.error(err);
-});
+
+
 
 
 
