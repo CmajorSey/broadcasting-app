@@ -76,6 +76,20 @@ if (!fs.existsSync(SETTINGS_FILE)) {
     )
   );
 }
+// ✅ TEMP ROUTE: Overwrite disk users.json with the real Git-tracked file
+app.get("/force-import-users", (req, res) => {
+  const USERS_DEFAULT_FILE = path.join(__dirname, "data", "users.json");
+
+  try {
+    const defaultUsers = fs.readFileSync(USERS_DEFAULT_FILE, "utf-8");
+    fs.writeFileSync(USERS_FILE, defaultUsers);
+    res.json({ message: "✅ Live /data/users.json has been overwritten from Git-tracked users.json." });
+  } catch (err) {
+    console.error("❌ Failed to import users:", err);
+    res.status(500).json({ error: "Failed to overwrite users.json" });
+  }
+});
+
 
 // GET roster by weekStart
 app.get("/rosters/:weekStart", (req, res) => {
