@@ -278,14 +278,15 @@ app.delete("/vehicles/:id", (req, res) => {
 // ✅ Get all tickets
 app.get("/tickets", async (req, res) => {
   try {
+    console.log("📥 Incoming request to /tickets");
     const tickets = await db.collection("tickets").find({}).toArray();
+    console.log("✅ Tickets fetched:", tickets.length);
     res.json(tickets);
   } catch (error) {
-    console.error("❌ Failed to fetch tickets from MongoDB:", error);
-    res.status(500).json({ error: "Failed to fetch tickets" });
+    console.error("❌ MongoDB fetch error:", error.message);
+    res.status(500).json({ error: "Failed to fetch tickets", reason: error.message });
   }
 });
-
 
 // ✅ Add ticket (MongoDB version)
 app.post("/tickets", async (req, res) => {
