@@ -309,18 +309,15 @@ app.post("/tickets", async (req, res) => {
 // ✅ PATCH ticket safely by ID (string)
 app.patch("/tickets/:id", async (req, res) => {
   try {
-    const id = req.params.id.toString(); // keep as string
+    const id = req.params.id.toString(); // ensure it's a string
     const updatedData = { ...req.body };
-    delete updatedData._id; // remove MongoDB’s immutable field
+    delete updatedData._id; // avoid immutable error
 
     console.log("🛠 PATCH ID:", id);
     console.log("📦 Cleaned update payload:", updatedData);
-    console.log("🧪 PATCHING TICKET", ticket.id, typeof ticket.id);
 
-
-    // Strictly match string-form ID
     const result = await db.collection("tickets").findOneAndUpdate(
-      { id: id },
+      { id: id }, // match ticket ID as string
       { $set: updatedData },
       { returnOriginal: false }
     );
@@ -330,6 +327,7 @@ app.patch("/tickets/:id", async (req, res) => {
       return res.status(404).json({ message: "Ticket not found" });
     }
 
+    // ✅ Success
     res.json({ success: true, updated: result.value });
   } catch (error) {
     console.error("❌ Failed to patch ticket:", error);
@@ -340,6 +338,7 @@ app.patch("/tickets/:id", async (req, res) => {
     });
   }
 });
+
 
 
 // ✅ Delete ticket (MongoDB version)
