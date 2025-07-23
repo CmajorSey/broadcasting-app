@@ -273,30 +273,32 @@ const handleSubmit = async (e) => {
   const name = loggedInUser?.name || "Unknown";
 
   const newTicket = {
-    ...formData,
-    filmingTime: formData.filmingTime || filmingTimeFromDate || "",
-    status: "Pending",
-    assignedCamOps: formData.assignedCamOps || [],
-    assignedDriver: formData.assignedDriver || "",
-    vehicle: formData.vehicle || "",
-    vehicleStatus: "",
-    assignmentStatus: "Unassigned",
-    isReady: false,
-    assignedReporter:
-      formData.assignedReporter ||
-      `${loggedInUser?.description || "Journalist"} ${name}`,
-    notes: formData.notes
-      ? [
-          {
-            text: formData.notes.trim(),
-            author: name,
-            timestamp: new Date().toLocaleString(),
-          },
-        ]
-      : [],
-    createdBy: name,
-    createdAt: new Date().toISOString(),
-  };
+  id: Date.now().toString(), // ✅ Generate a unique ID here
+  ...formData,
+  filmingTime: formData.filmingTime || filmingTimeFromDate || "",
+  status: "Pending",
+  assignedCamOps: formData.assignedCamOps || [],
+  assignedDriver: formData.assignedDriver || "",
+  vehicle: formData.vehicle || "",
+  vehicleStatus: "",
+  assignmentStatus: "Unassigned",
+  isReady: false,
+  assignedReporter:
+    formData.assignedReporter ||
+    `${loggedInUser?.description || "Journalist"} ${name}`,
+  notes: formData.notes
+    ? [
+        {
+          text: formData.notes.trim(),
+          author: name,
+          timestamp: new Date().toLocaleString(),
+        },
+      ]
+    : [],
+  createdBy: name,
+  createdAt: new Date().toISOString(),
+};
+
 
   console.log("🚀 handleSubmit triggered");
 
