@@ -315,6 +315,8 @@ app.patch("/tickets/:id", async (req, res) => {
 
     console.log("🛠 PATCH ID:", id);
     console.log("📦 Cleaned update payload:", updatedData);
+    console.log("🧪 PATCHING TICKET", ticket.id, typeof ticket.id);
+
 
     // Strictly match string-form ID
     const result = await db.collection("tickets").findOneAndUpdate(
