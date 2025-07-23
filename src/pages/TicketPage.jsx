@@ -221,15 +221,25 @@ const handleStatusChange = async (ticketId, newStatus) => {
   }
 
   updatedData.vehicle = updatedData.vehicle ? String(updatedData.vehicle) : "";
+  updatedData.title = updatedData.title || "";
+  updatedData.date = updatedData.date || tickets[index].date || "";
+  updatedData.filmingTime = updatedData.filmingTime || tickets[index].filmingTime || "";
+  updatedData.departureTime = updatedData.departureTime || tickets[index].departureTime || "";
+  updatedData.assignedCamOps = updatedData.assignedCamOps || tickets[index].assignedCamOps || [];
+  updatedData.location = updatedData.location || tickets[index].location || "";
 
   const updatedTicket = {
-    ...updatedTickets[index],
+    ...tickets[index],
     ...updatedData,
     assignedBy: loggedInUser?.name || "Unknown",
   };
 
+  // Optimistic UI update
+  updatedTickets[index] = updatedTicket;
+  setTickets(updatedTickets);
+
   try {
-     const res = await fetch(`${API_BASE}/tickets/${updatedTicket.id}`, {
+    const res = await fetch(`${API_BASE}/tickets/${updatedTicket.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedTicket),
@@ -239,18 +249,25 @@ const handleStatusChange = async (ticketId, newStatus) => {
 
     const savedTicket = await res.json();
     updatedTickets[index] = savedTicket;
-
     setTickets(updatedTickets);
-    setEditingIndex(null);
+
+    toast({
+      title: "Ticket updated",
+      description: `Updates to "${savedTicket.title}" saved successfully.`,
+    });
   } catch (err) {
     console.error("Failed to save ticket edits:", err);
-    alert("Failed to save changes. Please try again.");
+    toast({
+      title: "Error",
+      description: "Failed to save changes. Please try again.",
+      variant: "destructive",
+    });
+  } finally {
+    setEditingIndex(null);
   }
 };
-  const cancelEditing = () => {
-    setEditingIndex(null);
-    setEditData({});
-  };
+
+
 
   const toggleSelect = (index) => {
     if (selectedTickets.includes(index)) {
