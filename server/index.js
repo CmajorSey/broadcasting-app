@@ -306,19 +306,19 @@ app.post("/tickets", async (req, res) => {
 });
 
 
-// ✅ PATCH with string+number fallback
+// ✅ PATCH ticket safely by ID (string)
 app.patch("/tickets/:id", async (req, res) => {
   try {
-    const id = req.params.id;
+    const id = req.params.id.toString(); // keep as string
     const updatedData = { ...req.body };
-    delete updatedData._id;
+    delete updatedData._id; // remove MongoDB’s immutable field
 
     console.log("🛠 PATCH ID:", id);
     console.log("📦 Cleaned update payload:", updatedData);
 
-    // Try both string and number versions
+    // Strictly match string-form ID
     const result = await db.collection("tickets").findOneAndUpdate(
-      { $or: [{ id: id }, { id: Number(id) }] },
+      { id: id },
       { $set: updatedData },
       { returnOriginal: false }
     );
