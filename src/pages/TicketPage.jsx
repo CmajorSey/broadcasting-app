@@ -205,7 +205,7 @@ const handleStatusChange = async (ticketId, newStatus) => {
   };
 
   try {
-     const res = await fetch(`${API_BASE}/tickets/${updatedTicket.id}`, {
+    const res = await fetch(`${API_BASE}/tickets/${updatedTicket.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedTicket),
@@ -213,20 +213,23 @@ const handleStatusChange = async (ticketId, newStatus) => {
 
     if (!res.ok) throw new Error("Failed to update ticket");
 
-    const savedTicket = await res.json();
-    updatedTickets[index] = savedTicket;
+    // ✅ Refresh full ticket list
+    const refreshed = await fetch(`${API_BASE}/tickets`);
+    const data = await refreshed.json();
+    setTickets(data);
 
-    setTickets(updatedTickets);
     setEditingIndex(null);
   } catch (err) {
     console.error("Failed to save ticket edits:", err);
     alert("Failed to save changes. Please try again.");
   }
 };
-  const cancelEditing = () => {
-    setEditingIndex(null);
-    setEditData({});
-  };
+
+const cancelEditing = () => {
+  setEditingIndex(null);
+  setEditData({});
+};
+
 
   const toggleSelect = (index) => {
     if (selectedTickets.includes(index)) {
