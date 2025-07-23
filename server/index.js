@@ -1,15 +1,12 @@
-import dotenv from "dotenv";
-import { MongoClient } from "mongodb";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import connectDB from "./db.js";
 import express from "express";
 import http from "http";
 import cors from "cors";
+import dotenv from "dotenv";
 
 dotenv.config();
-let db; // 🔑 Declare `db` so it's accessible globally
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,8 +15,7 @@ const DATA_DIR = path.join(__dirname, "data");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 
 const app = express();
-const PORT = 4000;
-
+const PORT = process.env.PORT || 4000;
 
 
 app.use(cors({
@@ -35,11 +31,6 @@ app.use(cors({
 
 app.use(express.json());
 
-
-const options = {
-  key: fs.readFileSync(path.join(__dirname, "192.168.137.1-key.pem")),
-  cert: fs.readFileSync(path.join(__dirname, "192.168.137.1.pem")),
-};
 
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
@@ -277,88 +268,76 @@ app.delete("/vehicles/:id", (req, res) => {
 
 
 // ✅ Get all tickets
-app.get("/tickets", async (req, res) => {
+// ✅ Get all tickets (file-based version)
+app.get("/tickets", (req, res) => {
   try {
-    console.log("📥 Incoming request to /tickets");
-    const tickets = await db.collection("tickets").find({}).toArray();
-    console.log("✅ Tickets fetched:", tickets.length);
+    const data = fs.readFileSync(TICKETS_FILE, "utf-8");
+    const tickets = JSON.parse(data);
     res.json(tickets);
   } catch (error) {
-    console.error("❌ MongoDB fetch error:", error.message);
-    res.status(500).json({ error: "Failed to fetch tickets", reason: error.message });
+    console.error("Failed to read tickets:", error);
+    res.status(500).json({ error: "Failed to read tickets" });
   }
 });
 
-// ✅ Add ticket (MongoDB version)
-app.post("/tickets", async (req, res) => {
+// ✅ Add ticket
+app.post("/tickets", (req, res) => {
   try {
+    const tickets = JSON.parse(fs.readFileSync(TICKETS_FILE, "utf-8"));
     const newTicket = req.body;
-    newTicket.id = newTicket.id || Date.now().toString();
 
-    const ticketsCollection = db.collection("tickets");
-    await ticketsCollection.insertOne(newTicket);
+    if (!newTicket.id) {
+      newTicket.id = Date.now().toString();
+    }
 
+    tickets.push(newTicket);
+    fs.writeFileSync(TICKETS_FILE, JSON.stringify(tickets, null, 2));
     res.status(201).json(newTicket);
   } catch (error) {
-    console.error("❌ Failed to save ticket to MongoDB:", error);
+    console.error("Failed to save ticket:", error);
     res.status(500).json({ error: "Failed to save ticket" });
   }
 });
 
-
-// ✅ PATCH ticket safely by ID (string)
-app.patch("/tickets/:id", async (req, res) => {
+// ✅ Patch ticket by ID
+app.patch("/tickets/:id", (req, res) => {
   try {
-    const id = req.params.id.toString(); // ensure it's a string
-    const updatedData = { ...req.body };
-    delete updatedData._id; // avoid immutable error
+    const id = req.params.id;
+    const tickets = JSON.parse(fs.readFileSync(TICKETS_FILE, "utf-8"));
+    const index = tickets.findIndex((t) => String(t.id) === String(id));
 
-    console.log("🛠 PATCH ID:", id);
-    console.log("📦 Cleaned update payload:", updatedData);
-
-    const result = await db.collection("tickets").findOneAndUpdate(
-      { id: id }, // match ticket ID as string
-      { $set: updatedData },
-      { returnDocument: "after" } // ✅ modern MongoDB option
-    );
-
-    if (!result.value) {
-      console.warn("⚠️ No ticket found for ID:", id);
+    if (index === -1) {
       return res.status(404).json({ message: "Ticket not found" });
     }
 
-    // ✅ Success
-    res.json({ success: true, updated: result.value });
+    tickets[index] = { ...tickets[index], ...req.body };
+    fs.writeFileSync(TICKETS_FILE, JSON.stringify(tickets, null, 2));
+    res.json({ success: true, updated: tickets[index] });
   } catch (error) {
-    console.error("❌ Failed to patch ticket:", error);
-    res.status(500).json({
-      error: "Failed to update ticket",
-      reason: error.message,
-      stack: error.stack,
-    });
+    console.error("Failed to update ticket:", error);
+    res.status(500).json({ error: "Failed to update ticket" });
   }
 });
 
-
-
-// ✅ Delete ticket (MongoDB version)
-app.delete("/tickets/:id", async (req, res) => {
+// ✅ Delete ticket
+app.delete("/tickets/:id", (req, res) => {
   try {
     const id = req.params.id;
+    let tickets = JSON.parse(fs.readFileSync(TICKETS_FILE, "utf-8"));
+    const index = tickets.findIndex((t) => String(t.id) === String(id));
 
-    const result = await db.collection("tickets").deleteOne({ id });
-
-    if (result.deletedCount === 0) {
+    if (index === -1) {
       return res.status(404).json({ message: "Ticket not found" });
     }
 
+    tickets.splice(index, 1);
+    fs.writeFileSync(TICKETS_FILE, JSON.stringify(tickets, null, 2));
     res.json({ success: true, deletedId: id });
   } catch (error) {
-    console.error("❌ Failed to delete ticket:", error);
+    console.error("Failed to delete ticket:", error);
     res.status(500).json({ error: "Failed to delete ticket" });
   }
 });
-
 
 // ✅ Development tool: seed vehicles
 app.get("/seed-vehicles", (req, res) => {
@@ -384,6 +363,7 @@ app.get("/seed-vehicles", (req, res) => {
   res.json({ message: "🚐 Vehicles seeded!" });
 });
 
+
 // ✅ Health check
 app.get("/", (req, res) => {
   res.send("Backend is running!");
@@ -404,20 +384,11 @@ app.get(/^\/(?!api\/|users|tickets|vehicles|rosters|seed-vehicles).*/, (req, res
 
 
 
-// ✅ Start HTTPS server on LAN
-connectDB()
-  .then((database) => {
-    db = database;
+// ✅ Start server on Render or LAN
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Backend server is running at http://0.0.0.0:${PORT}`);
+});
 
-    // ✅ Start server
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`✅ Backend server is running at http://0.0.0.0:${PORT} (LAN-enabled)`);
-    });
-  })
-  .catch((err) => {
-    console.error("❌ Could not connect to MongoDB. Server not started.");
-    console.error(err);
-  });
 
 
 
