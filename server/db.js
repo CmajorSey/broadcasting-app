@@ -7,10 +7,10 @@ dotenv.config();
 const uri = process.env.MONGO_URI;
 const client = new MongoClient(uri, {
   tls: true,
-  retryWrites: true,
-  useNewUrlParser: true,
-  useUnifiedTopology: true
+  tlsAllowInvalidCertificates: false,
+  retryWrites: true
 });
+
 
 
 async function connectDB() {
