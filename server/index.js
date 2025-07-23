@@ -312,9 +312,8 @@ app.patch("/tickets/:id", async (req, res) => {
     const id = req.params.id;
     const updatedData = req.body;
 
-    const ticketsCollection = db.collection("tickets");
-    const result = await ticketsCollection.findOneAndUpdate(
-      { id: id },
+    const result = await db.collection("tickets").findOneAndUpdate(
+      { id },
       { $set: updatedData },
       { returnDocument: "after" }
     );
@@ -323,20 +322,20 @@ app.patch("/tickets/:id", async (req, res) => {
       return res.status(404).json({ message: "Ticket not found" });
     }
 
-    res.json(result.value);
+    res.json({ success: true, updated: result.value });
   } catch (error) {
     console.error("❌ Failed to patch ticket:", error);
     res.status(500).json({ error: "Failed to update ticket" });
   }
 });
 
+
 // ✅ Delete ticket (MongoDB version)
 app.delete("/tickets/:id", async (req, res) => {
   try {
     const id = req.params.id;
 
-    const ticketsCollection = db.collection("tickets");
-    const result = await ticketsCollection.deleteOne({ id: id });
+    const result = await db.collection("tickets").deleteOne({ id });
 
     if (result.deletedCount === 0) {
       return res.status(404).json({ message: "Ticket not found" });
@@ -349,16 +348,6 @@ app.delete("/tickets/:id", async (req, res) => {
   }
 });
 
-// ✅ Optional ticket endpoint
-app.post("/api/tickets", (req, res) => {
-  const newTicket = req.body;
-  if (!newTicket || !newTicket.title) {
-    return res.status(400).json({ message: "Invalid ticket data." });
-  }
-
-  console.log("✅ New ticket received:", newTicket);
-  res.status(201).json({ message: "Ticket saved successfully", ticket: newTicket });
-});
 
 // ✅ Development tool: seed vehicles
 app.get("/seed-vehicles", (req, res) => {
