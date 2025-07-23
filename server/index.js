@@ -76,6 +76,29 @@ if (!fs.existsSync(SETTINGS_FILE)) {
     )
   );
 }
+// ✅ One-time restore: force import vehicles from Git-tracked copy
+app.get("/force-import-vehicles", (req, res) => {
+  const VEHICLES_DEFAULT_FILE = path.join(__dirname, "data", "vehicles.json");
+  if (fs.existsSync(VEHICLES_DEFAULT_FILE)) {
+    const defaultVehicles = fs.readFileSync(VEHICLES_DEFAULT_FILE, "utf-8");
+    fs.writeFileSync(VEHICLES_FILE, defaultVehicles);
+    res.json({ message: "✅ Live /data/vehicles.json has been overwritten from Git-tracked vehicles.json." });
+  } else {
+    res.status(404).json({ error: "Git-tracked vehicles.json not found." });
+  }
+});
+
+// ✅ One-time restore: force import rosters from Git-tracked copy
+app.get("/force-import-rosters", (req, res) => {
+  const ROSTERS_DEFAULT_FILE = path.join(__dirname, "data", "rosters.json");
+  if (fs.existsSync(ROSTERS_DEFAULT_FILE)) {
+    const defaultRosters = fs.readFileSync(ROSTERS_DEFAULT_FILE, "utf-8");
+    fs.writeFileSync(ROSTERS_FILE, defaultRosters);
+    res.json({ message: "✅ Live /data/rosters.json has been overwritten from Git-tracked rosters.json." });
+  } else {
+    res.status(404).json({ error: "Git-tracked rosters.json not found." });
+  }
+});
 
 
 // GET roster by weekStart
