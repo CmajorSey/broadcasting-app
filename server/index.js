@@ -12,8 +12,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ✅ Use persistent disk if on Render Starter plan
-const DATA_DIR = "/data"; // this matches the mount path in Render disk settings
-
+// ✅ Unified data path for both local and Render
+const DATA_DIR = path.join(__dirname, "data");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 
 const app = express();
