@@ -241,7 +241,7 @@ function DutyBadgeWrapper({ date, filmingTime, names, rosterCache }) {
     <ChangelogDialog
       open={showChangelog}
       onClose={() => {
-        localStorage.setItem("changelog_v050_dismissed", "true");
+        localStorage.setItem("changelog_v060_dismissed", "true");
         setShowChangelog(false);
       }}
     />
