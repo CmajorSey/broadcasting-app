@@ -18,10 +18,10 @@ export default function ChangelogDialog({ open, onClose }) {
         </AlertDialogHeader>
         <div className="max-h-64 overflow-y-auto text-sm space-y-2">
          <ul className="list-disc ml-4">
-  <li>Fixed issue where deleted tickets would reappear after page refresh.</li>
+  <li>Fixed issues where deleted tickets would reappear after page refresh.</li>
   <li>Verified persistent deletion and syncing logic using Render's file system.</li>
   <li>🚧 Deletion, restore, and archiving now fully synced to the backend.</li>
-  <li>📬 My Profile v1 launched: Suggestion Box, Notifications Inbox, and Leave/Off Day Balance.</li>
+  <li>📬 My Profile v1 launched: Suggestion Box, Notifications Inbox, and Leave/Off Day Balances.</li>
   <li>Notifications can be dismissed, and toast alerts appear for new ones.</li>
   <li>Dismissed notifications persist and don’t reappear across sessions.</li>
 </ul>
