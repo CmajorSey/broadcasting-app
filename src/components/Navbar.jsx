@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Home,
@@ -6,9 +7,9 @@ import {
   PlusCircle,
   Truck,
   FileText,
-  LogOut
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import ProfileDropdown from "@/components/ProfileDropdown";
 
 export default function Navbar({ loggedInUser, setLoggedInUser, users }) {
   const navigate = useNavigate();
@@ -16,17 +17,24 @@ export default function Navbar({ loggedInUser, setLoggedInUser, users }) {
   const handleLogout = () => {
     localStorage.removeItem("loggedInUser");
     localStorage.removeItem("rememberedUser");
+    localStorage.removeItem("adminViewAs");
     setLoggedInUser(null);
     navigate("/login");
   };
 
-  const handleRoleSwitch = (name) => {
-    const user = users.find((u) => u.name === name);
-    if (!user) return;
+  const [adminViewAs, setAdminViewAs] = useState(() => {
+    const stored = localStorage.getItem("adminViewAs");
+    return stored ? JSON.parse(stored) : null;
+  });
 
-    localStorage.setItem("loggedInUser", JSON.stringify(user));
-    window.location.reload();
-  };
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const updated = localStorage.getItem("adminViewAs");
+      setAdminViewAs(updated ? JSON.parse(updated) : null);
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
 
   return (
     <nav className="bg-blue-800 text-white px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2 shadow-md">
@@ -64,39 +72,48 @@ export default function Navbar({ loggedInUser, setLoggedInUser, users }) {
         )}
       </div>
 
-         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 flex-wrap">
-  {loggedInUser?.roles?.includes("admin") &&
-    window.location.hostname === "localhost" &&
-    users &&
-    users.length > 0 && (
-      <div className="flex flex-wrap items-center gap-1">
-        <span className="text-xs opacity-70">Switch User:</span>
-        {users.map((u) => (
-          <Button
-            key={u.id}
-            size="xs"
-            variant="secondary"
-            className="text-xs"
-            onClick={() => handleRoleSwitch(u.name)}
-          >
-            {u.name}
-          </Button>
-        ))}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 flex-wrap">
+        {loggedInUser?.name === "Admin" &&
+          window.location.hostname.includes("localhost") &&
+          users?.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-xs opacity-70">View as:</span>
+              {users.map((u) => (
+                <Button
+                  key={u.id}
+                  size="xs"
+                  variant="secondary"
+                  className={`text-xs ${
+                    u.name === adminViewAs?.name ? "bg-primary text-white" : ""
+                  }`}
+                  onClick={() => {
+                    localStorage.setItem("adminViewAs", JSON.stringify(u));
+                    window.dispatchEvent(new Event("storage"));
+                    setAdminViewAs(u);
+                  }}
+                >
+                  {u.name}
+                </Button>
+              ))}
+              <Button
+                size="xs"
+                variant="ghost"
+                className="text-[10px] ml-2"
+                onClick={() => {
+                  localStorage.removeItem("adminViewAs");
+                  window.dispatchEvent(new Event("storage"));
+                  setAdminViewAs(null);
+                }}
+              >
+                Reset View
+              </Button>
+            </div>
+          )}
+
+        {loggedInUser && (
+          <ProfileDropdown loggedInUser={loggedInUser} onLogout={handleLogout} />
+        )}
       </div>
-    )}
-  {loggedInUser && (
-    <Button
-      variant="destructive"
-      size="sm"
-      onClick={handleLogout}
-      className="flex items-center gap-2"
-    >
-      <span className="text-xs">{loggedInUser.name.split(" ")[0]}</span>
-      <LogOut size={16} />
-      <span className="text-xs">LogOut</span>
-    </Button>
-  )}
-</div>
     </nav>
   );
 }

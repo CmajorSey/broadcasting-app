@@ -21,6 +21,8 @@ import HomeCarousel from "@/components/HomeCarousel";
 import FleetPage from "@/pages/FleetPage";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast"
+import MyProfile from "@/pages/MyProfile";
+
 
 function AppWrapper() {
   return (
@@ -149,6 +151,14 @@ function App() {
           }
         />
         <Route
+  path="/profile"
+  element={
+    <MyProfile
+      loggedInUser={loggedInUser}
+    />
+  }
+/>
+        <Route
           path="/fleet"
           element={
             <FleetPage
@@ -159,21 +169,22 @@ function App() {
             />
           }
         />
-        <Route
-          path="/admin"
-          element={
-            loggedInUser?.roles?.includes("admin") ? (
-              <AdminPage users={users} setUsers={setUsers} />
-            ) : (
-              <HomeCarousel
-                tickets={tickets}
-                users={users}
-                loggedInUser={loggedInUser}
-                setTickets={setTickets}
-              />
-            )
-          }
-        />
+      <Route
+  path="/admin"
+  element={
+    loggedInUser?.roles?.includes("admin") ? (
+      <AdminPage users={users} setUsers={setUsers} loggedInUser={loggedInUser} />
+    ) : (
+      <HomeCarousel
+        tickets={tickets}
+        users={users}
+        loggedInUser={loggedInUser}
+        setTickets={setTickets}
+      />
+    )
+  }
+/>
+
         <Route
           path="/login"
           element={<LoginPage users={users} setLoggedInUser={setLoggedInUser} />}

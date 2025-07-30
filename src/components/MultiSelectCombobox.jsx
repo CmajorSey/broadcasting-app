@@ -5,91 +5,89 @@ import {
   Command,
   CommandInput,
   CommandEmpty,
+  CommandGroup,
   CommandItem,
 } from "@/components/ui/command";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
-export default function MultiSelectCombobox({ options = [], sections = [], selected, onChange }) {
+export default function MultiSelectCombobox({
+  options = [],
+  sections = [],
+  selected = [],
+  setSelected,
+  disabled = false,
+  placeholder = "Select...",
+  label = "",
+  searchable = true,
+}) {
   const [open, setOpen] = useState(false);
 
-  const toggleSelection = (value) => {
-    if (selected.includes(value)) {
-      onChange(selected.filter((v) => v !== value));
+  const toggleValue = (val) => {
+    if (selected.includes(val)) {
+      setSelected(selected.filter((v) => v !== val));
     } else {
-      onChange([...selected, value]);
+      setSelected([...selected, val]);
     }
   };
 
-  // If options are provided, use flat mode
-  const isFlat = options && options.length > 0;
+  // Support {label, value} format
+  const resolvedOptions = options.length && typeof options[0] === "object"
+    ? options
+    : options.map((opt) => ({ label: opt, value: opt }));
+
+  const selectedLabels = resolvedOptions
+    .filter((opt) => selected.includes(opt.value))
+    .map((opt) => opt.label);
 
   return (
-    <Popover
-  open={open}
-  onOpenChange={(nextOpen) => {
-    setOpen(nextOpen);
-    // Blur the input after opening to show options immediately
-    setTimeout(() => {
-      const active = document.activeElement;
-      if (nextOpen && active?.tagName === "INPUT") {
-        active.blur();
-      }
-    }, 10);
-  }}
->
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex w-full justify-between rounded border p-2 text-sm"
-        >
-          {selected.length > 0 ? selected.join(", ") : "Select users..."}
-          <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-full p-0 max-h-64 overflow-y-auto">
-        <Command>
-         <CommandInput placeholder="Search users..." autoFocus={false} />
-          <CommandEmpty>No users found.</CommandEmpty>
-          {isFlat ? (
-            options.map((option) => (
-              <CommandItem
-                key={option}
-                onSelect={() => toggleSelection(option)}
-              >
-                <Check
-                  className={`mr-2 h-4 w-4 ${
-                    selected.includes(option) ? "opacity-100" : "opacity-0"
-                  }`}
-                />
-                {option}
-              </CommandItem>
-            ))
-          ) : (
-            sections.map((section, i) => (
-              <div key={section.label}>
-                {i > 0 && (
-                  <div
-                    className="my-1 border-t border-gray-300 opacity-50"
-                    aria-hidden="true"
-                  />
-                )}
-                {section.options.map((option) => (
-                  <CommandItem
-                    key={option}
-                    onSelect={() => toggleSelection(option)}
-                  >
-                    <Check
-                      className={`mr-2 h-4 w-4 ${
-                        selected.includes(option) ? "opacity-100" : "opacity-0"
-                      }`}
-                    />
-                    {option}
-                  </CommandItem>
-                ))}
-              </div>
-            ))
-          )}
-        </Command>
-      </PopoverContent>
-    </Popover>
+    <div className="w-full">
+      {label && <div className="mb-1 text-sm font-medium">{label}</div>}
+
+      <Popover open={open} onOpenChange={!disabled ? setOpen : () => {}}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            disabled={disabled}
+            className={`flex w-full justify-between rounded border p-2 text-sm bg-white ${
+              disabled ? "opacity-50 cursor-not-allowed" : ""
+            }`}
+          >
+            {selectedLabels.length > 0 ? selectedLabels.join(", ") : placeholder}
+            <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-full p-0 max-h-64 overflow-y-auto">
+          <Command>
+            {searchable && (
+              <CommandInput placeholder="Search..." autoFocus={false} />
+            )}
+            <CommandEmpty>No results found.</CommandEmpty>
+            <CommandGroup>
+              {resolvedOptions.map((opt) => (
+                <CommandItem
+                  key={opt.value}
+                  onSelect={() => toggleValue(opt.value)}
+                  className="flex justify-between"
+                >
+                  {opt.label}
+                  {selected.includes(opt.value) && (
+                    <Check className="w-4 h-4 text-primary" />
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </Command>
+        </PopoverContent>
+      </Popover>
+
+      <div className="mt-2 flex flex-wrap gap-1">
+        {selectedLabels.map((label, index) => (
+          <Badge key={index} variant="secondary">
+            {label}
+          </Badge>
+        ))}
+      </div>
+    </div>
   );
 }
