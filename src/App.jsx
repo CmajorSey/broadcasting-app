@@ -104,6 +104,7 @@ function App() {
     localStorage.setItem("deletedTickets", JSON.stringify(deletedTickets));
   }, [deletedTickets]);
 
+    // Migrate users with legacy 'role' field
   useEffect(() => {
     const migrated = users.map((user) => {
       if (!user.roles && user.role) {
@@ -116,6 +117,18 @@ function App() {
       setUsers(migrated);
     }
   }, []);
+
+  // 📦 Changelog Dialog logic
+  const [showChangelog, setShowChangelog] = useState(() => {
+    const lastSeen = localStorage.getItem("lastSeenChangelog");
+    return lastSeen !== "0.6.1";
+  });
+
+  const handleCloseChangelog = () => {
+    localStorage.setItem("lastSeenChangelog", "0.6.1");
+    setShowChangelog(false);
+  };
+
 
   return (
   <>
@@ -235,7 +248,8 @@ function App() {
       </Routes>
     </div>
 
-    {!hideLayout && <Footer />}
+       {!hideLayout && <Footer />}
+    {showChangelog && <ChangelogDialog open={true} onClose={handleCloseChangelog} />}
     <Toaster toastOptions={{ position: "top-center" }} />
   </>
 );
