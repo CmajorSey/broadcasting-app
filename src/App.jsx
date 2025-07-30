@@ -22,6 +22,8 @@ import FleetPage from "@/pages/FleetPage";
 import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast"
 import MyProfile from "@/pages/MyProfile";
+import ChangelogDialog from "@/components/ChangelogDialog";
+
 
 
 function AppWrapper() {
