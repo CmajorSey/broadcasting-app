@@ -15,21 +15,24 @@ export default function MultiSelectCombobox({
   options = [],
   sections = [],
   selected = [],
-  setSelected,
+  onChange,
   disabled = false,
   placeholder = "Select...",
   label = "",
   searchable = true,
 }) {
+
   const [open, setOpen] = useState(false);
 
   const toggleValue = (val) => {
-    if (selected.includes(val)) {
-      setSelected(selected.filter((v) => v !== val));
-    } else {
-      setSelected([...selected, val]);
-    }
-  };
+  if (typeof onChange !== "function") return;
+  if (selected.includes(val)) {
+    onChange(selected.filter((v) => v !== val));
+  } else {
+    onChange([...selected, val]);
+  }
+};
+
 
   // Support {label, value} format
   const resolvedOptions = options.length && typeof options[0] === "object"
@@ -63,31 +66,37 @@ export default function MultiSelectCombobox({
               <CommandInput placeholder="Search..." autoFocus={false} />
             )}
             <CommandEmpty>No results found.</CommandEmpty>
-            <CommandGroup>
-              {resolvedOptions.map((opt) => (
-                <CommandItem
-                  key={opt.value}
-                  onSelect={() => toggleValue(opt.value)}
-                  className="flex justify-between"
-                >
-                  {opt.label}
-                  {selected.includes(opt.value) && (
-                    <Check className="w-4 h-4 text-primary" />
-                  )}
-                </CommandItem>
-              ))}
-            </CommandGroup>
+           <CommandGroup>
+  {resolvedOptions
+    .filter((opt) => opt?.value) // ✅ ensures no undefined keys
+    .map((opt) => (
+      <CommandItem
+        key={opt.value}
+        onSelect={() => toggleValue(opt.value)}
+        className="flex justify-between"
+      >
+        {opt.label}
+        {selected.includes(opt.value) && (
+          <Check className="w-4 h-4 text-primary" />
+        )}
+      </CommandItem>
+    ))}
+</CommandGroup>
+
           </Command>
         </PopoverContent>
       </Popover>
 
       <div className="mt-2 flex flex-wrap gap-1">
-        {selectedLabels.map((label, index) => (
-          <Badge key={index} variant="secondary">
-            {label}
-          </Badge>
-        ))}
-      </div>
+  {resolvedOptions
+    .filter((opt) => selected.includes(opt.value))
+    .map((opt) => (
+      <Badge key={opt.value} variant="secondary">
+        {opt.label}
+      </Badge>
+    ))}
+</div>
+
     </div>
   );
 }

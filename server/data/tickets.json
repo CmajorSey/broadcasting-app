@@ -31,7 +31,8 @@
     "vehicleStatus": "",
     "createdBy": "Christopher Gabriel",
     "createdAt": "2025-07-22T19:00:22.325Z",
-    "id": "1753210822632"
+    "id": "1753210822632",
+    "deleted": true
   },
   {
     "title": "TEST multi",
@@ -54,7 +55,7 @@
     "departureTime": "06:20",
     "filmingTime": "06:50",
     "assignedCamOps": [],
-    "assignedDriver": "",
+    "assignedDriver": "Christopher Gabriel",
     "vehicle": "",
     "assignmentStatus": "Unassigned",
     "isReady": false,
@@ -64,7 +65,9 @@
     "vehicleStatus": "",
     "createdBy": "Admin",
     "createdAt": "2025-07-22T18:33:56.140Z",
-    "id": "1753209236144"
+    "id": "1753209236144",
+    "deleted": true,
+    "assignedBy": "Admin"
   },
   {
     "title": "esrgdhtfy",
@@ -96,7 +99,8 @@
     "assignedReporter": "Journalist Admin",
     "createdBy": "Admin",
     "createdAt": "2025-07-22T18:19:42.591Z",
-    "id": "1753208382899"
+    "id": "1753208382899",
+    "deleted": true
   },
   {
     "title": "TEST 1 camop, multi cam",
@@ -128,7 +132,8 @@
     "vehicleStatus": "",
     "createdBy": "Admin",
     "createdAt": "2025-07-22T18:19:03.767Z",
-    "id": "1753208344074"
+    "id": "1753208344074",
+    "deleted": true
   },
   {
     "title": "TEst notes",
@@ -166,7 +171,8 @@
     "vehicleStatus": "",
     "createdBy": "Admin",
     "createdAt": "2025-07-22T17:50:37.064Z",
-    "id": "1753206637372"
+    "id": "1753206637372",
+    "deleted": true
   },
   {
     "title": "Test 3",
@@ -198,7 +204,8 @@
     "vehicleStatus": "",
     "createdBy": "Admin",
     "createdAt": "2025-07-22T17:41:58.650Z",
-    "id": "1753206118655"
+    "id": "1753206118655",
+    "deleted": true
   },
   {
     "title": "TEST Centre",
@@ -230,7 +237,8 @@
     "vehicleStatus": "",
     "createdBy": "Admin",
     "createdAt": "2025-07-22T17:37:16.338Z",
-    "id": "1753205836343"
+    "id": "1753205836343",
+    "deleted": true
   },
   {
     "title": "TEST Toast",
@@ -262,7 +270,8 @@
     "vehicleStatus": "",
     "createdBy": "Admin",
     "createdAt": "2025-07-22T17:34:41.536Z",
-    "id": "1753205681541"
+    "id": "1753205681541",
+    "deleted": true
   },
   {
     "title": "TEST 4",
@@ -316,10 +325,12 @@
     },
     "departureTime": "21:05",
     "filmingTime": "21:35",
-    "assignedCamOps": [],
-    "assignedDriver": "",
+    "assignedCamOps": [
+      "Christopher Gabriel"
+    ],
+    "assignedDriver": "Nelson Joseph",
     "vehicle": "",
-    "assignmentStatus": "Unassigned",
+    "assignmentStatus": "Assigned",
     "isReady": false,
     "status": "Pending",
     "assignedReporter": "Journalist: Ronny Solin",
@@ -327,7 +338,8 @@
     "createdBy": "Admin",
     "createdAt": "2025-07-22T17:24:58.281Z",
     "id": "1753205098286",
-    "deleted": true
+    "deleted": true,
+    "assignedBy": "Admin"
   },
   {
     "title": "TEST",
@@ -460,5 +472,37 @@
     "createdAt": "2025-07-22T17:21:19.787Z",
     "id": "1753204879792",
     "deleted": true
+  },
+  {
+    "id": "1753937638863",
+    "title": "TEST Notification",
+    "type": "News",
+    "category": "Interview",
+    "subtype": "",
+    "date": "2025-07-31T10:00",
+    "location": "State House",
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "notes": [],
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "09:30",
+    "filmingTime": "10:00",
+    "assignedCamOps": [],
+    "assignedDriver": "",
+    "vehicle": "",
+    "assignmentStatus": "Unassigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": "Journalist: Emma Laporte",
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2025-07-31T04:53:58.863Z"
   }
 ]

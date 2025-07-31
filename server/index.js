@@ -8,6 +8,67 @@ import dotenv from "dotenv";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
+console.log("🔍 Looking for service account at:", path.resolve("firebase-service-account.json"));
+import fetch from "node-fetch";
+import { GoogleAuth } from "google-auth-library";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const serviceAccount = require("./firebase-service-account.json");
+
+
+
+async function sendPushToUsers(users, title, message) {
+  const tokens = users
+    .map((u) => u.fcmToken)
+    .filter((t) => typeof t === "string" && t.length > 0);
+
+  if (tokens.length === 0) return;
+
+  const payloadTemplate = {
+    message: {
+      notification: { title, body: message },
+      token: "", // will be replaced per user
+    }
+  };
+
+  const accessToken = await getAccessTokenFromFile();
+  const results = [];
+
+  for (const token of tokens) {
+    const payload = {
+      ...payloadTemplate,
+      message: {
+        ...payloadTemplate.message,
+        token
+      }
+    };
+
+    const res = await fetch("https://fcm.googleapis.com/v1/projects/loboard-notifications/messages:send", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const json = await res.json();
+    results.push(json);
+  }
+
+  console.log("✅ Push sent to users:", results);
+}
+
+async function getAccessTokenFromFile() {
+  const jwtClient = new google.auth.JWT({
+    email: serviceAccount.client_email,
+    key: serviceAccount.private_key,
+    scopes: ["https://www.googleapis.com/auth/firebase.messaging"]
+  });
+
+  const tokens = await jwtClient.authorize();
+  return tokens.access_token;
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,7 +91,7 @@ const PORT = process.env.PORT || 4000;
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "http://192.168.100.61:5173", // ✅ Your LAN frontend
+    "http://192.168.88.54:5173", // ✅ Your LAN frontend
     "https://loboard.netlify.app"
   ],
   methods: ["GET", "POST", "PATCH", "DELETE"],
@@ -447,16 +508,31 @@ app.patch("/suggestions/:timestamp", (req, res) => {
 
 // ✅ Patch user
 app.patch("/users/:id", (req, res) => {
-  const id = req.params.id;
-  const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-  const index = users.findIndex((u) => String(u.id) === String(id));
+  const usersPath = path.join(__dirname, "data", "users.json");
+  const { id } = req.params;
+  const { password } = req.body;
 
-  if (index === -1) return res.status(404).json({ message: "User not found" });
+  try {
+    const data = fs.readFileSync(usersPath, "utf-8");
+    const users = JSON.parse(data);
 
-  users[index] = { ...users[index], ...req.body };
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-  res.json(users[index]);
+    const userIndex = users.findIndex((u) => u.id === id);
+    if (userIndex === -1) return res.status(404).json({ error: "User not found" });
+
+    if (typeof password === "string" && password.trim()) {
+      users[userIndex].password = password.trim();
+
+      fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
+      return res.json({ success: true, user: users[userIndex] });
+    } else {
+      return res.status(400).json({ error: "Invalid password" });
+    }
+  } catch (err) {
+    console.error("Failed to reset password:", err);
+    res.status(500).json({ error: "Failed to update user password" });
+  }
 });
+
 
 // ✅ Delete user
 app.delete("/users/:id", (req, res) => {
@@ -542,43 +618,146 @@ app.get("/tickets", (req, res) => {
 });
 
 // ✅ Add ticket
-app.post("/tickets", (req, res) => {
-  try {
-    const tickets = JSON.parse(fs.readFileSync(TICKETS_FILE, "utf-8"));
-    const newTicket = req.body;
+app.post("/tickets", async (req, res) => {
+  const newTicket = req.body;
 
-    if (!newTicket.id) {
-      newTicket.id = Date.now().toString();
+  try {
+    const raw = fs.readFileSync(TICKETS_FILE, "utf-8");
+    const all = JSON.parse(raw);
+    all.push(newTicket);
+    fs.writeFileSync(TICKETS_FILE, JSON.stringify(all, null, 2));
+
+    // Load users
+    const usersRaw = fs.readFileSync(USERS_FILE, "utf-8");
+    const allUsers = JSON.parse(usersRaw);
+
+    const getUserByName = (name) =>
+      allUsers.find((u) => u.name.toLowerCase() === name?.toLowerCase());
+
+    const recipients = new Set();
+
+    // Add assigned users
+    for (const name of newTicket.assignedCamOps || []) {
+      const u = getUserByName(name);
+      if (u) recipients.add(u);
     }
 
-    tickets.push(newTicket);
-    fs.writeFileSync(TICKETS_FILE, JSON.stringify(tickets, null, 2));
+    const driver = getUserByName(newTicket.assignedDriver);
+    if (driver) recipients.add(driver);
+
+    const reporterName = newTicket.assignedReporter?.split(": ")[1];
+    const reporter = getUserByName(reporterName);
+    if (reporter) recipients.add(reporter);
+
+    // Send push
+    if (recipients.size > 0) {
+      const title = `🎥 New Ticket: ${newTicket.title}`;
+      const message = `You have been assigned to a new request on ${newTicket.date?.split("T")[0]}.`;
+      await sendPushToUsers([...recipients], title, message);
+    }
+
     res.status(201).json(newTicket);
-  } catch (error) {
-    console.error("Failed to save ticket:", error);
+  } catch (err) {
+    console.error("Failed to create ticket:", err);
     res.status(500).json({ error: "Failed to save ticket" });
   }
 });
 
-// ✅ Patch ticket by ID
-app.patch("/tickets/:id", (req, res) => {
-  try {
-    const id = req.params.id;
-    const tickets = JSON.parse(fs.readFileSync(TICKETS_FILE, "utf-8"));
-    const index = tickets.findIndex((t) => String(t.id) === String(id));
 
-    if (index === -1) {
-      return res.status(404).json({ message: "Ticket not found" });
+// ✅ Patch ticket by ID
+app.patch("/tickets/:id", async (req, res) => {
+  const { id } = req.params;
+  const updatedFields = req.body;
+
+  try {
+    const raw = fs.readFileSync(TICKETS_FILE, "utf-8");
+    const allTickets = JSON.parse(raw);
+    const ticketIndex = allTickets.findIndex((t) => t.id === id);
+
+    if (ticketIndex === -1) {
+      return res.status(404).json({ error: "Ticket not found" });
     }
 
-    tickets[index] = { ...tickets[index], ...req.body };
-    fs.writeFileSync(TICKETS_FILE, JSON.stringify(tickets, null, 2));
-    res.json({ success: true, updated: tickets[index] });
-  } catch (error) {
-    console.error("Failed to update ticket:", error);
+    const oldTicket = allTickets[ticketIndex];
+    const newTicket = { ...oldTicket, ...updatedFields };
+    allTickets[ticketIndex] = newTicket;
+    fs.writeFileSync(TICKETS_FILE, JSON.stringify(allTickets, null, 2));
+
+    // Load all users for FCM targeting
+    const usersRaw = fs.readFileSync(USERS_FILE, "utf-8");
+    const allUsers = JSON.parse(usersRaw);
+
+    const getUserByName = (name) =>
+      allUsers.find((u) => u.name.toLowerCase() === name.toLowerCase());
+
+    const recipients = new Set();
+
+    // 🔔 1. If cam ops changed
+    if (
+      JSON.stringify(oldTicket.assignedCamOps || []) !==
+      JSON.stringify(newTicket.assignedCamOps || [])
+    ) {
+      for (const name of newTicket.assignedCamOps || []) {
+        const u = getUserByName(name);
+        if (u) recipients.add(u);
+      }
+    }
+
+    // 🔔 2. If driver assigned
+    if (oldTicket.assignedDriver !== newTicket.assignedDriver) {
+      const u = getUserByName(newTicket.assignedDriver);
+      if (u) recipients.add(u);
+    }
+
+    // 🔔 3. If reporter assigned
+    if (oldTicket.assignedReporter !== newTicket.assignedReporter) {
+      const u = getUserByName(newTicket.assignedReporter?.split(": ")[1]);
+      if (u) recipients.add(u);
+    }
+
+    // 🔔 4. Vehicle added
+    if (!oldTicket.vehicle && newTicket.vehicle) {
+      for (const name of [
+        ...newTicket.assignedCamOps || [],
+        newTicket.assignedDriver,
+        newTicket.assignedReporter?.split(": ")[1]
+      ]) {
+        const u = getUserByName(name);
+        if (u) recipients.add(u);
+      }
+    }
+
+    // 🔔 5. Key fields changed (location, time, note, status back from Cancelled)
+    const importantFields = ["location", "filmingTime", "departureTime", "status", "notes"];
+    const fieldChanged = importantFields.some(
+      (f) => JSON.stringify(oldTicket[f]) !== JSON.stringify(newTicket[f])
+    );
+
+    if (fieldChanged) {
+      for (const name of [
+        ...newTicket.assignedCamOps || [],
+        newTicket.assignedDriver,
+        newTicket.assignedReporter?.split(": ")[1]
+      ]) {
+        const u = getUserByName(name);
+        if (u) recipients.add(u);
+      }
+    }
+
+    // Send notification
+    if (recipients.size > 0) {
+      const title = `Ticket Updated: ${newTicket.title}`;
+      const message = `One or more updates were made. Check filming, location, or assignment changes.`;
+      await sendPushToUsers([...recipients], title, message);
+    }
+
+    res.json({ success: true, ticket: newTicket });
+  } catch (err) {
+    console.error("Error updating ticket:", err);
     res.status(500).json({ error: "Failed to update ticket" });
   }
 });
+
 
 // ✅ Delete ticket
 app.delete("/tickets/:id", (req, res) => {
@@ -625,6 +804,67 @@ app.get("/seed-vehicles", (req, res) => {
   fs.writeFileSync(VEHICLES_FILE, JSON.stringify(vehicles, null, 2));
   res.json({ message: "🚐 Vehicles seeded!" });
 });
+
+const serviceAccountPath = path.join(__dirname, "firebase-service-account.json");
+const projectId = "loboard-notifications"; // 👈 replace if different
+
+const SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"];
+const auth = new GoogleAuth({
+  keyFile: serviceAccountPath,
+  scopes: SCOPES,
+});
+
+app.post("/send-push", async (req, res) => {
+  const { token, title, body } = req.body;
+
+  if (!token || !title || !body) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  try {
+    const client = await auth.getClient();
+    const accessToken = await client.getAccessToken();
+
+    const message = {
+      message: {
+        token,
+        notification: {
+          title,
+          body,
+        },
+        webpush: {
+          headers: {
+            Urgency: "high",
+          },
+          notification: {
+            icon: "/icon.png",
+          },
+        },
+      },
+    };
+
+    const response = await fetch(
+      `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(message),
+      }
+    );
+
+    const result = await response.json();
+    res.json(result);
+  } catch (err) {
+    console.error("❌ Failed to send push:", err);
+    res.status(500).json({ error: "Failed to send push notification" });
+  }
+});
+
+
+
 console.log("🚨 ROUTE CHECKPOINT 18");
 console.log("🚨 ROUTE CHECKPOINT 19");
 

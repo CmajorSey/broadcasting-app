@@ -23,6 +23,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast"
 import MyProfile from "@/pages/MyProfile";
 import ChangelogDialog from "@/components/ChangelogDialog";
+import { requestPermission, onMessage } from "@/lib/firebase";
 
 
 
@@ -55,6 +56,7 @@ function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const hideLayout = location.pathname === "/login";
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!loggedInUser && location.pathname !== "/login" && location.pathname !== "/set-password") {
@@ -104,6 +106,34 @@ function App() {
     localStorage.setItem("deletedTickets", JSON.stringify(deletedTickets));
   }, [deletedTickets]);
 
+ useEffect(() => {
+  requestPermission().then((token) => {
+    if (token) {
+      console.log("FCM Token:", token);
+      // Send to backend later
+    }
+  });
+}, []);
+
+useEffect(() => {
+  const unsubscribe = onMessage((payload) => {
+    console.log("Foreground notification received:", payload);
+
+    const { title, body } = payload?.notification || {};
+
+    if (title && body) {
+      toast({
+        title,
+        description: body,
+      });
+    }
+  });
+
+  return () => {
+    if (typeof unsubscribe === "function") unsubscribe();
+  };
+}, []);
+
     // Migrate users with legacy 'role' field
   useEffect(() => {
     const migrated = users.map((user) => {
@@ -117,6 +147,29 @@ function App() {
       setUsers(migrated);
     }
   }, []);
+  useEffect(() => {
+  const testPush = async () => {
+    const token = "cZuEcPz4jfZHlZlJOuFhwm:APA91bGTDvUBe1VVEhu8ZlUWdFkTWHYFBzwa2G8bFWhwSDtrrz0INZSSVkUYrcfSXZps3MamCkp9ihXaiuBUXmu6Bx1VlCmqz2FnhWqpcATBbotYW1SNnA4";
+
+    const response = await fetch("http://localhost:4000/send-push", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        token,
+        title: "🎬 New Ticket Assigned",
+        body: "You’ve been assigned to a ticket at Anse Royale!",
+      }),
+    });
+
+    const result = await response.json();
+    console.log("Push result:", result);
+  };
+
+  testPush();
+}, []);
+
 
   // 📦 Changelog Dialog logic
   const [showChangelog, setShowChangelog] = useState(() => {

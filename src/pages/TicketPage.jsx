@@ -183,28 +183,39 @@ const handleStatusChange = async (ticketId, newStatus) => {
     title: ticket.title || "",
   });
 };
+console.log("✅ Saving assigned cam ops:", editData.assignedCamOps);
+
   const saveEditing = async (index) => {
   const updatedTickets = [...tickets];
-  const updatedData = { ...editData };
-
-  if (
-    updatedData.assignmentStatus === "Unassigned" &&
-    updatedData.assignedDriver &&
-    Array.isArray(updatedData.assignedCamOps) &&
-    updatedData.assignedCamOps.length > 0
-  ) {
-    updatedData.assignmentStatus = "Assigned";
-  }
-
-  updatedData.vehicle = updatedData.vehicle ? String(updatedData.vehicle) : "";
+  const original = updatedTickets[index];
 
   const updatedTicket = {
-    ...updatedTickets[index],
-    ...updatedData,
+    id: original.id,
+    title: editData.title || original.title,
+    date: editData.date || original.date,
+    location: editData.location || original.location,
+    filmingTime: editData.filmingTime || original.filmingTime,
+    departureTime: editData.departureTime || original.departureTime,
+    assignedCamOps: editData.assignedCamOps || original.assignedCamOps || [],
+    assignedDriver: editData.assignedDriver || original.assignedDriver || "",
+    vehicle: editData.vehicle || original.vehicle || "",
+    assignmentStatus: editData.assignmentStatus || original.assignmentStatus || "Unassigned",
+    priority: editData.priority || original.priority || "Normal",
     assignedBy: loggedInUser?.name || "Unknown",
   };
 
+  // Auto-set status to "Assigned" if driver + cam ops are filled
+  if (
+    updatedTicket.assignmentStatus === "Unassigned" &&
+    updatedTicket.assignedDriver &&
+    updatedTicket.assignedCamOps.length > 0
+  ) {
+    updatedTicket.assignmentStatus = "Assigned";
+  }
+
   try {
+    console.log("📤 Sending PATCH payload:", updatedTicket);
+
     const res = await fetch(`${API_BASE}/tickets/${updatedTicket.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -213,17 +224,16 @@ const handleStatusChange = async (ticketId, newStatus) => {
 
     if (!res.ok) throw new Error("Failed to update ticket");
 
-    // ✅ Refresh full ticket list
     const refreshed = await fetch(`${API_BASE}/tickets`);
     const data = await refreshed.json();
     setTickets(data);
-
     setEditingIndex(null);
   } catch (err) {
     console.error("Failed to save ticket edits:", err);
     alert("Failed to save changes. Please try again.");
   }
 };
+
 
 const cancelEditing = () => {
   setEditingIndex(null);
@@ -512,13 +522,18 @@ setSelectedTickets([]);
           {/* Cam Ops */}
           <td className="p-2 text-center whitespace-nowrap">
            {isEditing ? (
+            
   <MultiSelectCombobox
-    options={camOpOptions.map((u) => u.name)}
-    selected={editData.assignedCamOps || []}
-    onChange={(value) =>
-      setEditData({ ...editData, assignedCamOps: value })
-    }
-  />
+  options={camOpOptions}
+  selected={editData.assignedCamOps || []}
+  setSelected={(val) =>
+    
+    setEditData((prev) => ({
+      ...prev,
+      assignedCamOps: [...val],
+    }))
+  }
+/>
 ) : Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0 ? (
   <DutyBadgeWrapper
     date={ticket.date}
