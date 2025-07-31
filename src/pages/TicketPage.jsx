@@ -366,7 +366,7 @@ setSelectedTickets([]);
 }}
       className="text-yellow-600 border border-yellow-600 hover:bg-yellow-100 px-3 py-1 rounded-md transition"
     >
-      Send to Archive
+      Send to Archives
     </button>
 
     <button
