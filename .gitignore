@@ -25,3 +25,13 @@ dist-ssr
 /server/.env
 # Firebase secrets
 server/firebase-service-account.json
+
+# Secrets - never commit service account keys
+server/firebase-service-account.json
+firebase-service-account.json
+*service-account*.json
+
+# Secrets - never commit service account keys
+server/firebase-service-account.json
+firebase-service-account.json
+*service-account*.json

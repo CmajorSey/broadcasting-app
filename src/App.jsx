@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   BrowserRouter as Router,
   Routes,
@@ -16,6 +16,8 @@ import OperationsPage from "@/pages/OperationsPage";
 import AdminPage from "@/pages/AdminPage";
 import LoginPage from "@/pages/LoginPage";
 import SetPasswordPage from "@/pages/SetPasswordPage";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 import TicketPage from "@/pages/TicketPage";
 import HomeCarousel from "@/components/HomeCarousel";
 import FleetPage from "@/pages/FleetPage";
@@ -106,14 +108,27 @@ function App() {
     localStorage.setItem("deletedTickets", JSON.stringify(deletedTickets));
   }, [deletedTickets]);
 
- useEffect(() => {
-  requestPermission().then((token) => {
-    if (token) {
-      console.log("FCM Token:", token);
-      // Send to backend later
+ const requestedPushOnceRef = useRef(false);
+
+useEffect(() => {
+  if (requestedPushOnceRef.current) return; // avoid React 18 dev-mode double-call
+  requestedPushOnceRef.current = true;
+
+  (async () => {
+    try {
+      const token = await requestPermission();
+      if (token) {
+        console.log("🎯 FCM Token:", token);
+        // TODO: optionally POST token to backend to associate with loggedInUser
+      } else {
+        // Silent: user denied or unsupported; no warning spam
+      }
+    } catch (err) {
+      console.error("Failed to initialize notifications:", err);
     }
-  });
+  })();
 }, []);
+
 
 useEffect(() => {
   const unsubscribe = onMessage((payload) => {
@@ -147,38 +162,55 @@ useEffect(() => {
       setUsers(migrated);
     }
   }, []);
-  useEffect(() => {
+  const firedTestPushOnceRef = useRef(false);
+
+useEffect(() => {
+  if (firedTestPushOnceRef.current) return; // avoid double-fire in dev
+  firedTestPushOnceRef.current = true;
+
   const testPush = async () => {
+    // ⚠️ Keep your test token here OR wire in the freshly obtained token.
     const token = "cZuEcPz4jfZHlZlJOuFhwm:APA91bGTDvUBe1VVEhu8ZlUWdFkTWHYFBzwa2G8bFWhwSDtrrz0INZSSVkUYrcfSXZps3MamCkp9ihXaiuBUXmu6Bx1VlCmqz2FnhWqpcATBbotYW1SNnA4";
 
-    const response = await fetch("http://localhost:4000/send-push", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        token,
-        title: "🎬 New Ticket Assigned",
-        body: "You’ve been assigned to a ticket at Anse Royale!",
-      }),
-    });
+    try {
+      const response = await fetch(`${API_BASE}/send-push`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          title: "🎬 New Ticket Assigned",
+          body: "You’ve been assigned to a ticket at Anse Royale!",
+          data: { source: "app-test", ts: String(Date.now()) },
+        }),
+      });
 
-    const result = await response.json();
-    console.log("Push result:", result);
+      const result = await response.json().catch(() => ({}));
+
+      if (response.status === 207) {
+        console.warn("Push partial success:", result);
+      } else if (!response.ok) {
+        console.error("Push failed:", result);
+      } else {
+        console.log("Push OK:", result);
+      }
+    } catch (err) {
+      console.error("Push request error:", err);
+    }
   };
 
   testPush();
 }, []);
 
 
+
   // 📦 Changelog Dialog logic
   const [showChangelog, setShowChangelog] = useState(() => {
     const lastSeen = localStorage.getItem("lastSeenChangelog");
-    return lastSeen !== "0.6.1";
+    return lastSeen !== "0.6.2";
   });
 
   const handleCloseChangelog = () => {
-    localStorage.setItem("lastSeenChangelog", "0.6.1");
+    localStorage.setItem("lastSeenChangelog", "0.6.2");
     setShowChangelog(false);
   };
 
@@ -193,7 +225,7 @@ useEffect(() => {
       />
     )}
 
-    <div className="p-4 min-h-[80vh]">
+       <div className="p-4 min-h-[80vh]">
       <Routes>
         <Route
           path="/"
@@ -219,13 +251,9 @@ useEffect(() => {
           }
         />
         <Route
-  path="/profile"
-  element={
-    <MyProfile
-      loggedInUser={loggedInUser}
-    />
-  }
-/>
+          path="/profile"
+          element={<MyProfile loggedInUser={loggedInUser} />}
+        />
         <Route
           path="/fleet"
           element={
@@ -237,26 +265,34 @@ useEffect(() => {
             />
           }
         />
-      <Route
-  path="/admin"
-  element={
-    loggedInUser?.roles?.includes("admin") ? (
-      <AdminPage users={users} setUsers={setUsers} loggedInUser={loggedInUser} />
-    ) : (
-      <HomeCarousel
-        tickets={tickets}
-        users={users}
-        loggedInUser={loggedInUser}
-        setTickets={setTickets}
-      />
-    )
-  }
-/>
-
+        <Route
+          path="/admin"
+          element={
+            loggedInUser?.roles?.includes("admin") ? (
+              <AdminPage
+                users={users}
+                setUsers={setUsers}
+                loggedInUser={loggedInUser}
+              />
+            ) : (
+              <HomeCarousel
+                tickets={tickets}
+                users={users}
+                loggedInUser={loggedInUser}
+                setTickets={setTickets}
+              />
+            )
+          }
+        />
         <Route
           path="/login"
           element={<LoginPage users={users} setLoggedInUser={setLoggedInUser} />}
         />
+
+        {/* ✅ New: password reset flow */}
+        <Route path="/forgot" element={<ForgotPassword />} />
+        <Route path="/reset" element={<ResetPassword />} />
+
         <Route path="/set-password" element={<SetPasswordPage />} />
         <Route
           path="/tickets"

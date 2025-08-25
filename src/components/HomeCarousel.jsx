@@ -136,7 +136,7 @@ useEffect(() => {
 }, []);
 
 useEffect(() => {
-  const hasSeen = localStorage.getItem("changelog_v060_dismissed");
+  const hasSeen = localStorage.getItem("changelog_v062_dismissed");
   if (!hasSeen) {
     setShowChangelog(true);
   }
@@ -241,7 +241,7 @@ function DutyBadgeWrapper({ date, filmingTime, names, rosterCache }) {
     <ChangelogDialog
       open={showChangelog}
       onClose={() => {
-        localStorage.setItem("changelog_v060_dismissed", "true");
+        localStorage.setItem("changelog_v062_dismissed", "true");
         setShowChangelog(false);
       }}
     />

@@ -1,15 +1,18 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import API_BASE from "@/api";
+import { useToast } from "@/hooks/use-toast";
 
 export default function LoginPage({ users, setLoggedInUser }) {
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const [debugMessage, setDebugMessage] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
   const [siteName, setSiteName] = useState("Lo Board");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     // Always fetch site branding
@@ -45,45 +48,52 @@ export default function LoginPage({ users, setLoggedInUser }) {
   const handleLogin = async (e) => {
     e.preventDefault();
     setDebugMessage("");
+    setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE}/users`);
-      const allUsers = await res.json();
+      // ✅ Use backend login so bcrypt-hashed & legacy plaintext both work
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: name, password }),
+      });
 
-      const match = allUsers.find(
-        (u) => u.name.trim().toLowerCase() === name.trim().toLowerCase()
-      );
+      const data = await res.json();
 
-      if (!match) {
-        setDebugMessage("❌ User not found.");
+      if (!res.ok || !data?.ok || !data?.user) {
+        setDebugMessage(data?.error || "❌ Incorrect credentials.");
         return;
       }
 
-      if (password !== match.password) {
-        setDebugMessage("❌ Incorrect password.");
-        return;
-      }
-
-      const defaultPassword = `${match.name.split(" ")[0]}1`;
-      if (match.requiresPasswordReset && password === defaultPassword) {
-        navigate("/set-password", { state: { user: match } });
-        return;
-      }
+      const user = data.user;
 
       if (remember) {
-        localStorage.setItem("rememberedUser", match.id);
+        localStorage.setItem("rememberedUser", user.id);
       } else {
         localStorage.removeItem("rememberedUser");
       }
 
-      localStorage.setItem("loggedInUser", JSON.stringify(match));
-      setLoggedInUser(match);
-      navigate("/");
+      localStorage.setItem("loggedInUser", JSON.stringify(user));
+      setLoggedInUser(user);
+
+      // 🎉 Success toast + gentle redirect delay
+      toast({
+        title: `Welcome back, ${user.name?.split(" ")[0] || "there"}!`,
+        description: "Logged in successfully.",
+        duration: 2000,
+      });
+
+      setTimeout(() => {
+        navigate("/");
+      }, 600);
     } catch (err) {
       console.error("Login failed:", err.message);
       setDebugMessage("❌ Login failed: " + err.message);
+    } finally {
+      setLoading(false);
     }
   };
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 px-4 py-8">
       <div className="flex flex-col items-center mb-6 space-y-2">
@@ -104,18 +114,20 @@ export default function LoginPage({ users, setLoggedInUser }) {
 
         <input
           type="text"
-          placeholder="Full Name (e.g. John Doe)"
+          placeholder="Full Name or Email"
           value={name}
           onChange={(e) => setName(e.target.value)}
           className="input w-full"
+          disabled={loading}
         />
 
         <input
           type="password"
-          placeholder="First Name+1 (e.g. John1)"
+          placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           className="input w-full"
+          disabled={loading}
         />
 
         <label className="flex items-center gap-2 text-sm text-gray-700">
@@ -123,16 +135,27 @@ export default function LoginPage({ users, setLoggedInUser }) {
             type="checkbox"
             checked={remember}
             onChange={(e) => setRemember(e.target.checked)}
+            disabled={loading}
           />
           Remember me
         </label>
 
         <button
           type="submit"
-          className="bg-blue-600 text-white w-full py-2 rounded hover:bg-blue-700"
+          disabled={loading}
+          className={`w-full py-2 rounded text-white ${
+            loading ? "bg-blue-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+          }`}
         >
-          Login
+          {loading ? "Logging in..." : "Login"}
         </button>
+
+        {/* ✅ Forgot password link */}
+        <div className="text-center">
+          <a href="/forgot" className="text-sm underline text-blue-700 hover:text-blue-800">
+            Forgot password?
+          </a>
+        </div>
       </form>
     </div>
   );

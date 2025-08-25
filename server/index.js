@@ -13,61 +13,81 @@ import fetch from "node-fetch";
 import { GoogleAuth } from "google-auth-library";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
+
+// ✅ NEW: auth router for password reset
+import authRouter from "./Routes/auth.js";
+
+// Load service account once (local dev)
 const serviceAccount = require("./firebase-service-account.json");
 
+// Single GoogleAuth instance using credentials (no need for __dirname here)
+const auth = new GoogleAuth({
+  credentials: {
+    client_email: serviceAccount.client_email,
+    private_key: serviceAccount.private_key,
+  },
+  scopes: ["https://www.googleapis.com/auth/firebase.messaging"],
+});
 
+const PROJECT_ID = "loboard-notifications"; // keep if unchanged
+
+async function getAccessToken() {
+  const client = await auth.getClient();
+  const { token } = await client.getAccessToken();
+  if (!token) throw new Error("Could not obtain Google OAuth access token");
+  return token;
+}
 
 async function sendPushToUsers(users, title, message) {
   const tokens = users
     .map((u) => u.fcmToken)
     .filter((t) => typeof t === "string" && t.length > 0);
 
-  if (tokens.length === 0) return;
+  if (tokens.length === 0) {
+    console.log("ℹ️ No FCM tokens found for recipients.");
+    return;
+  }
 
-  const payloadTemplate = {
-    message: {
-      notification: { title, body: message },
-      token: "", // will be replaced per user
-    }
-  };
+  const accessToken = await getAccessToken();
+  const endpoint = `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`;
 
-  const accessToken = await getAccessTokenFromFile();
   const results = [];
-
   for (const token of tokens) {
     const payload = {
-      ...payloadTemplate,
       message: {
-        ...payloadTemplate.message,
-        token
-      }
+        token,
+        notification: { title, body: message },
+        webpush: {
+          headers: { Urgency: "high" },
+          notification: { icon: "/icon.png" },
+        },
+      },
     };
 
-    const res = await fetch("https://fcm.googleapis.com/v1/projects/loboard-notifications/messages:send", {
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
 
-    const json = await res.json();
-    results.push(json);
+    const text = await res.text();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = { raw: text };
+    }
+
+    if (!res.ok) {
+      console.error("❌ FCM send error:", res.status, json);
+    }
+    results.push({ status: res.status, body: json });
   }
 
-  console.log("✅ Push sent to users:", results);
-}
-
-async function getAccessTokenFromFile() {
-  const jwtClient = new google.auth.JWT({
-    email: serviceAccount.client_email,
-    key: serviceAccount.private_key,
-    scopes: ["https://www.googleapis.com/auth/firebase.messaging"]
-  });
-
-  const tokens = await jwtClient.authorize();
-  return tokens.access_token;
+  console.log("✅ Push send summary:", results);
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -88,17 +108,27 @@ const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+const ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "http://192.168.100.61:5173", // ✅ Your LAN frontend
+  "https://loboard.netlify.app",
+];
+
 app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "http://192.168.88.54:5173", // ✅ Your LAN frontend
-    "https://loboard.netlify.app"
-  ],
-  methods: ["GET", "POST", "PATCH", "DELETE"],
-  credentials: true
+  origin: ALLOWED_ORIGINS,
+  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
 }));
 
+// Express 5: use a RegExp to match all paths for preflight
+app.options(new RegExp(".*"), cors());
+
 app.use(express.json());
+
+// ✅ Mount password reset routes
+app.use("/auth", authRouter);
+
 
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
@@ -805,65 +835,73 @@ app.get("/seed-vehicles", (req, res) => {
   res.json({ message: "🚐 Vehicles seeded!" });
 });
 
-const serviceAccountPath = path.join(__dirname, "firebase-service-account.json");
-const projectId = "loboard-notifications"; // 👈 replace if different
-
-const SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"];
-const auth = new GoogleAuth({
-  keyFile: serviceAccountPath,
-  scopes: SCOPES,
-});
-
+// ==== Push auth + route (conflict-free) ====
+// ==== /send-push route (reuses top auth + getAccessToken) ====
 app.post("/send-push", async (req, res) => {
-  const { token, title, body } = req.body;
+  const { token, tokens, title, body, data } = req.body || {};
 
-  if (!token || !title || !body) {
-    return res.status(400).json({ error: "Missing required fields" });
-  }
+  // Accept single token or array
+  const list = Array.isArray(tokens) ? tokens.filter(Boolean) : token ? [token] : [];
+  if (!list.length) return res.status(400).json({ error: "Missing 'token' or 'tokens' array" });
+  if (!title || !body) return res.status(400).json({ error: "Missing 'title' or 'body'" });
 
   try {
-    const client = await auth.getClient();
-    const accessToken = await client.getAccessToken();
+    const accessToken = await getAccessToken(); // <-- uses the top helper
+    const endpoint = `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`; // <-- uses top PROJECT_ID
+    const results = [];
 
-    const message = {
-      message: {
-        token,
-        notification: {
-          title,
-          body,
-        },
-        webpush: {
-          headers: {
-            Urgency: "high",
-          },
-          notification: {
-            icon: "/icon.png",
+    for (const t of list) {
+      const payload = {
+        message: {
+          token: t,
+          notification: { title, body },
+          data: Object.fromEntries(
+            Object.entries(data || {}).map(([k, v]) => [String(k), String(v)])
+          ),
+          webpush: {
+            headers: { Urgency: "high" },
+            notification: { icon: "/icon.png" },
           },
         },
-      },
-    };
+      };
 
-    const response = await fetch(
-      `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
-      {
+      const resp = await fetch(endpoint, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken.token}`,
+          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(message),
-      }
-    );
+        body: JSON.stringify(payload),
+      });
 
-    const result = await response.json();
-    res.json(result);
+      const text = await resp.text();
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = { raw: text };
+      }
+
+      results.push({ token: t, status: resp.status, ok: resp.ok, body: json });
+    }
+
+    const failures = results.filter((r) => !r.ok);
+    if (failures.length) {
+      return res.status(207).json({
+        successCount: results.length - failures.length,
+        failureCount: failures.length,
+        results,
+      });
+    }
+
+    return res.json({ successCount: results.length, failureCount: 0, results });
   } catch (err) {
     console.error("❌ Failed to send push:", err);
-    res.status(500).json({ error: "Failed to send push notification" });
+    return res
+      .status(500)
+      .json({ error: "Failed to send push notification", details: String(err) });
   }
 });
-
-
 
 console.log("🚨 ROUTE CHECKPOINT 18");
 console.log("🚨 ROUTE CHECKPOINT 19");
