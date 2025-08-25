@@ -9,9 +9,10 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
 console.log("🔍 Looking for service account at:", path.resolve("firebase-service-account.json"));
-import fetch from "node-fetch";
+// Using Node 18+ global fetch (no node-fetch needed)
 import { GoogleAuth } from "google-auth-library";
 import { createRequire } from "module";
+
 const require = createRequire(import.meta.url);
 
 // ✅ NEW: auth router for password reset
