@@ -12,16 +12,45 @@ console.log("🔍 Looking for service account at:", path.resolve("firebase-servi
 // Using Node 18+ global fetch (no node-fetch needed)
 import { GoogleAuth } from "google-auth-library";
 import { createRequire } from "module";
-
 const require = createRequire(import.meta.url);
 
-// ✅ NEW: auth router for password reset
-import authRouter from "./Routes/auth.js";
+// ✅ Load service account from env in prod, fall back to local file in dev
+let serviceAccount = null;
 
-// Load service account once (local dev)
-const serviceAccount = require("./firebase-service-account.json");
+// Option 1: whole JSON in FIREBASE_SERVICE_ACCOUNT
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  } catch (e) {
+    console.error("Invalid FIREBASE_SERVICE_ACCOUNT JSON:", e.message);
+  }
+}
 
-// Single GoogleAuth instance using credentials (no need for __dirname here)
+// Option 2: individual env vars
+if (!serviceAccount && process.env.GOOGLE_CLIENT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
+  serviceAccount = {
+    client_email: process.env.GOOGLE_CLIENT_EMAIL,
+    // Render/UI often stores "\n" — convert to real newlines
+    private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+  };
+}
+
+// Option 3: local file for dev
+if (!serviceAccount) {
+  try {
+    serviceAccount = require("./firebase-service-account.json");
+  } catch {
+    console.warn("Service account file not found and env vars missing.");
+  }
+}
+
+if (!serviceAccount?.client_email || !serviceAccount?.private_key) {
+  throw new Error(
+    "Firebase credentials not provided. Set FIREBASE_SERVICE_ACCOUNT (JSON) or GOOGLE_CLIENT_EMAIL + GOOGLE_PRIVATE_KEY env vars."
+  );
+}
+
+// Single GoogleAuth instance using credentials
 const auth = new GoogleAuth({
   credentials: {
     client_email: serviceAccount.client_email,
