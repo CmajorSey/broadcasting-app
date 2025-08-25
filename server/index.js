@@ -12,10 +12,15 @@ console.log("🔍 Looking for service account at:", path.resolve("firebase-servi
 // Using Node 18+ global fetch (no node-fetch needed)
 import { GoogleAuth } from "google-auth-library";
 import { createRequire } from "module";
+import authRouter from "./routes/auth.js";
 const require = createRequire(import.meta.url);
+
+// Ensure .env is loaded before we read process.env (helps local dev)
+dotenv.config();
 
 // ✅ Load service account from env in prod, fall back to local file in dev
 let serviceAccount = null;
+
 
 // Option 1: whole JSON in FIREBASE_SERVICE_ACCOUNT
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
