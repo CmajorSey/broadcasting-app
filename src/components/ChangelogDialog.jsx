@@ -22,7 +22,7 @@ export default function ChangelogDialog({ open, onClose }) {
 
         <div className="max-h-64 overflow-y-auto text-sm space-y-2">
           <ul className="list-disc ml-4 space-y-1">
-            <li>🔑 You can now reset your password with an email link – no need to type the old one again.</li>
+            <li>🔑 You can now reset your password with an admin request – A temporary password will be sent for reset.</li>
             <li>🛡️ All new passwords are stored more securely in the system.</li>
             <li>✅ Login is smoother and works for both older and updated accounts.</li>
             <li>📱 The login page now shows the correct site name and logo from settings.</li>
