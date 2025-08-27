@@ -277,23 +277,25 @@
     "lastLeaveUpdate": "2025-07-25T15:30:20.432Z"
   },
   {
-  "id": "1752899830269",
-  "name": "Christopher Gabriel",
-  "roles": [
-    "producer",
-    "camOp",
-    "driver"
-  ],
-  "description": "Senior Producer",
-  "hiddenRoles": [],
-  "password": "123456789",
-  "requiresPasswordReset": false,
-  "leaveBalance": 42,
-  "annualLeave": 1,
-  "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
-  "offDays": 3,
-  "fcmToken": "cZuEcPz4jfZHlZlJOuFhwm:APA91bGTDvUBe1VVEhu8ZlUWdFkTWHYFBzwa2G8bFWhwSDtrrz0INZSSVkUYrcfSXZps3MamCkp9ihXaiuBUXmu6Bx1VlCmqz2FnhWqpcATBbotYW1SNnA4"
-},
+    "id": "1752899830269",
+    "name": "Christopher Gabriel",
+    "roles": [
+      "producer",
+      "camOp",
+      "driver"
+    ],
+    "description": "Senior Producer",
+    "hiddenRoles": [],
+    "password": "Christopher270!",
+    "requiresPasswordReset": false,
+    "leaveBalance": 42,
+    "annualLeave": 1,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
+    "offDays": 3,
+    "fcmToken": "cZuEcPz4jfZHlZlJOuFhwm:APA91bGTDvUBe1VVEhu8ZlUWdFkTWHYFBzwa2G8bFWhwSDtrrz0INZSSVkUYrcfSXZps3MamCkp9ihXaiuBUXmu6Bx1VlCmqz2FnhWqpcATBbotYW1SNnA4",
+    "email": "christopher.gabriel@telesesel.sc",
+    "forcePasswordChange": false
+  },
   {
     "id": "1752900071147",
     "name": "Shereen Florentine",
@@ -382,5 +384,17 @@
     "leaveBalance": 42,
     "annualLeave": 21,
     "lastLeaveUpdate": "2025-07-25T15:30:20.451Z"
+  },
+  {
+    "id": "1756270928722",
+    "name": "John Doe",
+    "roles": [
+      "driver"
+    ],
+    "description": "",
+    "hiddenRoles": [],
+    "password": "$2b$10$GUN0ZxAq4ZKLFzLDSEQsmeQDAbFK7e1R1Xs8VAtukAL2zPnJqDEtG",
+    "forcePasswordChange": false,
+    "requiresPasswordReset": true
   }
 ]

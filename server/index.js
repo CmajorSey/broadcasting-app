@@ -169,7 +169,9 @@ const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const VEHICLES_FILE = path.join(DATA_DIR, "vehicles.json");
 const ROSTERS_FILE = path.join(DATA_DIR, "rosters.json");
+const PASSWORD_RESET_REQUESTS_FILE = path.join(DATA_DIR, "passwordResetRequests.json");
 const groupsPath = path.join(__dirname, "data", "notificationGroups.json");
+
 
 // 🔧 Ensure data directory and files exist
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -187,9 +189,7 @@ if (!fs.existsSync(TICKETS_FILE)) {
 }
 
 const USERS_DEFAULT_FILE = path.join(__dirname, "data", "users.json");
-
 if (!fs.existsSync(USERS_FILE)) {
-  // If disk file doesn't exist, copy from Git-tracked default
   const defaultUsers = fs.readFileSync(USERS_DEFAULT_FILE, "utf-8");
   fs.writeFileSync(USERS_FILE, defaultUsers);
 }
@@ -197,15 +197,14 @@ if (!fs.existsSync(USERS_FILE)) {
 if (!fs.existsSync(SETTINGS_FILE)) {
   fs.writeFileSync(
     SETTINGS_FILE,
-    JSON.stringify(
-      {
-        siteName: "Byenveni Lo Board"
-      },
-      null,
-      2
-    )
+    JSON.stringify({ siteName: "Byenveni Lo Board" }, null, 2)
   );
 }
+
+if (!fs.existsSync(PASSWORD_RESET_REQUESTS_FILE)) {
+  fs.writeFileSync(PASSWORD_RESET_REQUESTS_FILE, JSON.stringify([], null, 2));
+}
+
 console.log("🚨 ROUTE CHECKPOINT 2");
 console.log("🚨 ROUTE CHECKPOINT 3");
 // ✅ GET all groups
@@ -330,8 +329,117 @@ app.delete("/notifications/:timestamp", (req, res) => {
   }
 });
 
+/* ✅ Forgot-password → log request, push admins, and write an in-app notification (with action + compact display) */
+app.post("/auth/request-admin-reset", async (req, res) => {
+  try {
+    const { identifier } = req.body || {};
+    if (!identifier || !String(identifier).trim()) {
+      return res.status(400).json({ error: "Missing identifier" });
+    }
+
+    // Load users
+    const usersRaw = fs.readFileSync(USERS_FILE, "utf-8");
+    const allUsers = JSON.parse(usersRaw);
+
+    // Match by name/username/email (case-insensitive)
+    const lower = String(identifier).trim().toLowerCase();
+    const requester =
+      allUsers.find((u) => String(u.name || "").toLowerCase() === lower) ||
+      allUsers.find((u) => String(u.username || "").toLowerCase() === lower) ||
+      allUsers.find((u) => String(u.email || "").toLowerCase() === lower) ||
+      null;
+
+    // Save a request record
+    const entry = {
+      id: Date.now().toString(),
+      identifier: String(identifier).trim(),
+      requesterId: requester?.id || null,
+      requesterName: requester?.name || null,
+      createdAt: new Date().toISOString(),
+      status: "pending",
+    };
+
+    const reqsRaw = fs.readFileSync(PASSWORD_RESET_REQUESTS_FILE, "utf-8");
+    const reqs = JSON.parse(reqsRaw);
+    reqs.push(entry);
+    fs.writeFileSync(PASSWORD_RESET_REQUESTS_FILE, JSON.stringify(reqs, null, 2));
+
+    // Admin targets
+    const admins = allUsers.filter(
+      (u) => Array.isArray(u.roles) && u.roles.includes("admin")
+    );
+
+    // 🔔 Push notify admins (FCM)
+    try {
+      const title = "🔑 Password Reset Request";
+      const who = entry.requesterName || entry.identifier;
+      const body = `User requested a password reset: ${who}`;
+      await sendPushToUsers(admins, title, body);
+    } catch (pushErr) {
+      console.warn("Push notification failed (will still return ok):", pushErr);
+    }
+
+    // 📣 In-app notification (full recipients for filtering, compact display label, and action payload)
+    try {
+      const notificationsPath = path.join(__dirname, "data", "notifications.json");
+      const notifRaw = fs.existsSync(notificationsPath)
+        ? fs.readFileSync(notificationsPath, "utf-8")
+        : "[]";
+      const notifications = JSON.parse(notifRaw);
+
+      const title = "🔑 Password Reset Request";
+      const who = entry.requesterName || entry.identifier;
+      const message = `User requested a password reset: ${who}`;
+
+      // Recipients for filtering (ids + names + roles + ALL)
+      const adminIds = admins.map((a) => String(a.id)).filter(Boolean);
+      const adminNames = admins.map((a) => String(a.name || "")).filter(Boolean);
+      const recipients = Array.from(new Set([
+        ...adminIds,
+        ...adminNames,
+        "admin",
+        "admins",
+        "ALL",
+      ]));
+
+      // Deep-link to User Management (adjust path if your User Management is under a different route)
+      const actionUrl = entry.requesterId
+        ? `/settings?resetUser=${encodeURIComponent(entry.requesterId)}`
+        : `/settings?resetName=${encodeURIComponent(entry.identifier)}`;
+
+      const newNotification = {
+        title,
+        message,
+        recipients,
+        timestamp: new Date().toISOString(),
+        // 👇 extra metadata your UI can use
+        kind: "password_reset_request",
+        displayRecipients: ["Admins"],             // compact label for UI
+        action: {
+          type: "open_user_management",
+          userId: entry.requesterId,               // may be null if name didn't match
+          userName: entry.requesterName || entry.identifier,
+          url: actionUrl,
+        },
+      };
+
+      notifications.push(newNotification);
+      fs.writeFileSync(notificationsPath, JSON.stringify(notifications, null, 2));
+      console.log("📣 Admin notification written:", { title, displayRecipients: newNotification.displayRecipients });
+    } catch (notifErr) {
+      console.warn("Writing admin notification failed:", notifErr);
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("request-admin-reset error:", err);
+    return res.status(500).json({ error: "Failed to submit reset request" });
+  }
+});
+
 console.log("🚨 ROUTE CHECKPOINT 6");
 console.log("🚨 ROUTE CHECKPOINT 7");
+
 
 // ✅ One-time restore: force import vehicles from Git-tracked copy
 app.get("/force-import-vehicles", (req, res) => {
@@ -420,6 +528,10 @@ console.log("🚨 ROUTE CHECKPOINT 10");
 console.log("🚨 ROUTE CHECKPOINT 11");
 
 
+// ==========================
+// 👤 Users API (with temp-password + must-change flow)
+// ==========================
+
 // ✅ Get all users
 app.get("/users", (req, res) => {
   const raw = fs.readFileSync(USERS_FILE, "utf-8");
@@ -439,165 +551,235 @@ app.get("/users/:id", (req, res) => {
   }
 });
 
-// ✅ Add new user
+// ✅ Add new user (force first-login password change)
 app.post("/users", (req, res) => {
-  const { name, roles = [], description = "", hiddenRoles = [] } = req.body;
-  if (!name || typeof name !== "string") {
-    return res.status(400).json({ message: "Name is required" });
-  }
-
-  const firstName = name.trim().split(" ")[0];
-  const defaultPassword = `${firstName}1`;
-
-  const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-
-  const newUser = {
-    id: Date.now().toString(),
-    name: name.trim(),
-    roles,
-    description,
-    hiddenRoles,
-    password: defaultPassword,
-    requiresPasswordReset: true,
-  };
-
-  users.push(newUser);
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-  res.status(201).json(newUser);
-});
-app.post("/notifications", (req, res) => {
-  const notificationsPath = path.join(__dirname, "data", "notifications.json");
-  const { title, message, recipients, createdAt } = req.body;
-
-  if (!title || !message || !Array.isArray(recipients) || recipients.length === 0) {
-    return res.status(400).json({ error: "Missing required fields" });
-  }
-
   try {
-    const raw = fs.readFileSync(notificationsPath, "utf-8");
-    const current = JSON.parse(raw);
+    const { name, roles = [], description = "", hiddenRoles = [] } = req.body;
 
-    const newNotification = {
-      title,
-      message,
-      recipients,
-      timestamp: createdAt || new Date().toISOString(),
-    };
-
-    current.push(newNotification);
-    fs.writeFileSync(notificationsPath, JSON.stringify(current, null, 2));
-
-    res.status(201).json(newNotification);
-  } catch (err) {
-    console.error("Failed to save notification:", err);
-    res.status(500).json({ error: "Failed to write notification" });
-  }
-});
-
-// ✅ POST route for user suggestions
-app.post("/suggestions", (req, res) => {
-  const suggestionsPath = path.join(__dirname, "data", "suggestions.json");
-  const { name, message, timestamp } = req.body;
-
-  if (!name || !message) {
-    return res.status(400).json({ error: "Missing name or message" });
-  }
-
-  try {
-    const raw = fs.existsSync(suggestionsPath)
-      ? fs.readFileSync(suggestionsPath, "utf-8")
-      : "[]";
-    const all = JSON.parse(raw);
-
-    const newSuggestion = {
-      name,
-      message,
-      timestamp: timestamp || new Date().toISOString(),
-      archived: false, // ✅ default to false
-    };
-
-    all.push(newSuggestion);
-    fs.writeFileSync(suggestionsPath, JSON.stringify(all, null, 2));
-    res.status(201).json(newSuggestion);
-  } catch (err) {
-    console.error("Failed to save suggestion:", err);
-    res.status(500).json({ error: "Failed to write suggestion" });
-  }
-});
-
-// ✅ GET route for suggestions
-app.get("/suggestions", (req, res) => {
-  const suggestionsPath = path.join(__dirname, "data", "suggestions.json");
-
-  try {
-    if (!fs.existsSync(suggestionsPath)) {
-      return res.json([]);
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({ message: "Name is required" });
     }
 
-    const raw = fs.readFileSync(suggestionsPath, "utf-8");
-    const suggestions = JSON.parse(raw);
-    res.json(suggestions);
+    // Generate a simple temp password (kept plaintext for your current login compatibility)
+    const firstName = name.trim().split(/\s+/)[0] || "User";
+    const defaultPassword = `${firstName}1`;
+
+    // Optional: temp password expiry (72h)
+    const TEMP_PASSWORD_TTL_HOURS = 72;
+    const tempPasswordExpires = new Date(Date.now() + TEMP_PASSWORD_TTL_HOURS * 60 * 60 * 1000).toISOString();
+
+    // Read, append, and persist
+    const usersRaw = fs.readFileSync(USERS_FILE, "utf-8");
+    const users = usersRaw ? JSON.parse(usersRaw) : [];
+
+    const newUser = {
+      id: Date.now().toString(),
+      name: name.trim(),
+      roles,
+      description,
+      hiddenRoles,
+
+      // ⚠️ Storing plaintext for compatibility with your existing login.
+      password: defaultPassword,
+
+      // 👇 Flags your /auth/login can read to trigger the "Set New Password" page
+      forcePasswordChange: true,
+      requiresPasswordReset: true, // legacy alias
+      passwordIsTemp: true,        // 👈 explicit temp marker for brand-new default password
+
+      // 🗓️ Helpful metadata (non-breaking)
+      tempPasswordExpires,
+      passwordUpdatedAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    users.push(newUser);
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+
+    return res.json({
+      success: true,
+      user: {
+        id: newUser.id,
+        name: newUser.name,
+        roles: newUser.roles,
+        description: newUser.description,
+        hiddenRoles: newUser.hiddenRoles,
+        forcePasswordChange: newUser.forcePasswordChange,
+        requiresPasswordReset: newUser.requiresPasswordReset,
+        passwordIsTemp: !!newUser.passwordIsTemp,
+        tempPasswordExpires: newUser.tempPasswordExpires,
+      },
+      tempPassword: defaultPassword, // show once to admin
+      message: `User created. Temporary password expires in ${TEMP_PASSWORD_TTL_HOURS} hours.`,
+    });
   } catch (err) {
-    console.error("Failed to read suggestions:", err);
-    res.status(500).json({ error: "Failed to load suggestions" });
+    console.error("Error creating user:", err);
+    return res.status(500).json({ message: "Failed to create user" });
   }
 });
 
-// ✅ PATCH route to archive/unarchive suggestions
-app.patch("/suggestions/:timestamp", (req, res) => {
-  const suggestionsPath = path.join(__dirname, "data", "suggestions.json");
-  const { timestamp } = req.params;
+
+/**
+ * ✅ Generate new temp password for an existing user (admin action)
+ * Sets:
+ *  - password = <temp>
+ *  - forcePasswordChange = true
+ *  - requiresPasswordReset = true
+ *  - tempPasswordExpires = now + (hours || 72h)
+ */
+app.post("/users/:id/temp-password", (req, res) => {
+  const { id } = req.params;
+  const { hours } = req.body || {};
+  const ttlHours = Number.isFinite(hours) && hours > 0 ? hours : 72;
+  const tempPasswordExpires = new Date(Date.now() + ttlHours * 60 * 60 * 1000).toISOString();
 
   try {
-    const raw = fs.readFileSync(suggestionsPath, "utf-8");
-    const suggestions = JSON.parse(raw);
+    const raw = fs.readFileSync(USERS_FILE, "utf-8");
+    const users = JSON.parse(raw);
+    const idx = users.findIndex((u) => String(u.id) === String(id));
+    if (idx === -1) return res.status(404).json({ error: "User not found" });
 
-    const updated = suggestions.map((s) => {
-      const baseTime = new Date(s.timestamp).toISOString().split(".")[0];
-      const matchTime = new Date(timestamp).toISOString().split(".")[0];
-      if (baseTime === matchTime) {
-        return { ...s, archived: !s.archived };
-      }
-      return s;
+    // Human-friendly temp password (plaintext-compatible): FirstName + 3 digits
+    const base = (users[idx].name?.split(/\s+/)[0] || "User").replace(/[^A-Za-z]/g, "") || "User";
+    const rand = Math.floor(100 + Math.random() * 900); // 3 digits
+    const tempPassword = `${base}${rand}`;
+
+    users[idx] = {
+      ...users[idx],
+      password: tempPassword,
+      forcePasswordChange: true,
+      requiresPasswordReset: true,
+      passwordIsTemp: true,            // 👈 explicit temp marker for /auth/login
+      tempPasswordExpires,
+      updatedAt: new Date().toISOString(),
+    };
+
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+
+    return res.json({
+      success: true,
+      user: {
+        id: users[idx].id,
+        name: users[idx].name,
+        roles: users[idx].roles,
+        forcePasswordChange: users[idx].forcePasswordChange,
+        requiresPasswordReset: users[idx].requiresPasswordReset,
+        passwordIsTemp: !!users[idx].passwordIsTemp,
+        tempPasswordExpires: users[idx].tempPasswordExpires,
+      },
+      tempPassword, // show once to admin UI
+      message: `Temporary password set. Expires in ${ttlHours} hours.`,
     });
-
-    fs.writeFileSync(suggestionsPath, JSON.stringify(updated, null, 2));
-    res.json({ success: true });
   } catch (err) {
-    console.error("Failed to archive suggestion:", err);
-    res.status(500).json({ error: "Failed to archive suggestion" });
+    console.error("Failed to set temp password:", err);
+    return res.status(500).json({ error: "Failed to set temp password" });
   }
 });
 
 
+/**
+ * ✅ User sets a NEW password (self-service from "Set New Password" page)
+ * Body: { currentPassword: string, newPassword: string }
+ * On success: clears forcePasswordChange/requiresPasswordReset and tempPasswordExpires
+ */
+app.patch("/users/:id/password", (req, res) => {
+  const { id } = req.params;
+  const { currentPassword, newPassword } = req.body || {};
 
-// ✅ Patch user
+  if (!newPassword || typeof newPassword !== "string" || !newPassword.trim()) {
+    return res.status(400).json({ error: "New password is required" });
+  }
+
+  try {
+    const raw = fs.readFileSync(USERS_FILE, "utf-8");
+    const users = JSON.parse(raw);
+    const idx = users.findIndex((u) => String(u.id) === String(id));
+    if (idx === -1) return res.status(404).json({ error: "User not found" });
+
+    const u = users[idx];
+
+    // Optional: verify current password when provided
+    if (typeof currentPassword === "string") {
+      if (String(u.password) !== String(currentPassword)) {
+        return res.status(401).json({ error: "Current password is incorrect" });
+      }
+    }
+
+    // Optional: enforce temp expiry
+    if (u.tempPasswordExpires) {
+      const now = Date.now();
+      const exp = Date.parse(u.tempPasswordExpires);
+      if (Number.isFinite(exp) && now > exp) {
+        return res.status(410).json({ error: "Temporary password has expired" });
+      }
+    }
+
+    u.password = newPassword.trim();
+    u.forcePasswordChange = false;
+    u.requiresPasswordReset = false;
+    u.passwordIsTemp = false;          // 👈 clear temp marker
+    u.tempPasswordExpires = null;
+    u.passwordUpdatedAt = new Date().toISOString();
+    u.updatedAt = new Date().toISOString();
+
+    users[idx] = u;
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Failed to update password:", err);
+    return res.status(500).json({ error: "Failed to update password" });
+  }
+});
+
+
+// ✅ Patch user (admin edit; safe defaults)
 app.patch("/users/:id", (req, res) => {
   const usersPath = path.join(__dirname, "data", "users.json");
   const { id } = req.params;
-  const { password } = req.body;
 
   try {
     const data = fs.readFileSync(usersPath, "utf-8");
     const users = JSON.parse(data);
 
-    const userIndex = users.findIndex((u) => u.id === id);
-    if (userIndex === -1) return res.status(404).json({ error: "User not found" });
+    const idx = users.findIndex((u) => String(u.id) === String(id));
+    if (idx === -1) return res.status(404).json({ error: "User not found" });
 
-    if (typeof password === "string" && password.trim()) {
-      users[userIndex].password = password.trim();
+    const body = req.body || {};
+    const u = users[idx];
 
-      fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
-      return res.json({ success: true, user: users[userIndex] });
-    } else {
-      return res.status(400).json({ error: "Invalid password" });
+    // Password update (admin-initiated). If you are using this to set a permanent password,
+    // we won't override flags unless you explicitly send them in the body.
+    if (typeof body.password === "string" && body.password.trim()) {
+      u.password = body.password.trim();
+      // Do NOT force-clear flags unless specified:
+      if (typeof body.forcePasswordChange === "undefined" && typeof body.requiresPasswordReset === "undefined") {
+        // leave existing flags as-is
+      }
     }
+
+    // Optional profile updates (kept harmless)
+    if (Array.isArray(body.roles)) u.roles = body.roles;
+    if (typeof body.description === "string") u.description = body.description;
+    if (Array.isArray(body.hiddenRoles)) u.hiddenRoles = body.hiddenRoles;
+
+    // Flags: allow explicit control from client
+    if (typeof body.forcePasswordChange === "boolean") {
+      u.forcePasswordChange = body.forcePasswordChange;
+    }
+    if (typeof body.requiresPasswordReset === "boolean") {
+      u.requiresPasswordReset = body.requiresPasswordReset;
+    }
+
+    u.updatedAt = new Date().toISOString();
+
+    fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
+    return res.json({ success: true, user: u });
   } catch (err) {
-    console.error("Failed to reset password:", err);
-    res.status(500).json({ error: "Failed to update user password" });
+    console.error("Failed to patch user:", err);
+    res.status(500).json({ error: "Failed to update user" });
   }
 });
-
 
 // ✅ Delete user
 app.delete("/users/:id", (req, res) => {
@@ -611,6 +793,7 @@ app.delete("/users/:id", (req, res) => {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
   res.json({ success: true, deletedId: id });
 });
+
 console.log("🚨 ROUTE CHECKPOINT 12");
 console.log("🚨 ROUTE CHECKPOINT 13");
 
@@ -955,15 +1138,17 @@ app.use(express.static(distPath));
 // Fallback to index.html for frontend routes (React SPA)
 app.use((req, res, next) => {
   const knownPrefixes = [
-    "/api",
-    "/users",
-    "/tickets",
-    "/vehicles",
-    "/rosters",
-    "/seed-vehicles",
-    "/notification-groups",
-    "/notifications"
-  ];
+  "/api",
+  "/auth",               // ✅ whitelist auth API so SPA fallback never captures it
+  "/users",
+  "/tickets",
+  "/vehicles",
+  "/rosters",
+  "/seed-vehicles",
+  "/notification-groups",
+  "/notifications"
+];
+
 
   if (knownPrefixes.some((prefix) => req.path.startsWith(prefix))) {
     return next(); // Let Express handle these API routes
