@@ -306,7 +306,8 @@
     "vehicleStatus": "",
     "createdBy": "Admin",
     "createdAt": "2025-07-22T17:34:07.829Z",
-    "id": "1753205647834"
+    "id": "1753205647834",
+    "deleted": true
   },
   {
     "title": "TEST",
@@ -506,6 +507,7 @@
     "assignedReporter": "Journalist: Emma Laporte",
     "vehicleStatus": "",
     "createdBy": "Admin",
-    "createdAt": "2025-07-31T04:53:58.863Z"
+    "createdAt": "2025-07-31T04:53:58.863Z",
+    "deleted": true
   }
 ]

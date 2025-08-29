@@ -314,66 +314,87 @@ export default function UserManagement({
       <h2 className="text-xl font-bold text-gray-800">User Management</h2>
 
       <div className="space-y-4">
-        {users.map((user) => (
-          <div
-            key={user.id}
-            ref={(el) => {
-              if (el) rowRefs.current[user.id] = el;
-            }}
-            style={highlightStyle(user.id)}
-            className="border p-4 rounded-lg shadow-sm bg-gray-50 space-y-3"
+      
+{users.map((user) => {
+  // Small, safe formatter: "YYYY-MM-DD HH:MM" or "Never"
+  const prettyLastLogin = (() => {
+    const v = user?.lastLogin;
+    if (!v) return "Never";
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return "Never";
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mi = String(d.getMinutes()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+  })();
+
+  return (
+    <div
+      key={user.id}
+      ref={(el) => {
+        if (el) rowRefs.current[user.id] = el;
+      }}
+      style={highlightStyle(user.id)}
+      className="border p-4 rounded-lg shadow-sm bg-gray-50 space-y-3"
+    >
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-lg text-gray-700">{user.name}</h3>
+          {user.description && (
+            <p className="text-sm text-gray-500">{user.description}</p>
+          )}
+          <p className="text-xs text-gray-400 mt-1">
+            Last login: <span className="opacity-80">{prettyLastLogin}</span>
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            className="text-blue-600 text-sm underline hover:text-blue-800"
+            onClick={() => setUserBeingEdited(user)}
           >
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold text-lg text-gray-700">{user.name}</h3>
-                {user.description && (
-                  <p className="text-sm text-gray-500">{user.description}</p>
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  className="text-blue-600 text-sm underline hover:text-blue-800"
-                  onClick={() => setUserBeingEdited(user)}
-                >
-                  ✏️ Edit
-                </button>
-                <button
-                  className="text-yellow-600 text-sm underline hover:text-yellow-800"
-                  onClick={() => {
-                    setResetTarget(user);
-                    setNewPassword(makeTempPassword(user.name));
-                  }}
-                >
-                  Reset Password
-                </button>
-                <button
-                  className="text-red-600 text-sm underline hover:text-red-800"
-                  onClick={() => setUserToDelete(user)}
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
+            ✏️ Edit
+          </button>
+          <button
+            className="text-yellow-600 text-sm underline hover:text-yellow-800"
+            onClick={() => {
+              setResetTarget(user);
+              setNewPassword(makeTempPassword(user.name));
+            }}
+          >
+            Reset Password
+          </button>
+          <button
+            className="text-red-600 text-sm underline hover:text-red-800"
+            onClick={() => setUserToDelete(user)}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
 
-            <div className="flex flex-wrap gap-4">
-              {availableRoles.map((role) => {
-                const isHidden = user.hiddenRoles?.includes(role);
-                if (role === "admin" && isHidden) return null;
+      <div className="flex flex-wrap gap-4">
+        {availableRoles.map((role) => {
+          const isHidden = user.hiddenRoles?.includes(role);
+          if (role === "admin" && isHidden) return null;
 
-                return (
-                  <label key={role} className="flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={(user.roles || []).includes(role)}
-                      onChange={() => handleRoleChange(user.id, role)}
-                    />
-                    <span>{role}</span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+          return (
+            <label key={role} className="flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={(user.roles || []).includes(role)}
+                onChange={() => handleRoleChange(user.id, role)}
+              />
+              <span>{role}</span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+})}
+
       </div>
 
       <div className="flex flex-wrap gap-4 pt-4 border-t">
