@@ -182,5 +182,85 @@
       "ALL"
     ],
     "timestamp": "2025-08-27T05:02:38.477Z"
+  },
+  {
+    "title": "🔑 Password Reset Request",
+    "message": "User requested a password reset: Christopher Gabriel",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2025-08-27T18:06:22.158Z"
+  },
+  {
+    "title": "🔑 Password Reset Request",
+    "message": "User requested a password reset: Christopher Gabriel",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2025-08-27T18:36:12.701Z"
+  },
+  {
+    "title": "🔑 Password Reset Request",
+    "message": "User requested a password reset: Christopher Gabriel",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2025-08-27T18:57:29.436Z"
+  },
+  {
+    "title": "🔑 Password Reset Request",
+    "message": "User requested a password reset: Christopher Gabriel",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2025-08-28T04:45:28.303Z"
+  },
+  {
+    "title": "🔑 Password Reset Request",
+    "message": "User requested a password reset: Christopher Gabriel",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2025-08-28T05:25:44.726Z"
   }
 ]

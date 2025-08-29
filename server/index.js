@@ -290,44 +290,148 @@ app.delete("/notification-groups/:id", (req, res) => {
 });
 console.log("🚨 ROUTE CHECKPOINT 4");
 console.log("🚨 ROUTE CHECKPOINT 5");
-// ✅ GET /notifications (returns all — frontend filters by user/section/group)
-app.get("/notifications", (req, res) => {
+// ✅ Notifications API (edit, delete-one, clear-all, and polling support)
+(() => {
   const notificationsPath = path.join(__dirname, "data", "notifications.json");
 
-  try {
-    const raw = fs.readFileSync(notificationsPath, "utf-8");
-    const all = JSON.parse(raw);
-    res.json(all); // Return all notifications
-  } catch (err) {
-    console.error("Failed to read notifications:", err);
-    res.status(500).json({ error: "Could not read notifications" });
-  }
-});
-app.delete("/notifications/:timestamp", (req, res) => {
-  const notificationsPath = path.join(__dirname, "data", "notifications.json");
-  const encoded = req.params.timestamp;
+  const ensureFile = () => {
+    if (!fs.existsSync(notificationsPath)) {
+      fs.writeFileSync(notificationsPath, JSON.stringify([], null, 2));
+    }
+  };
 
-  try {
-    const decoded = decodeURIComponent(encoded);
+  const readNotifs = () => {
+    ensureFile();
     const raw = fs.readFileSync(notificationsPath, "utf-8");
-    const all = JSON.parse(raw);
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
 
-    const updated = all.filter((n) => {
-      try {
-        return new Date(n.timestamp).toISOString().split(".")[0] !== new Date(decoded).toISOString().split(".")[0];
-      } catch {
-        return true;
+  const writeNotifs = (arr) => {
+    fs.writeFileSync(notificationsPath, JSON.stringify(arr, null, 2));
+  };
+
+  // Normalize ISO to second precision for stable compare (avoids ms drift)
+  const isoSec = (dateish) => {
+    try {
+      return new Date(dateish).toISOString().split(".")[0];
+    } catch {
+      return null;
+    }
+  };
+
+  // 🧭 GET /notifications
+  //    - returns all by default
+  //    - supports polling: /notifications?after=<ISO> (returns items strictly newer than `after`)
+  app.get("/notifications", (req, res) => {
+    try {
+      const all = readNotifs();
+
+      const { after } = req.query || {};
+      if (after) {
+        const a = isoSec(after);
+        if (!a) return res.status(400).json({ error: "Invalid 'after' timestamp" });
+        const filtered = all.filter((n) => {
+          const t = isoSec(n?.timestamp);
+          return t && t > a;
+        });
+        return res.json(filtered);
       }
-    });
 
-    fs.writeFileSync(notificationsPath, JSON.stringify(updated, null, 2));
-    console.log("🗑 Deleted notification:", decoded);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("Failed to delete notification:", err);
-    res.status(500).json({ error: "Could not delete notification" });
-  }
-});
+      return res.json(all);
+    } catch (err) {
+      console.error("Failed to read notifications:", err);
+      res.status(500).json({ error: "Could not read notifications" });
+    }
+  });
+
+  // ✏️ PATCH /notifications/:timestamp
+  //    - edit title, message, recipients, kind, action
+  //    - path param must be the original timestamp (URL-encoded OK)
+  app.patch("/notifications/:timestamp", (req, res) => {
+    try {
+      const encoded = req.params.timestamp;
+      const decoded = decodeURIComponent(encoded);
+      const targetKey = isoSec(decoded);
+      if (!targetKey) return res.status(400).json({ error: "Invalid timestamp" });
+
+      const all = readNotifs();
+      const idx = all.findIndex((n) => isoSec(n?.timestamp) === targetKey);
+      if (idx === -1) return res.status(404).json({ error: "Notification not found" });
+
+      const body = req.body || {};
+      const allowed = ["title", "message", "recipients", "kind", "action", "displayRecipients"];
+      const current = all[idx];
+
+      const updated = { ...current };
+      for (const key of allowed) {
+        if (key in body) updated[key] = body[key];
+      }
+      // If you want to support "mark as read/archived" later, you can pass status
+      if (typeof body.status === "string") updated.status = body.status;
+
+      all[idx] = updated;
+      writeNotifs(all);
+
+      return res.json({ success: true, notification: updated });
+    } catch (err) {
+      console.error("Failed to patch notification:", err);
+      res.status(500).json({ error: "Could not patch notification" });
+    }
+  });
+
+  // 🗑️ DELETE /notifications/:timestamp  (delete one)
+  app.delete("/notifications/:timestamp", (req, res) => {
+    try {
+      const encoded = req.params.timestamp;
+      const decoded = decodeURIComponent(encoded);
+      const targetKey = isoSec(decoded);
+      if (!targetKey) return res.status(400).json({ error: "Invalid timestamp" });
+
+      const all = readNotifs();
+      const updated = all.filter((n) => isoSec(n?.timestamp) !== targetKey);
+      writeNotifs(updated);
+
+      console.log("🗑 Deleted notification:", decoded);
+      return res.json({ success: true });
+    } catch (err) {
+      console.error("Failed to delete notification:", err);
+      res.status(500).json({ error: "Could not delete notification" });
+    }
+  });
+
+  // 🧹 DELETE /notifications  (clear all, or clear olderThan=<ISO>)
+  //    - Clear all: DELETE /notifications
+  //    - Clear older than a date: DELETE /notifications?olderThan=<ISO>
+  app.delete("/notifications", (req, res) => {
+    try {
+      const { olderThan } = req.query || {};
+      const all = readNotifs();
+
+      if (olderThan) {
+        const cutoff = isoSec(olderThan);
+        if (!cutoff) return res.status(400).json({ error: "Invalid 'olderThan' timestamp" });
+        const kept = all.filter((n) => {
+          const t = isoSec(n?.timestamp);
+          return t && t >= cutoff;
+        });
+        writeNotifs(kept);
+        return res.json({ success: true, removed: all.length - kept.length, kept: kept.length });
+      }
+
+      writeNotifs([]);
+      return res.json({ success: true, removed: all.length, kept: 0 });
+    } catch (err) {
+      console.error("Failed to clear notifications:", err);
+      res.status(500).json({ error: "Could not clear notifications" });
+    }
+  });
+})();
+
 
 /* ✅ Forgot-password → log request, push admins, and write an in-app notification (with action + compact display) */
 app.post("/auth/request-admin-reset", async (req, res) => {

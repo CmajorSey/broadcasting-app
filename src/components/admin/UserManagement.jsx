@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertDialog,
@@ -14,7 +14,15 @@ import API_BASE from "@/api";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 
-export default function UserManagement({ users, setUsers, defaultRoles, protectedRoles }) {
+export default function UserManagement({
+  users,
+  setUsers,
+  defaultRoles,
+  protectedRoles,
+  // 👇 NEW: these come from AdminPanel (which receives them from AdminPage query params)
+  highlightId = null,
+  highlightName = null,
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -35,6 +43,10 @@ export default function UserManagement({ users, setUsers, defaultRoles, protecte
   const [resetTarget, setResetTarget] = useState(null);
   const [newPassword, setNewPassword] = useState("");
 
+  // NEW: highlight state + refs to rows for scrollIntoView
+  const [flashId, setFlashId] = useState(null);
+  const rowRefs = useRef({}); // { [userId]: HTMLDivElement }
+
   // 🔧 Util: generate a readable temporary password
   const makeTempPassword = (name = "User") => {
     const first = String(name).split(" ")[0] || "User";
@@ -43,36 +55,35 @@ export default function UserManagement({ users, setUsers, defaultRoles, protecte
   };
 
   const handleResetPassword = async () => {
-  if (!resetTarget || !newPassword.trim()) return;
+    if (!resetTarget || !newPassword.trim()) return;
 
-  try {
-    const res = await fetch(`${API_BASE}/users/${resetTarget.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        password: newPassword.trim(),
-        // 👇 force new-password screen on next login
-        forcePasswordChange: true,
-        requiresPasswordReset: true,
-      }),
-    });
+    try {
+      const res = await fetch(`${API_BASE}/users/${resetTarget.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          password: newPassword.trim(),
+          // 👇 force new-password screen on next login
+          forcePasswordChange: true,
+          requiresPasswordReset: true,
+        }),
+      });
 
-    if (!res.ok) throw new Error("Failed to reset password");
-    const data = await res.json();
+      if (!res.ok) throw new Error("Failed to reset password");
+      const data = await res.json();
 
-    toast({ title: `Temp password set for ${resetTarget.name}` });
-    // optionally update local list if server echoed user
-    if (data?.user) {
-      setUsers((prev) => prev.map((u) => (u.id === data.user.id ? data.user : u)));
+      toast({ title: `Temp password set for ${resetTarget.name}` });
+      // optionally update local list if server echoed user
+      if (data?.user) {
+        setUsers((prev) => prev.map((u) => (u.id === data.user.id ? data.user : u)));
+      }
+      setResetTarget(null);
+      setNewPassword("");
+    } catch (err) {
+      console.error("Reset failed", err);
+      toast({ title: "Failed to reset password", variant: "destructive" });
     }
-    setResetTarget(null);
-    setNewPassword("");
-  } catch (err) {
-    console.error("Reset failed", err);
-    toast({ title: "Failed to reset password", variant: "destructive" });
-  }
-};
-
+  };
 
   useEffect(() => {
     fetch(`${API_BASE}/settings`)
@@ -83,7 +94,7 @@ export default function UserManagement({ users, setUsers, defaultRoles, protecte
       .catch((err) => console.error("Failed to load branding:", err));
   }, []);
 
-  // ✅ NEW: auto-open Reset dialog if query string requests it
+  // ✅ Auto-open Reset dialog if query string requests it (existing behavior kept)
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const byId = params.get("resetUser");
@@ -115,6 +126,34 @@ export default function UserManagement({ users, setUsers, defaultRoles, protecte
     }
   }, [location.search, users, navigate]);
 
+  // ✅ NEW: Highlight logic — when highlightId or highlightName present, scroll + flash the row
+  useEffect(() => {
+    if (!Array.isArray(users) || users.length === 0) return;
+
+    let target = null;
+
+    if (highlightId) {
+      target = users.find((u) => String(u.id) === String(highlightId));
+    }
+    if (!target && highlightName) {
+      const lower = String(highlightName).trim().toLowerCase();
+      target = users.find((u) => String(u.name || "").toLowerCase() === lower);
+    }
+
+    if (target) {
+      const el = rowRefs.current[target.id];
+      if (el && typeof el.scrollIntoView === "function") {
+        // Smooth scroll & center
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+
+      // Trigger flash highlight for ~2s
+      setFlashId(String(target.id));
+      const t = setTimeout(() => setFlashId(null), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [users, highlightId, highlightName]);
+
   const saveBranding = () => {
     fetch(`${API_BASE}/settings`, {
       method: "PATCH",
@@ -136,7 +175,7 @@ export default function UserManagement({ users, setUsers, defaultRoles, protecte
     const hasRole = (user.roles || []).includes(role);
     const newRoles = hasRole
       ? user.roles.filter((r) => r !== role)
-      : [...user.roles, role];
+      : [...(user.roles || []), role];
 
     try {
       const res = await fetch(`${API_BASE}/users/${userId}`, {
@@ -147,7 +186,10 @@ export default function UserManagement({ users, setUsers, defaultRoles, protecte
 
       if (!res.ok) throw new Error("Failed to update roles");
 
-      const updated = await res.json();
+      // Your /users/:id PATCH currently returns { success, user }
+      const payload = await res.json();
+      const updated = payload?.user || payload; // accept either format safely
+
       setUsers((prev) => prev.map((u) => (u.id === userId ? updated : u)));
     } catch (err) {
       alert("Error updating roles: " + err.message);
@@ -191,8 +233,10 @@ export default function UserManagement({ users, setUsers, defaultRoles, protecte
       if (!res.ok) throw new Error("Failed to add user");
 
       const response = await res.json();
-      if (response?.id) {
-        setUsers((prev) => [...prev, response]);
+      // Your /users POST returns { success, user, tempPassword, message }
+      const created = response?.user || response;
+      if (created?.id) {
+        setUsers((prev) => [...prev, created]);
       }
     } catch (err) {
       alert("Error adding user: " + err.message);
@@ -228,7 +272,7 @@ export default function UserManagement({ users, setUsers, defaultRoles, protecte
 
     for (const user of users) {
       if ((user.roles || []).includes(roleToDelete)) {
-        const updatedRoles = user.roles.filter((r) => r !== roleToDelete);
+        const updatedRoles = (user.roles || []).filter((r) => r !== roleToDelete);
         try {
           await fetch(`${API_BASE}/users/${user.id}`, {
             method: "PATCH",
@@ -259,6 +303,12 @@ export default function UserManagement({ users, setUsers, defaultRoles, protecte
     setRoleToDelete(role);
   };
 
+  // Style helper for flashing highlight (inline so no global CSS dependency)
+  const highlightStyle = (userId) =>
+    String(flashId) === String(userId)
+      ? { transition: "background-color 0.3s ease", backgroundColor: "rgba(250, 204, 21, 0.35)" } // amber-300 @ ~35%
+      : { transition: "background-color 0.6s ease" };
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-bold text-gray-800">User Management</h2>
@@ -267,6 +317,10 @@ export default function UserManagement({ users, setUsers, defaultRoles, protecte
         {users.map((user) => (
           <div
             key={user.id}
+            ref={(el) => {
+              if (el) rowRefs.current[user.id] = el;
+            }}
+            style={highlightStyle(user.id)}
             className="border p-4 rounded-lg shadow-sm bg-gray-50 space-y-3"
           >
             <div className="flex items-center justify-between">

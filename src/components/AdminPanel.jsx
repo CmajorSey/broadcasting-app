@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import UserManagement from "@/components/admin/UserManagement";
 import LeaveManager from "@/components/admin/LeaveManager";
@@ -9,8 +9,42 @@ import AdminSettings from "@/components/admin/AdminSettings";
 const defaultRoles = ["journalist", "producer", "admin", "camOp", "driver", "driver_limited"];
 const protectedRoles = ["admin"];
 
-export default function AdminPanel({ users, setUsers, loggedInUser }) {
-  const [tab, setTab] = useState("users");
+const VALID_TABS = new Set(["users", "leave", "notifications", "stats", "settings"]);
+
+function normalizeInitialTab(initialTab, hasHighlight) {
+  if (hasHighlight) return "users"; // force User Management when highlighting a user
+  if (!initialTab) return "users";
+
+  const t = String(initialTab).toLowerCase();
+  if (t === "user-management" || t === "user_management") return "users"; // deep-link alias
+
+  return VALID_TABS.has(t) ? t : "users";
+}
+
+export default function AdminPanel({
+  users,
+  setUsers,
+  loggedInUser,
+  initialTab,       // <-- from AdminPage query param ?tab=...
+  highlightId,      // <-- from AdminPage query param ?highlight=<userId>
+  highlightName,    // <-- from AdminPage query param ?highlightName=<name>
+}) {
+  const hasHighlight = Boolean(highlightId || highlightName);
+  const [tab, setTab] = useState(() => normalizeInitialTab(initialTab, hasHighlight));
+
+  // Keep tab in sync if the parent passes a different initialTab later (rare but safe)
+  useEffect(() => {
+    setTab((prev) => {
+      const desired = normalizeInitialTab(initialTab, hasHighlight);
+      return prev === desired ? prev : desired;
+    });
+  }, [initialTab, hasHighlight]);
+
+  // These props get passed down so UserManagement can scroll & flash-highlight
+  const highlightProps = useMemo(
+    () => ({ highlightId: highlightId || null, highlightName: highlightName || null }),
+    [highlightId, highlightName]
+  );
 
   return (
     <div className="bg-white p-4 rounded-xl shadow-md w-full max-w-6xl space-y-4">
@@ -30,6 +64,7 @@ export default function AdminPanel({ users, setUsers, loggedInUser }) {
             setUsers={setUsers}
             defaultRoles={defaultRoles}
             protectedRoles={protectedRoles}
+            {...highlightProps}  // <-- new
           />
         </TabsContent>
 

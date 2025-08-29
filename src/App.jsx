@@ -26,7 +26,7 @@ import { useToast } from "@/hooks/use-toast"
 import MyProfile from "@/pages/MyProfile";
 import ChangelogDialog from "@/components/ChangelogDialog";
 import { requestPermission, onMessage } from "@/lib/firebase";
-
+import AdminGlobalToasts from "@/components/AdminGlobalToasts";
 
 
 function AppWrapper() {
@@ -338,10 +338,15 @@ useEffect(() => {
     </div>
 
        {!hideLayout && <Footer />}
-    {showChangelog && <ChangelogDialog open={true} onClose={handleCloseChangelog} />}
+      {showChangelog && <ChangelogDialog open={true} onClose={handleCloseChangelog} />}
+
+    {/* 🔔 Global admin toasts appear across the entire app */}
+    <AdminGlobalToasts loggedInUser={loggedInUser} />
+
     <Toaster toastOptions={{ position: "top-center" }} />
   </>
 );
 }
+
 
 export default AppWrapper;

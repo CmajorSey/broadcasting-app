@@ -1,13 +1,15 @@
-import { useState, useEffect } from "react";
+// src/components/admin/NotificationsPanel.jsx
+// v0.6.3 — Admin QoL: delete/clear notifications + reset-password action + keep existing UX (no edit UI)
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import API_BASE from "@/api";
+
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import MultiSelectCombobox from "@/components/MultiSelectCombobox";
-import { format } from "date-fns";
 import GroupsManager from "@/components/admin/GroupsManager";
 import {
   Tabs,
@@ -16,78 +18,106 @@ import {
   TabsContent,
 } from "@/components/ui/tabs";
 
+// -------- helpers ----------
+const isoSec = (d) => {
+  try {
+    return new Date(d).toISOString().split(".")[0];
+  } catch {
+    return null;
+  }
+};
+const uniq = (arr = []) => Array.from(new Set(arr.filter(Boolean)));
+
 export default function NotificationsPanel({ loggedInUser }) {
   const navigate = useNavigate();
+  const { toast } = useToast();
+
+  // compose tab state (kept)
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [selectedSections, setSelectedSections] = useState([]);
   const [users, setUsers] = useState([]);
-  const [history, setHistory] = useState([]);
-  const { toast } = useToast();
-
   const [groups, setGroups] = useState([]);
+  const [history, setHistory] = useState([]);
+
+  // suggestions (kept)
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  console.log("🔍 API_BASE is:", API_BASE);
+  // loading flags
+  const [deletingTs, setDeletingTs] = useState(null);
+  const [clearingAll, setClearingAll] = useState(false);
+  const [resettingUserId, setResettingUserId] = useState(null);
 
+  // derived combobox options
+  const userNames = useMemo(() => users.map((u) => u.name), [users]);
+
+  // ------- initial loads -------
   useEffect(() => {
     fetchUsers();
     fetchHistory();
-
-    fetch(`${API_BASE}/suggestions`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) setSuggestions(data);
-        else console.error("Suggestions not an array", data);
-      })
-      .catch((err) => console.error("Failed to load suggestions:", err));
-
-    fetch(`${API_BASE}/notification-groups`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch groups");
-        return res.json();
-      })
-      .then((data) => {
-        if (Array.isArray(data)) setGroups(data);
-        else throw new Error("Groups response not an array");
-      })
-      .catch((err) => {
-        console.error("Failed to fetch groups", err);
-        setGroups([]); // prevent map error
-      });
+    fetchSuggestions();
+    fetchGroups();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchUsers = async () => {
     try {
       const res = await fetch(`${API_BASE}/users`);
       const data = await res.json();
-      const filtered = data.filter((u) => u.name !== "Admin");
+      const filtered = Array.isArray(data) ? data.filter((u) => u.name !== "Admin") : [];
       setUsers(filtered);
     } catch (err) {
       console.error("Failed to fetch users:", err);
     }
   };
 
+  const fetchGroups = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/notification-groups`);
+      if (!res.ok) throw new Error("groups fetch failed");
+      const data = await res.json();
+      setGroups(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to fetch groups:", err);
+      setGroups([]);
+    }
+  };
+
   const fetchHistory = async () => {
     try {
-      const res = await fetch(
-        `${API_BASE}/notifications?user=${encodeURIComponent(loggedInUser?.name || "")}`
-      );
+      const res = await fetch(`${API_BASE}/notifications`);
       const data = await res.json();
 
       if (!Array.isArray(data)) {
         console.error("Expected an array but got:", data);
+        setHistory([]);
         return;
       }
 
-      setHistory(data.reverse());
+      // Newest first
+      const sorted = [...data].sort(
+        (a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)
+      );
+      setHistory(sorted);
     } catch (err) {
       console.error("Failed to fetch notifications history:", err);
     }
   };
 
+  const fetchSuggestions = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/suggestions`);
+      const data = await res.json();
+      setSuggestions(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to load suggestions:", err);
+      setSuggestions([]);
+    }
+  };
+
+  // ------- compose/send -------
   const resolveRecipients = () => {
     if (selectedUsers.length > 0) return selectedUsers;
 
@@ -139,38 +169,172 @@ export default function NotificationsPanel({ loggedInUser }) {
     }
   };
 
-  useEffect(() => {
-    fetchUsers();
-    fetchHistory();
-  }, []);
-
-  // --- helpers for history rendering ---
-  const uniq = (arr = []) => Array.from(new Set(arr.filter(Boolean)));
-
+  // ------- history helpers -------
   const getDisplayRecipients = (notif) => {
-    // Prefer compact label if provided by backend
     if (Array.isArray(notif.displayRecipients) && notif.displayRecipients.length > 0) {
       return notif.displayRecipients;
     }
-    // Fallback: for reset requests, show "Admins" only
     if (notif?.kind === "password_reset_request") return ["Admins"];
-    // Default to raw recipients de-duped
     return uniq(notif.recipients || []);
   };
 
-  const handleNotifAction = (notif) => {
-    if (notif?.action?.url) {
-      navigate(notif.action.url);
+  // ------- delete / clear -------
+  const handleDelete = async (timestamp) => {
+    const ts = isoSec(timestamp);
+    if (!ts) {
+      toast({ variant: "destructive", title: "Delete failed", description: "Invalid timestamp." });
+      return;
+    }
+    try {
+      setDeletingTs(ts);
+      const res = await fetch(`${API_BASE}/notifications/${encodeURIComponent(ts)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Delete failed");
+      toast({ title: "Notification deleted" });
+      fetchHistory();
+    } catch (err) {
+      console.error("Delete error:", err);
+      toast({ variant: "destructive", title: "Could not delete notification" });
+    } finally {
+      setDeletingTs(null);
     }
   };
 
+  const handleClearAll = async () => {
+    try {
+      setClearingAll(true);
+      // delete one-by-one using the route your backend supports
+      for (const n of history) {
+        const ts = isoSec(n?.timestamp);
+        if (!ts) continue;
+        try {
+          await fetch(`${API_BASE}/notifications/${encodeURIComponent(ts)}`, { method: "DELETE" });
+          // tiny delay to avoid FS write thrash
+          await new Promise((r) => setTimeout(r, 50));
+        } catch {
+          // ignore per-item errors; we refresh after loop
+        }
+      }
+      toast({ title: "All notifications cleared" });
+      await fetchHistory();
+    } catch (err) {
+      console.error("Clear error:", err);
+      toast({ variant: "destructive", title: "Could not clear notifications" });
+    } finally {
+      setClearingAll(false);
+    }
+  };
+
+  // ------- reset password from notif + redirect/highlight -------
+  const handleResetPasswordFromNotification = async (notif) => {
+    const userIdFromNotif = notif?.action?.userId;
+    let userId = userIdFromNotif;
+
+    // If server didn't embed userId, try to resolve via name
+    if (!userId) {
+      const name = notif?.action?.userName || notif?.message?.split(":")?.[1]?.trim();
+      if (name) {
+        const match = users.find(
+          (u) => String(u.name).toLowerCase() === String(name).toLowerCase()
+        );
+        if (match) userId = match.id;
+      }
+    }
+
+    if (!userId) {
+      toast({
+        variant: "destructive",
+        title: "User not found",
+        description: "Could not resolve the user to reset.",
+      });
+      return;
+    }
+
+    try {
+      setResettingUserId(String(userId));
+      const res = await fetch(
+        `${API_BASE}/users/${encodeURIComponent(userId)}/temp-password`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ hours: 72 }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Reset failed");
+
+      toast({
+        title: "Temporary password created",
+        description: `Temp: ${data?.tempPassword || "(hidden)"}`,
+      });
+
+      // deep-link into Admin Panel → User Management tab and highlight
+      navigate(`/admin?tab=user-management&highlight=${encodeURIComponent(userId)}`);
+    } catch (err) {
+      console.error("Temp password error:", err);
+      toast({ variant: "destructive", title: "Failed to reset password" });
+    } finally {
+      setResettingUserId(null);
+    }
+  };
+
+  // ------- per-row action chooser -------
+  const renderRowActions = (notif) => {
+    const isReset = notif?.kind === "password_reset_request";
+    const ts = isoSec(notif?.timestamp);
+
+    return (
+      <div className="flex items-center gap-2">
+        {/* Delete (with native confirm to avoid extra imports) */}
+        <Button
+          size="sm"
+          variant="destructive"
+          onClick={() => {
+            if (!ts) {
+              toast({
+                variant: "destructive",
+                title: "Delete failed",
+                description: "Invalid timestamp.",
+              });
+              return;
+            }
+            if (window.confirm("Delete this notification? This cannot be undone.")) {
+              handleDelete(notif?.timestamp);
+            }
+          }}
+          disabled={!ts || deletingTs === ts}
+          title="Delete this notification"
+        >
+          {deletingTs === ts ? "Deleting..." : "Delete"}
+        </Button>
+
+        {/* Reset now for password reset notifications */}
+        {isReset ? (
+          <Button
+            size="sm"
+            onClick={() => handleResetPasswordFromNotification(notif)}
+            disabled={!!resettingUserId}
+            title="Generate a temporary password and jump to User Management"
+          >
+            {resettingUserId ? "Working..." : "Reset now"}
+          </Button>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <Tabs defaultValue="send" className="p-4 max-w-5xl mx-auto">
+    <Tabs defaultValue="send" className="p-4 max-w-6xl mx-auto">
       <TabsList className="mb-4">
         <TabsTrigger value="send">📢 Send Notification</TabsTrigger>
+        <TabsTrigger value="history">🕓 History</TabsTrigger>
         <TabsTrigger value="groups">👥 Manage Groups</TabsTrigger>
       </TabsList>
 
+      {/* SEND */}
       <TabsContent value="send">
         <div className="space-y-6">
           <h2 className="text-2xl font-bold">📢 Send Notification</h2>
@@ -198,15 +362,13 @@ export default function NotificationsPanel({ loggedInUser }) {
 
             <div className="flex flex-col md:flex-row gap-4">
               <div className="w-full md:w-1/2">
-                <label className="text-sm font-medium block mb-1">
-                  📁 Select Group(s)
-                </label>
+                <label className="text-sm font-medium block mb-1">📁 Select Group(s)</label>
                 <MultiSelectCombobox
                   options={groups.map((g) => g.name)}
                   selected={selectedSections}
                   setSelected={(arr) => {
                     setSelectedSections(arr);
-                    setSelectedUsers([]); // clear manual user selection if group chosen
+                    setSelectedUsers([]);
                   }}
                   disabled={selectedUsers.length > 0}
                   placeholder="Select group(s)..."
@@ -215,11 +377,9 @@ export default function NotificationsPanel({ loggedInUser }) {
               </div>
 
               <div className="w-full md:w-1/2">
-                <label className="text-sm font-medium block mb-1">
-                  👤 Select Users
-                </label>
+                <label className="text-sm font-medium block mb-1">👤 Select Users</label>
                 <MultiSelectCombobox
-                  options={users.map((u) => u.name)}
+                  options={userNames}
                   selected={selectedUsers}
                   setSelected={(arr) => {
                     setSelectedUsers(arr);
@@ -237,71 +397,8 @@ export default function NotificationsPanel({ loggedInUser }) {
 
           <hr className="my-6" />
 
-          <h3 className="text-lg font-semibold">🕓 Notification History</h3>
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm border">
-              <thead className="bg-muted">
-                <tr className="border-b">
-                  <th className="text-left py-2 px-2">Date</th>
-                  <th className="text-left py-2 px-2">Title</th>
-                  <th className="text-left py-2 px-2">Message</th>
-                  <th className="text-left py-2 px-2">Recipients</th>
-                  <th className="text-left py-2 px-2">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((notif, index) => {
-                  const recipientsToShow = getDisplayRecipients(notif);
-                  const isReset = notif?.kind === "password_reset_request";
-                  const hasAction = Boolean(notif?.action?.url);
-
-                  return (
-                    <tr key={index} className="border-b hover:bg-muted/50">
-                      <td className="py-1 px-2 whitespace-nowrap">
-                        {(() => {
-                          try {
-                            return new Date(notif.timestamp).toLocaleString();
-                          } catch {
-                            return "Invalid date";
-                          }
-                        })()}
-                      </td>
-                      <td className="py-1 px-2 font-medium">{notif.title}</td>
-                      <td className="py-1 px-2 max-w-sm break-words">{notif.message}</td>
-                      <td className="py-1 px-2 flex flex-wrap gap-1">
-                        {recipientsToShow.map((r, i) => (
-                          <Badge key={i}>{r}</Badge>
-                        ))}
-                      </td>
-                      <td className="py-1 px-2">
-                        {isReset && hasAction ? (
-                          <Button
-                            size="sm"
-                            onClick={() => handleNotifAction(notif)}
-                            title="Open User Management and reset now"
-                          >
-                            Reset now
-                          </Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {history.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-4 text-center text-muted-foreground">
-                      No notifications sent yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* ✅ UPDATED: Suggestions with archive toggle */}
-          <div className="mt-6">
+          {/* Suggestions section (kept) */}
+          <div className="mt-2">
             <button
               onClick={() => setShowSuggestions(!showSuggestions)}
               className="text-sm font-semibold text-blue-600 hover:underline"
@@ -361,6 +458,73 @@ export default function NotificationsPanel({ loggedInUser }) {
         </div>
       </TabsContent>
 
+      {/* HISTORY */}
+      <TabsContent value="history">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold">🕓 Notification History</h3>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              if (window.confirm("Clear ALL notifications? This cannot be undone.")) {
+                handleClearAll();
+              }
+            }}
+            disabled={clearingAll}
+            title="Remove all notifications"
+          >
+            {clearingAll ? "Clearing…" : "Clear All"}
+          </Button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm border">
+            <thead className="bg-muted">
+              <tr className="border-b">
+                <th className="text-left py-2 px-2">Date</th>
+                <th className="text-left py-2 px-2">Title</th>
+                <th className="text-left py-2 px-2">Message</th>
+                <th className="text-left py-2 px-2">Recipients</th>
+                <th className="text-left py-2 px-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map((notif, index) => {
+                const recipientsToShow = getDisplayRecipients(notif);
+                return (
+                  <tr key={index} className="border-b hover:bg-muted/50">
+                    <td className="py-1 px-2 whitespace-nowrap">
+                      {(() => {
+                        try {
+                          return new Date(notif.timestamp).toLocaleString();
+                        } catch {
+                          return "Invalid date";
+                        }
+                      })()}
+                    </td>
+                    <td className="py-1 px-2 font-medium">{notif.title}</td>
+                    <td className="py-1 px-2 max-w-sm break-words">{notif.message}</td>
+                    <td className="py-1 px-2 flex flex-wrap gap-1">
+                      {recipientsToShow.map((r, i) => (
+                        <Badge key={i}>{r}</Badge>
+                      ))}
+                    </td>
+                    <td className="py-1 px-2">{renderRowActions(notif)}</td>
+                  </tr>
+                );
+              })}
+              {history.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-4 text-center text-muted-foreground">
+                    No notifications yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </TabsContent>
+
+      {/* GROUPS */}
       <TabsContent value="groups">
         <GroupsManager />
       </TabsContent>
