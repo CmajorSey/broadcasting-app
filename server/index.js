@@ -175,26 +175,30 @@ const groupsPath = path.join(DATA_DIR, "notificationGroups.json");
 
 
 // 🔧 Ensure data directory and files exist
+// 🔧 Ensure data directory and files exist (all under /data)
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
+// Core app stores
 if (!fs.existsSync(ROSTERS_FILE)) {
   fs.writeFileSync(ROSTERS_FILE, JSON.stringify({}, null, 2));
 }
-
 if (!fs.existsSync(VEHICLES_FILE)) {
-  fs.writeFileSync(VEHICLES_FILE, JSON.stringify([]));
+  fs.writeFileSync(VEHICLES_FILE, JSON.stringify([], null, 2));
 }
-
 if (!fs.existsSync(TICKETS_FILE)) {
-  fs.writeFileSync(TICKETS_FILE, JSON.stringify([]));
+  fs.writeFileSync(TICKETS_FILE, JSON.stringify([], null, 2));
 }
 
+// Users: seed from Git-tracked default once if needed
 const USERS_DEFAULT_FILE = path.join(__dirname, "data", "users.json");
 if (!fs.existsSync(USERS_FILE)) {
-  const defaultUsers = fs.readFileSync(USERS_DEFAULT_FILE, "utf-8");
+  const defaultUsers = fs.existsSync(USERS_DEFAULT_FILE)
+    ? fs.readFileSync(USERS_DEFAULT_FILE, "utf-8")
+    : "[]";
   fs.writeFileSync(USERS_FILE, defaultUsers);
 }
 
+// Settings default
 if (!fs.existsSync(SETTINGS_FILE)) {
   fs.writeFileSync(
     SETTINGS_FILE,
@@ -202,9 +206,20 @@ if (!fs.existsSync(SETTINGS_FILE)) {
   );
 }
 
+// Password reset requests
 if (!fs.existsSync(PASSWORD_RESET_REQUESTS_FILE)) {
   fs.writeFileSync(PASSWORD_RESET_REQUESTS_FILE, JSON.stringify([], null, 2));
 }
+
+// Notifications + Groups (ensure they exist on disk)
+const NOTIFS_FILE = path.join(DATA_DIR, "notifications.json");
+if (!fs.existsSync(NOTIFS_FILE)) {
+  fs.writeFileSync(NOTIFS_FILE, JSON.stringify([], null, 2));
+}
+if (!fs.existsSync(groupsPath)) {
+  fs.writeFileSync(groupsPath, JSON.stringify([], null, 2));
+}
+
 
 console.log("🚨 ROUTE CHECKPOINT 2");
 console.log("🚨 ROUTE CHECKPOINT 3");
@@ -294,7 +309,6 @@ console.log("🚨 ROUTE CHECKPOINT 5");
 // ✅ Notifications API (edit, delete-one, clear-all, and polling support)
 (() => {
   const notificationsPath = path.join(DATA_DIR, "notifications.json");
-
 
   const ensureFile = () => {
     if (!fs.existsSync(notificationsPath)) {
