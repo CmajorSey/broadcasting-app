@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -16,6 +16,7 @@ import API_BASE from "@/api";
 export default function SetPasswordPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
 
   const [userId, setUserId] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -36,7 +37,7 @@ export default function SetPasswordPage() {
     }
   }, []);
 
-  // Grab the secret temp/default password saved by Login
+  // Grab the secret temp/default password saved by Login (if present)
   const pendingSecret = useMemo(() => {
     try {
       return sessionStorage.getItem("pendingPasswordSecret") || "";
@@ -53,21 +54,28 @@ export default function SetPasswordPage() {
       try { return JSON.parse(localStorage.getItem("loggedInUser") || "null"); } catch { return null; }
     })();
 
+    // Optional query params fallback: /set-password?u=<id>&name=<displayName>
+    const qpId = searchParams.get("u") || "";
+    const qpName = searchParams.get("name") || "";
+
     const id =
       stateUser?.id ||
       stateUserId ||
       pendingUser?.id ||
+      qpId ||
       storedLogged?.id ||
       "";
 
-    setUserId(id);
-    setDisplayName(
+    const name =
       stateUser?.name ||
       pendingUser?.name ||
+      qpName ||
       storedLogged?.name ||
-      ""
-    );
-  }, [location.state, pendingUser]);
+      "";
+
+    setUserId(String(id || ""));
+    setDisplayName(String(name || ""));
+  }, [location.state, pendingUser, searchParams]);
 
   if (!userId) {
     return <p className="text-center p-6 text-red-500">Invalid access. Please log in again.</p>;
@@ -78,7 +86,7 @@ export default function SetPasswordPage() {
     try {
       // Resolve a stable identifier for /auth/login (email > username > name)
       const resUser = await fetch(`${API_BASE}/users/${userId}`);
-      const u = await resUser.json();
+      const u = await resUser.json().catch(() => ({}));
       const identifier = u?.email || u?.username || u?.name || displayName;
       if (!identifier) throw new Error("Could not resolve identifier for auto-login");
 
@@ -89,13 +97,17 @@ export default function SetPasswordPage() {
       });
 
       // If backend still requires a change or says expired, fall back to Login
-      if (resLogin.status === 428 || resLogin.status === 410) {
+      if (resLogin.status === 410) {
+        // expired temp (shouldn't happen after successful set, but guard anyway)
         setShowDoneDialog(true);
         return;
       }
 
       const data = await resLogin.json().catch(() => ({}));
-      if (!resLogin.ok || !data?.ok || !data?.user) {
+
+      // New backend contract: if login returns mustChangePassword=true with 200,
+      // treat it as "not fully logged" and show the fallback dialog.
+      if (!resLogin.ok || !data?.ok || !data?.user || data?.mustChangePassword) {
         setShowDoneDialog(true);
         return;
       }
@@ -219,7 +231,10 @@ export default function SetPasswordPage() {
           <AlertDialogFooter>
             <AlertDialogAction
               onClick={() => {
-                try { sessionStorage.removeItem("pendingPasswordUser"); sessionStorage.removeItem("pendingPasswordSecret"); } catch {}
+                try {
+                  sessionStorage.removeItem("pendingPasswordUser");
+                  sessionStorage.removeItem("pendingPasswordSecret");
+                } catch {}
                 localStorage.removeItem("loggedInUser");
                 navigate("/login", { replace: true, state: { justChangedPassword: true } });
               }}

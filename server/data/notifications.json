@@ -262,5 +262,21 @@
       "ALL"
     ],
     "timestamp": "2025-08-28T05:25:44.726Z"
+  },
+  {
+    "title": "🔑 Password Reset Request",
+    "message": "User requested a password reset: John Doe",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2025-08-29T04:48:21.786Z"
   }
 ]

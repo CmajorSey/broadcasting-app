@@ -124,20 +124,22 @@ router.post("/login", async (req, res) => {
     isDefaultPassword
   );
 
-  // Hard gate: if a change is required, never return a normal "ok: true" login.
-  if (mustChangePassword) {
-    return res.status(428).json({
-      ok: false,
-      message: "Password change required",
-      mustChangePassword: true,
-      requiresPasswordChange: true,                   // legacy alias
-      forcePasswordChange: !!user.forcePasswordChange,
-      requiresPasswordReset: !!user.requiresPasswordReset,
-      passwordIsTemp: !!user.passwordIsTemp,
-      tempPasswordExpires: user.tempPasswordExpires || null,
-      user: { id: String(user.id), name: user.name }, // minimal identity for set-password screen
-    });
-  }
+  // Hard gate: if a change is required, return 200 with a "mustChangePassword" signal
+// so the frontend can redirect to /set-password (old flow compatibility).
+if (mustChangePassword) {
+  return res.json({
+    ok: true,                       // keep 200 OK so UI can branch cleanly
+    message: "Password change required",
+    mustChangePassword: true,
+    requiresPasswordChange: true,   // legacy alias
+    forcePasswordChange: !!user.forcePasswordChange,
+    requiresPasswordReset: !!user.requiresPasswordReset,
+    passwordIsTemp: !!user.passwordIsTemp,
+    tempPasswordExpires: user.tempPasswordExpires || null,
+    user: { id: String(user.id), name: user.name }, // minimal identity for set-password screen
+    nextPath: "/set-password",      // optional hint for the client router
+  });
+}
 
   // Normal login path
   try {

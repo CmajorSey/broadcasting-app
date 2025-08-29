@@ -68,28 +68,27 @@ export default function LoginPage({ users, setLoggedInUser }) {
     }
   }, []); // eslint-disable-line
 
-  // A: BEGIN handleLogin (updated, consistent temp-password handling)
+  // A: BEGIN handleLogin (temp-password → redirect to /set-password, 200-OK compatible)
 const handleLogin = async (e) => {
   e.preventDefault();
   setDebugMessage("");
   setLoading(true);
 
-  // Helper to normalize “must change password” across APIs/hosts
+  // Normalize “must change password” across possible back-end contracts
   const mustChangeFrom = (res, data) => {
-    // 1) Canonical HTTP code (some hosts preserve it)
+    // Legacy/canonical status
     if (res?.status === 428) return true;
 
-    // 2) Header hints (useful if host rewrites status codes)
-    const hdr = (name) => (res?.headers?.get?.(name) || "").toLowerCase();
+    // Header hints
+    const hdr = (n) => (res?.headers?.get?.(n) || "").toLowerCase();
     if (hdr("x-requires-password-change") === "1" || hdr("x-requires-password-change") === "true") return true;
 
-    // 3) JSON flags (covering multiple possible back-end fields)
+    // JSON flags (new 200-OK path supported)
     const u = data?.user || {};
     return Boolean(
       data?.mustChangePassword ||
       data?.requiresPasswordChange ||
       data?.mustSetPassword ||
-      data?.loginPermitted === false ||
       u?.forcePasswordChange ||
       u?.requiresPasswordReset ||
       u?.passwordIsTemp ||
@@ -104,7 +103,7 @@ const handleLogin = async (e) => {
       body: JSON.stringify({ identifier: name, password }),
     });
 
-    // Expired temp password gate
+    // Temp password expired
     if (res.status === 410) {
       setDebugMessage("⏰ Your temporary password has expired. Please request a new one from the admin.");
       toast({
@@ -115,33 +114,32 @@ const handleLogin = async (e) => {
       return;
     }
 
-    // Try to parse JSON once (even on non-2xx, some hosts return a body)
+    // Parse once, even on non-2xx
     const data = await res.json().catch(() => ({}));
     const user = data?.user;
-
-    // Normalize the “must change” decision BEFORE any login writes
     const mustChange = mustChangeFrom(res, data);
 
+    // Standard auth errors (but allow 428 through our mustChange handling)
     if (!res.ok && res.status !== 428) {
-      // Standard auth errors
       setDebugMessage(data?.error || "❌ Incorrect credentials.");
       return;
     }
 
     if (mustChange) {
-      // Never log in here. Save minimal context for /set-password.
-      if (user?.id || user?._id || name) {
-        sessionStorage.setItem(
-          "pendingPasswordUser",
-          JSON.stringify({ id: user?.id || user?._id || null, name: user?.name || name || "" })
-        );
-        // Keep the temp password locally so /auth/set-password can verify/confirm against it if required.
-        sessionStorage.setItem("pendingPasswordSecret", password);
+      // Save minimal context for /set-password
+      const minimalUser = {
+        id: user?.id || user?._id || null,
+        name: user?.name || name || ""
+      };
+
+      if (minimalUser.id || minimalUser.name) {
+        sessionStorage.setItem("pendingPasswordUser", JSON.stringify(minimalUser));
+        sessionStorage.setItem("pendingPasswordSecret", password); // original temp/default pass
       }
 
-      // Handle “remember me” without creating a full session
-      if (remember && (user?.id || user?._id)) {
-        localStorage.setItem("rememberedUser", user?.id || user?._id);
+      // “Remember me” without creating session
+      if (remember && (minimalUser.id)) {
+        localStorage.setItem("rememberedUser", minimalUser.id);
       } else {
         localStorage.removeItem("rememberedUser");
       }
@@ -154,11 +152,21 @@ const handleLogin = async (e) => {
         description: "Please set a new password to continue.",
         duration: 3000,
       });
-      navigate("/set-password", { state: { userId: user?.id || user?._id, fromLogin: true } });
+
+      // Respect optional server hint if present
+      const nextPath = data?.nextPath || "/set-password";
+      navigate(nextPath, {
+        state: {
+          userId: minimalUser.id,
+          user: minimalUser,
+          fromLogin: true,
+        },
+        replace: true,
+      });
       return;
     }
 
-    // From here on, we are in the “normal login” path.
+    // Normal login path
     if (!data?.ok || !user) {
       setDebugMessage(data?.error || "❌ Login failed.");
       return;
@@ -168,10 +176,10 @@ const handleLogin = async (e) => {
     else if (remember && user?._id) localStorage.setItem("rememberedUser", user._id);
     else localStorage.removeItem("rememberedUser");
 
-    // Clear any stale temp secret just in case
+    // Clear any stale temp secret
     try { sessionStorage.removeItem("pendingPasswordSecret"); } catch {}
 
-    // ✅ Create session
+    // ✅ Persist session
     localStorage.setItem("loggedInUser", JSON.stringify(user));
     setLoggedInUser(user);
 
@@ -188,7 +196,8 @@ const handleLogin = async (e) => {
     setLoading(false);
   }
 };
-// B: END handleLogin (updated)
+// B: END handleLogin (temp-password → redirect to /set-password)
+
 
 
   // 🔹 Inline Forgot submit
