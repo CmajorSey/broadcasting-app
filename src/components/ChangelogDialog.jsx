@@ -25,7 +25,6 @@ export default function ChangelogDialog({ open, onClose }) {
             <li>🔑 You can now reset your password with an admin request – A temporary password will be sent for reset.</li>
             <li>🛡️ All new passwords are stored more securely in the system.</li>
             <li>✅ Login is smoother and works for both older and updated accounts.</li>
-            <li>📱 The login page now shows the correct site name and logo from settings.</li>
             <li>🚦 Error messages are clearer, and you’ll see a toast when login works or fails.</li>
             <li>🌐 Connections between the app and server are more reliable, whether you’re on LAN, local, or online.</li>
           </ul>
