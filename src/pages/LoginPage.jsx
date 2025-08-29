@@ -179,9 +179,27 @@ const handleLogin = async (e) => {
     // Clear any stale temp secret
     try { sessionStorage.removeItem("pendingPasswordSecret"); } catch {}
 
-    // ✅ Persist session
-    localStorage.setItem("loggedInUser", JSON.stringify(user));
-    setLoggedInUser(user);
+    // 🕒 Stamp a lastLogin timestamp immediately so UI reflects it
+    const _ts = new Date().toISOString();
+    const stampedUser = { ...user, lastLogin: _ts };
+
+    // ✅ Persist session with stamped lastLogin
+    localStorage.setItem("loggedInUser", JSON.stringify(stampedUser));
+    setLoggedInUser(stampedUser);
+
+    // 📡 Fire-and-forget: persist to backend (safe if route missing)
+    try {
+      const uid = user?.id || user?._id;
+      if (uid) {
+        fetch(`${API_BASE}/users/${encodeURIComponent(uid)}/last-login`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lastLogin: _ts }),
+        });
+      }
+    } catch {
+      // ignore — do not block login on this telemetry write
+    }
 
     toast({
       title: `Welcome back, ${user.name?.split?.(" ")[0] || "there"}!`,
@@ -196,9 +214,7 @@ const handleLogin = async (e) => {
     setLoading(false);
   }
 };
-// B: END handleLogin (temp-password → redirect to /set-password)
-
-
+ // B: END handleLogin (temp-password → redirect to /set-password)
 
   // 🔹 Inline Forgot submit
   const handleForgotSubmit = async (e) => {

@@ -633,273 +633,306 @@ console.log("🚨 ROUTE CHECKPOINT 11");
 
 
 // ==========================
-// 👤 Users API (with temp-password + must-change flow)
-// ==========================
+// [A] START: Users API (new, with last-login route)
+ // ==========================
+ // 👤 Users API (with temp-password + must-change flow)
+ // ==========================
 
-// ✅ Get all users
-app.get("/users", (req, res) => {
-  const raw = fs.readFileSync(USERS_FILE, "utf-8");
-  const users = JSON.parse(raw);
-  res.json(users);
-});
+ // ✅ Get all users
+ app.get("/users", (req, res) => {
+   const raw = fs.readFileSync(USERS_FILE, "utf-8");
+   const users = JSON.parse(raw);
+   res.json(users);
+ });
 
-// ✅ Get user by ID
-app.get("/users/:id", (req, res) => {
-  const id = req.params.id;
-  const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-  const user = users.find((u) => String(u.id) === String(id));
-  if (user) {
-    res.json(user);
-  } else {
-    res.status(404).json({ message: "User not found" });
-  }
-});
+ // ✅ Get user by ID
+ app.get("/users/:id", (req, res) => {
+   const id = req.params.id;
+   const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
+   const user = users.find((u) => String(u.id) === String(id));
+   if (user) {
+     res.json(user);
+   } else {
+     res.status(404).json({ message: "User not found" });
+   }
+ });
 
-// ✅ Add new user (force first-login password change)
-app.post("/users", (req, res) => {
-  try {
-    const { name, roles = [], description = "", hiddenRoles = [] } = req.body;
+ // ✅ Add new user (force first-login password change)
+ app.post("/users", (req, res) => {
+   try {
+     const { name, roles = [], description = "", hiddenRoles = [] } = req.body;
 
-    if (!name || typeof name !== "string" || !name.trim()) {
-      return res.status(400).json({ message: "Name is required" });
-    }
+     if (!name || typeof name !== "string" || !name.trim()) {
+       return res.status(400).json({ message: "Name is required" });
+     }
 
-    // Generate a simple temp password (kept plaintext for your current login compatibility)
-    const firstName = name.trim().split(/\s+/)[0] || "User";
-    const defaultPassword = `${firstName}1`;
+     // Generate a simple temp password (kept plaintext for your current login compatibility)
+     const firstName = name.trim().split(/\s+/)[0] || "User";
+     const defaultPassword = `${firstName}1`;
 
-    // Optional: temp password expiry (72h)
-    const TEMP_PASSWORD_TTL_HOURS = 72;
-    const tempPasswordExpires = new Date(Date.now() + TEMP_PASSWORD_TTL_HOURS * 60 * 60 * 1000).toISOString();
+     // Optional: temp password expiry (72h)
+     const TEMP_PASSWORD_TTL_HOURS = 72;
+     const tempPasswordExpires = new Date(Date.now() + TEMP_PASSWORD_TTL_HOURS * 60 * 60 * 1000).toISOString();
 
-    // Read, append, and persist
-    const usersRaw = fs.readFileSync(USERS_FILE, "utf-8");
-    const users = usersRaw ? JSON.parse(usersRaw) : [];
+     // Read, append, and persist
+     const usersRaw = fs.readFileSync(USERS_FILE, "utf-8");
+     const users = usersRaw ? JSON.parse(usersRaw) : [];
 
-    const newUser = {
-      id: Date.now().toString(),
-      name: name.trim(),
-      roles,
-      description,
-      hiddenRoles,
+     const newUser = {
+       id: Date.now().toString(),
+       name: name.trim(),
+       roles,
+       description,
+       hiddenRoles,
 
-      // ⚠️ Storing plaintext for compatibility with your existing login.
-      password: defaultPassword,
+       // ⚠️ Storing plaintext for compatibility with your existing login.
+       password: defaultPassword,
 
-      // 👇 Flags your /auth/login can read to trigger the "Set New Password" page
-      forcePasswordChange: true,
-      requiresPasswordReset: true, // legacy alias
-      passwordIsTemp: true,        // 👈 explicit temp marker for brand-new default password
+       // 👇 Flags your /auth/login can read to trigger the "Set New Password" page
+       forcePasswordChange: true,
+       requiresPasswordReset: true, // legacy alias
+       passwordIsTemp: true,        // 👈 explicit temp marker for brand-new default password
 
-      // 🗓️ Helpful metadata (non-breaking)
-      tempPasswordExpires,
-      passwordUpdatedAt: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+       // 🗓️ Helpful metadata (non-breaking)
+       tempPasswordExpires,
+       passwordUpdatedAt: null,
+       createdAt: new Date().toISOString(),
+       updatedAt: new Date().toISOString(),
+     };
 
-    users.push(newUser);
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+     users.push(newUser);
+     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 
-    return res.json({
-      success: true,
-      user: {
-        id: newUser.id,
-        name: newUser.name,
-        roles: newUser.roles,
-        description: newUser.description,
-        hiddenRoles: newUser.hiddenRoles,
-        forcePasswordChange: newUser.forcePasswordChange,
-        requiresPasswordReset: newUser.requiresPasswordReset,
-        passwordIsTemp: !!newUser.passwordIsTemp,
-        tempPasswordExpires: newUser.tempPasswordExpires,
-      },
-      tempPassword: defaultPassword, // show once to admin
-      message: `User created. Temporary password expires in ${TEMP_PASSWORD_TTL_HOURS} hours.`,
-    });
-  } catch (err) {
-    console.error("Error creating user:", err);
-    return res.status(500).json({ message: "Failed to create user" });
-  }
-});
-
-
-/**
- * ✅ Generate new temp password for an existing user (admin action)
- * Sets:
- *  - password = <temp>
- *  - forcePasswordChange = true
- *  - requiresPasswordReset = true
- *  - tempPasswordExpires = now + (hours || 72h)
- */
-app.post("/users/:id/temp-password", (req, res) => {
-  const { id } = req.params;
-  const { hours } = req.body || {};
-  const ttlHours = Number.isFinite(hours) && hours > 0 ? hours : 72;
-  const tempPasswordExpires = new Date(Date.now() + ttlHours * 60 * 60 * 1000).toISOString();
-
-  try {
-    const raw = fs.readFileSync(USERS_FILE, "utf-8");
-    const users = JSON.parse(raw);
-    const idx = users.findIndex((u) => String(u.id) === String(id));
-    if (idx === -1) return res.status(404).json({ error: "User not found" });
-
-    // Human-friendly temp password (plaintext-compatible): FirstName + 3 digits
-    const base = (users[idx].name?.split(/\s+/)[0] || "User").replace(/[^A-Za-z]/g, "") || "User";
-    const rand = Math.floor(100 + Math.random() * 900); // 3 digits
-    const tempPassword = `${base}${rand}`;
-
-    users[idx] = {
-      ...users[idx],
-      password: tempPassword,
-      forcePasswordChange: true,
-      requiresPasswordReset: true,
-      passwordIsTemp: true,            // 👈 explicit temp marker for /auth/login
-      tempPasswordExpires,
-      updatedAt: new Date().toISOString(),
-    };
-
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-
-    return res.json({
-      success: true,
-      user: {
-        id: users[idx].id,
-        name: users[idx].name,
-        roles: users[idx].roles,
-        forcePasswordChange: users[idx].forcePasswordChange,
-        requiresPasswordReset: users[idx].requiresPasswordReset,
-        passwordIsTemp: !!users[idx].passwordIsTemp,
-        tempPasswordExpires: users[idx].tempPasswordExpires,
-      },
-      tempPassword, // show once to admin UI
-      message: `Temporary password set. Expires in ${ttlHours} hours.`,
-    });
-  } catch (err) {
-    console.error("Failed to set temp password:", err);
-    return res.status(500).json({ error: "Failed to set temp password" });
-  }
-});
+     return res.json({
+       success: true,
+       user: {
+         id: newUser.id,
+         name: newUser.name,
+         roles: newUser.roles,
+         description: newUser.description,
+         hiddenRoles: newUser.hiddenRoles,
+         forcePasswordChange: newUser.forcePasswordChange,
+         requiresPasswordReset: newUser.requiresPasswordReset,
+         passwordIsTemp: !!newUser.passwordIsTemp,
+         tempPasswordExpires: newUser.tempPasswordExpires,
+       },
+       tempPassword: defaultPassword, // show once to admin
+       message: `User created. Temporary password expires in ${TEMP_PASSWORD_TTL_HOURS} hours.`,
+     });
+   } catch (err) {
+     console.error("Error creating user:", err);
+     return res.status(500).json({ message: "Failed to create user" });
+   }
+ });
 
 
-/**
- * ✅ User sets a NEW password (self-service from "Set New Password" page)
- * Body: { currentPassword: string, newPassword: string }
- * On success: clears forcePasswordChange/requiresPasswordReset and tempPasswordExpires
- */
-app.patch("/users/:id/password", (req, res) => {
-  const { id } = req.params;
-  const { currentPassword, newPassword } = req.body || {};
+ /**
+  * ✅ Generate new temp password for an existing user (admin action)
+  * Sets:
+  *  - password = <temp>
+  *  - forcePasswordChange = true
+  *  - requiresPasswordReset = true
+  *  - tempPasswordExpires = now + (hours || 72h)
+  */
+ app.post("/users/:id/temp-password", (req, res) => {
+   const { id } = req.params;
+   const { hours } = req.body || {};
+   const ttlHours = Number.isFinite(hours) && hours > 0 ? hours : 72;
+   const tempPasswordExpires = new Date(Date.now() + ttlHours * 60 * 60 * 1000).toISOString();
 
-  if (!newPassword || typeof newPassword !== "string" || !newPassword.trim()) {
-    return res.status(400).json({ error: "New password is required" });
-  }
+   try {
+     const raw = fs.readFileSync(USERS_FILE, "utf-8");
+     const users = JSON.parse(raw);
+     const idx = users.findIndex((u) => String(u.id) === String(id));
+     if (idx === -1) return res.status(404).json({ error: "User not found" });
 
-  try {
-    const raw = fs.readFileSync(USERS_FILE, "utf-8");
-    const users = JSON.parse(raw);
-    const idx = users.findIndex((u) => String(u.id) === String(id));
-    if (idx === -1) return res.status(404).json({ error: "User not found" });
+     // Human-friendly temp password (plaintext-compatible): FirstName + 3 digits
+     const base = (users[idx].name?.split(/\s+/)[0] || "User").replace(/[^A-Za-z]/g, "") || "User";
+     const rand = Math.floor(100 + Math.random() * 900); // 3 digits
+     const tempPassword = `${base}${rand}`;
 
-    const u = users[idx];
+     users[idx] = {
+       ...users[idx],
+       password: tempPassword,
+       forcePasswordChange: true,
+       requiresPasswordReset: true,
+       passwordIsTemp: true,            // 👈 explicit temp marker for /auth/login
+       tempPasswordExpires,
+       updatedAt: new Date().toISOString(),
+     };
 
-    // Optional: verify current password when provided
-    if (typeof currentPassword === "string") {
-      if (String(u.password) !== String(currentPassword)) {
-        return res.status(401).json({ error: "Current password is incorrect" });
-      }
-    }
+     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 
-    // Optional: enforce temp expiry
-    if (u.tempPasswordExpires) {
-      const now = Date.now();
-      const exp = Date.parse(u.tempPasswordExpires);
-      if (Number.isFinite(exp) && now > exp) {
-        return res.status(410).json({ error: "Temporary password has expired" });
-      }
-    }
-
-    u.password = newPassword.trim();
-    u.forcePasswordChange = false;
-    u.requiresPasswordReset = false;
-    u.passwordIsTemp = false;          // 👈 clear temp marker
-    u.tempPasswordExpires = null;
-    u.passwordUpdatedAt = new Date().toISOString();
-    u.updatedAt = new Date().toISOString();
-
-    users[idx] = u;
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-    return res.json({ success: true });
-  } catch (err) {
-    console.error("Failed to update password:", err);
-    return res.status(500).json({ error: "Failed to update password" });
-  }
-});
+     return res.json({
+       success: true,
+       user: {
+         id: users[idx].id,
+         name: users[idx].name,
+         roles: users[idx].roles,
+         forcePasswordChange: users[idx].forcePasswordChange,
+         requiresPasswordReset: users[idx].requiresPasswordReset,
+         passwordIsTemp: !!users[idx].passwordIsTemp,
+         tempPasswordExpires: users[idx].tempPasswordExpires,
+       },
+       tempPassword, // show once to admin UI
+       message: `Temporary password set. Expires in ${ttlHours} hours.`,
+     });
+   } catch (err) {
+     console.error("Failed to set temp password:", err);
+     return res.status(500).json({ error: "Failed to set temp password" });
+   }
+ });
 
 
-// ✅ Patch user (admin edit; safe defaults)
-app.patch("/users/:id", (req, res) => {
-  const usersPath = path.join(__dirname, "data", "users.json");
-  const { id } = req.params;
+ /**
+  * ✅ User sets a NEW password (self-service from "Set New Password" page)
+  * Body: { currentPassword: string, newPassword: string }
+  * On success: clears forcePasswordChange/requiresPasswordReset and tempPasswordExpires
+  */
+ app.patch("/users/:id/password", (req, res) => {
+   const { id } = req.params;
+   const { currentPassword, newPassword } = req.body || {};
 
-  try {
-    const data = fs.readFileSync(usersPath, "utf-8");
-    const users = JSON.parse(data);
+   if (!newPassword || typeof newPassword !== "string" || !newPassword.trim()) {
+     return res.status(400).json({ error: "New password is required" });
+   }
 
-    const idx = users.findIndex((u) => String(u.id) === String(id));
-    if (idx === -1) return res.status(404).json({ error: "User not found" });
+   try {
+     const raw = fs.readFileSync(USERS_FILE, "utf-8");
+     const users = JSON.parse(raw);
+     const idx = users.findIndex((u) => String(u.id) === String(id));
+     if (idx === -1) return res.status(404).json({ error: "User not found" });
 
-    const body = req.body || {};
-    const u = users[idx];
+     const u = users[idx];
 
-    // Password update (admin-initiated). If you are using this to set a permanent password,
-    // we won't override flags unless you explicitly send them in the body.
-    if (typeof body.password === "string" && body.password.trim()) {
-      u.password = body.password.trim();
-      // Do NOT force-clear flags unless specified:
-      if (typeof body.forcePasswordChange === "undefined" && typeof body.requiresPasswordReset === "undefined") {
-        // leave existing flags as-is
-      }
-    }
+     // Optional: verify current password when provided
+     if (typeof currentPassword === "string") {
+       if (String(u.password) !== String(currentPassword)) {
+         return res.status(401).json({ error: "Current password is incorrect" });
+       }
+     }
 
-    // Optional profile updates (kept harmless)
-    if (Array.isArray(body.roles)) u.roles = body.roles;
-    if (typeof body.description === "string") u.description = body.description;
-    if (Array.isArray(body.hiddenRoles)) u.hiddenRoles = body.hiddenRoles;
+     // Optional: enforce temp expiry
+     if (u.tempPasswordExpires) {
+       const now = Date.now();
+       const exp = Date.parse(u.tempPasswordExpires);
+       if (Number.isFinite(exp) && now > exp) {
+         return res.status(410).json({ error: "Temporary password has expired" });
+       }
+     }
 
-    // Flags: allow explicit control from client
-    if (typeof body.forcePasswordChange === "boolean") {
-      u.forcePasswordChange = body.forcePasswordChange;
-    }
-    if (typeof body.requiresPasswordReset === "boolean") {
-      u.requiresPasswordReset = body.requiresPasswordReset;
-    }
+     u.password = newPassword.trim();
+     u.forcePasswordChange = false;
+     u.requiresPasswordReset = false;
+     u.passwordIsTemp = false;          // 👈 clear temp marker
+     u.tempPasswordExpires = null;
+     u.passwordUpdatedAt = new Date().toISOString();
+     u.updatedAt = new Date().toISOString();
 
-    u.updatedAt = new Date().toISOString();
+     users[idx] = u;
+     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+     return res.json({ success: true });
+   } catch (err) {
+     console.error("Failed to update password:", err);
+     return res.status(500).json({ error: "Failed to update password" });
+   }
+ });
 
-    fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
-    return res.json({ success: true, user: u });
-  } catch (err) {
-    console.error("Failed to patch user:", err);
-    res.status(500).json({ error: "Failed to update user" });
-  }
-});
 
-// ✅ Delete user
-app.delete("/users/:id", (req, res) => {
-  const id = req.params.id;
-  let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-  const exists = users.some((u) => String(u.id) === String(id));
+ // ✅ Patch user (admin edit; safe defaults)
+ app.patch("/users/:id", (req, res) => {
+   const usersPath = path.join(__dirname, "data", "users.json");
+   const { id } = req.params;
 
-  if (!exists) return res.status(404).json({ message: "User not found" });
+   try {
+     const data = fs.readFileSync(usersPath, "utf-8");
+     const users = JSON.parse(data);
 
-  users = users.filter((u) => String(u.id) !== String(id));
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-  res.json({ success: true, deletedId: id });
-});
+     const idx = users.findIndex((u) => String(u.id) === String(id));
+     if (idx === -1) return res.status(404).json({ error: "User not found" });
 
-console.log("🚨 ROUTE CHECKPOINT 12");
-console.log("🚨 ROUTE CHECKPOINT 13");
+     const body = req.body || {};
+     const u = users[idx];
+
+     // Password update (admin-initiated). If you are using this to set a permanent password,
+     // we won't override flags unless you explicitly send them in the body.
+     if (typeof body.password === "string" && body.password.trim()) {
+       u.password = body.password.trim();
+       // Do NOT force-clear flags unless specified:
+       if (typeof body.forcePasswordChange === "undefined" && typeof body.requiresPasswordReset === "undefined") {
+         // leave existing flags as-is
+       }
+     }
+
+     // Optional profile updates (kept harmless)
+     if (Array.isArray(body.roles)) u.roles = body.roles;
+     if (typeof body.description === "string") u.description = body.description;
+     if (Array.isArray(body.hiddenRoles)) u.hiddenRoles = body.hiddenRoles;
+
+     // Flags: allow explicit control from client
+     if (typeof body.forcePasswordChange === "boolean") {
+       u.forcePasswordChange = body.forcePasswordChange;
+     }
+     if (typeof body.requiresPasswordReset === "boolean") {
+       u.requiresPasswordReset = body.requiresPasswordReset;
+     }
+
+     u.updatedAt = new Date().toISOString();
+
+     fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
+     return res.json({ success: true, user: u });
+   } catch (err) {
+     console.error("Failed to patch user:", err);
+     res.status(500).json({ error: "Failed to update user" });
+   }
+ });
+
+ // ✅ NEW: Stamp last login (persisted for “Last login” UI)
+ //     - Body (optional): { lastLogin: "<ISO string>" }
+ //       If omitted or invalid, the server uses current time.
+ app.patch("/users/:id/last-login", (req, res) => {
+   const { id } = req.params;
+   const bodyTs = req.body?.lastLogin;
+
+   try {
+     const raw = fs.readFileSync(USERS_FILE, "utf-8");
+     const users = JSON.parse(raw);
+     const idx = users.findIndex((u) => String(u.id) === String(id));
+     if (idx === -1) return res.status(404).json({ error: "User not found" });
+
+     const safeIso = (() => {
+       const d = new Date(bodyTs);
+       return bodyTs && !Number.isNaN(d.getTime()) ? d.toISOString() : new Date().toISOString();
+     })();
+
+     users[idx].lastLogin = safeIso;
+     users[idx].updatedAt = new Date().toISOString();
+
+     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+     return res.json({ success: true, user: users[idx] });
+   } catch (err) {
+     console.error("Failed to update last login:", err);
+     return res.status(500).json({ error: "Failed to update last login" });
+   }
+ });
+
+ // ✅ Delete user
+ app.delete("/users/:id", (req, res) => {
+   const id = req.params.id;
+   let users = JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
+   const exists = users.some((u) => String(u.id) === String(id));
+
+   if (!exists) return res.status(404).json({ message: "User not found" });
+
+   users = users.filter((u) => String(u.id) !== String(id));
+   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+   res.json({ success: true, deletedId: id });
+ });
+
+ console.log("🚨 ROUTE CHECKPOINT 12");
+ console.log("🚨 ROUTE CHECKPOINT 13");
+// [B] END: Users API (new, with last-login route)
+
 
 // ✅ Get all vehicles
 app.get("/vehicles", (req, res) => {
