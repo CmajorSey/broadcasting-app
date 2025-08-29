@@ -16,18 +16,34 @@ export default function GroupsManager() {
   const [groups, setGroups] = useState([]);
   const [users, setUsers] = useState([]);
   const [newGroupName, setNewGroupName] = useState("");
-  const [groupEdits, setGroupEdits] = useState({}); // { groupId: { name, userIds, editing: true } }
+  const [groupEdits, setGroupEdits] = useState({}); // { [groupId]: { name, userIds (string[]), editing } }
 
   useEffect(() => {
+    // Load groups (already persisted in /data/notificationGroups.json)
     fetch(`${API_BASE}/notification-groups`)
       .then((res) => res.json())
-      .then(setGroups)
-      .catch((err) => console.error("Failed to fetch groups", err));
+      .then((arr) => Array.isArray(arr) ? setGroups(arr) : setGroups([]))
+      .catch((err) => {
+        console.error("Failed to fetch groups", err);
+        setGroups([]);
+      });
 
-    fetch(`${API_BASE}/users`)
+    // Load users in a combobox-friendly, normalized shape (string IDs)
+    fetch(`${API_BASE}/users-brief`)
       .then((res) => res.json())
-      .then(setUsers)
-      .catch((err) => console.error("Failed to fetch users", err));
+      .then((arr) => {
+        const filtered = Array.isArray(arr) ? arr.filter(u => u.name !== "Admin") : [];
+        setUsers(filtered.map(u => ({
+          id: String(u.id),
+          name: String(u.name || ""),
+          roles: Array.isArray(u.roles) ? u.roles : [],
+          description: typeof u.description === "string" ? u.description : "",
+        })));
+      })
+      .catch((err) => {
+        console.error("Failed to fetch users", err);
+        setUsers([]);
+      });
   }, []);
 
   const createGroup = async () => {
@@ -69,7 +85,8 @@ export default function GroupsManager() {
     const updated = {
       id: groupId,
       name: edits.name,
-      userIds: edits.userIds,
+      // normalize to string IDs to match server + notifications panel logic
+      userIds: (edits.userIds || []).map(String),
     };
 
     try {
@@ -111,9 +128,10 @@ export default function GroupsManager() {
       </Card>
 
       {groups.map((group) => {
+        // Make sure current edit state always uses string IDs for userIds
         const current = groupEdits[group.id] || {
           name: group.name,
-          userIds: group.userIds || [],
+          userIds: Array.isArray(group.userIds) ? group.userIds.map(String) : [],
         };
 
         const isEditing = !!groupEdits[group.id];
@@ -151,7 +169,7 @@ export default function GroupsManager() {
                         ...groupEdits,
                         [group.id]: {
                           name: group.name,
-                          userIds: group.userIds || [],
+                          userIds: Array.isArray(group.userIds) ? group.userIds.map(String) : [],
                         },
                       })
                     }
@@ -168,41 +186,45 @@ export default function GroupsManager() {
                 </Button>
               </div>
             </CardHeader>
-      <CardContent>
-  {isEditing ? (
-    <div className="max-h-60 overflow-y-auto">
-      <MultiSelectCombobox
-        options={users.map((u) => ({ label: u.name, value: u.id }))}
-        selected={current.userIds || []}
-        setSelected={(newIds) => {
-          setGroupEdits({
-            ...groupEdits,
-            [group.id]: {
-              ...current,
-              userIds: newIds,
-            },
-          });
-        }}
-        placeholder="Select users..."
-        label="Users"
-      />
-    </div>
-  ) : (
-    <ScrollArea className="max-h-64 overflow-y-auto pr-2 text-sm border rounded p-2">
-  <div className="space-y-1">
-    {users
-      .filter((u) => group.userIds.includes(u.id))
-      .map((u) => (
-        <div key={u.id}>{u.name}</div>
-      ))}
-  </div>
-</ScrollArea>
-  )}
-</CardContent>
 
+            <CardContent>
+              {isEditing ? (
+                <div className="max-h-60 overflow-y-auto">
+                  <MultiSelectCombobox
+                    // Combobox expects [{label, value}], and we store selected as an array of string IDs
+                    options={users.map((u) => ({ label: u.name, value: String(u.id) }))}
+                    selected={current.userIds}
+                    setSelected={(newIds) => {
+                      setGroupEdits({
+                        ...groupEdits,
+                        [group.id]: {
+                          ...current,
+                          userIds: (newIds || []).map(String),
+                        },
+                      });
+                    }}
+                    placeholder="Select users..."
+                    label="Users"
+                  />
+                </div>
+              ) : (
+                <ScrollArea className="max-h-64 overflow-y-auto pr-2 text-sm border rounded p-2">
+                  <div className="space-y-1">
+                    {users
+                      .filter((u) =>
+                        (Array.isArray(group.userIds) ? group.userIds.map(String) : []).includes(String(u.id))
+                      )
+                      .map((u) => (
+                        <div key={u.id}>{u.name}</div>
+                      ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </CardContent>
           </Card>
         );
       })}
     </div>
   );
 }
+

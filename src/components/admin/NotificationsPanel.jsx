@@ -62,16 +62,29 @@ export default function NotificationsPanel({ loggedInUser }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchUsers = async () => {
+    const fetchUsers = async () => {
     try {
-      const res = await fetch(`${API_BASE}/users`);
+      // Use backend-normalized shape: [{ id: "string", name: "..." , roles:[], description:"" }]
+      const res = await fetch(`${API_BASE}/users-brief`);
       const data = await res.json();
-      const filtered = Array.isArray(data) ? data.filter((u) => u.name !== "Admin") : [];
-      setUsers(filtered);
+      const filtered = Array.isArray(data)
+        ? data.filter((u) => String(u.name).trim() && u.name !== "Admin")
+        : [];
+      // Keep as objects; the combobox uses names from useMemo(userNames)
+      setUsers(
+        filtered.map((u) => ({
+          id: String(u.id),
+          name: String(u.name),
+          roles: Array.isArray(u.roles) ? u.roles : [],
+          description: typeof u.description === "string" ? u.description : "",
+        }))
+      );
     } catch (err) {
       console.error("Failed to fetch users:", err);
+      setUsers([]);
     }
   };
+
 
   const fetchGroups = async () => {
     try {
@@ -118,16 +131,22 @@ export default function NotificationsPanel({ loggedInUser }) {
   };
 
   // ------- compose/send -------
-  const resolveRecipients = () => {
-    if (selectedUsers.length > 0) return selectedUsers;
+   const resolveRecipients = () => {
+    // If user names were explicitly picked, send those
+    if (selectedUsers.length > 0) {
+      return selectedUsers;
+    }
 
+    // Otherwise, resolve group → userIds → user names
     const matchingGroupUsers = groups
       .filter((g) => selectedSections.includes(g.name))
-      .flatMap((g) => g.userIds);
+      .flatMap((g) => Array.isArray(g.userIds) ? g.userIds : [])
+      .map((id) => String(id));
 
-    const resolved = users.filter((u) => matchingGroupUsers.includes(u.id));
+    const resolved = users.filter((u) => matchingGroupUsers.includes(String(u.id)));
     return resolved.map((u) => u.name);
   };
+
 
   const handleSend = async () => {
     const recipients = resolveRecipients();
