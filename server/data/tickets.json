@@ -19,10 +19,12 @@
     },
     "departureTime": "22:50",
     "filmingTime": "22:50",
-    "assignedCamOps": [],
-    "assignedDriver": "",
+    "assignedCamOps": [
+      "Darino Esther"
+    ],
+    "assignedDriver": "Nelson Joseph",
     "vehicle": "",
-    "assignmentStatus": "Unassigned",
+    "assignmentStatus": "Assigned",
     "isReady": false,
     "status": "Pending",
     "assignedReporter": "Journalist: Patsy Edmond",
@@ -32,7 +34,8 @@
     "createdBy": "Christopher Gabriel",
     "createdAt": "2025-07-22T19:00:22.325Z",
     "id": "1753210822632",
-    "deleted": true
+    "deleted": true,
+    "assignedBy": "Admin"
   },
   {
     "title": "TEST multi",

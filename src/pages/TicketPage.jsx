@@ -135,10 +135,92 @@ const handleStatusChange = async (ticketId, newStatus) => {
     console.error("Error updating status:", err);
   }
 };
-  const driverOptions = users.filter(
-    (u) => u.roles.includes("driver") || u.roles.includes("driver_limited")
-  );
-  const camOpOptions = users.filter((u) => u.roles.includes("camOp"));
+    // ✅ Fallback users fetch if the `users` prop is empty
+  const [remoteUsers, setRemoteUsers] = useState([]);
+  const [usersLoadError, setUsersLoadError] = useState(null);
+
+  useEffect(() => {
+    if (users && users.length > 0) {
+      setRemoteUsers([]);
+      setUsersLoadError(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/users`, { method: "GET" });
+        const raw = await res.json().catch(() => []);
+        const arr = Array.isArray(raw) ? raw : Array.isArray(raw?.users) ? raw.users : [];
+        if (!cancelled) setRemoteUsers(arr);
+      } catch (err) {
+        console.error("❌ Failed to fetch users:", err);
+        if (!cancelled) setUsersLoadError(err?.message || "Unknown error");
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [users]);
+
+  // ✅ Unified users source
+  const effectiveUsers = (users && users.length > 0) ? users : remoteUsers;
+
+  // Helpers
+  const toLowerRoles = (u) =>
+    (Array.isArray(u?.roles) ? u.roles : [u?.role]).map((r) =>
+      String(r || "").toLowerCase()
+    );
+  const nameOf = (u) => String(u?.name || "").trim();
+
+  // ✅ Driver options (flat, no dividers)
+  const driverOptions = (effectiveUsers || []).filter((u) => {
+    const rl = toLowerRoles(u);
+    return rl.includes("driver") || rl.includes("driver_limited");
+  });
+
+  // ✅ Build groups for CamOps dropdown with divider lines:
+  //    Only include users who have the `camOp` role.
+  //    Then split into:
+  //      - pure CamOps (not producer/admin)
+  //      - CamOps who are also Producers
+  //      - CamOps who are also Admins (bottom)
+  const camOpsOnly = [];
+  const camOpsProducers = [];
+  const camOpsAdmins = [];
+
+  (effectiveUsers || []).forEach((u) => {
+    const rl = toLowerRoles(u);
+    const nm = nameOf(u);
+    if (!nm) return;
+
+    // Only eligible if they are CamOps
+    if (!rl.includes("camop")) return;
+
+    const isProducer = rl.includes("producer");
+    const isAdmin = rl.includes("admin");
+
+    if (isAdmin) camOpsAdmins.push(nm);
+    else if (isProducer) camOpsProducers.push(nm);
+    else camOpsOnly.push(nm);
+  });
+
+  camOpsOnly.sort();
+  camOpsProducers.sort();
+  camOpsAdmins.sort();
+
+  // ✅ Flatten into option objects and inject unselectable divider rows
+  const camOpOptionsWithDividers = [
+    ...camOpsOnly.map((name) => ({ label: name, value: name })),
+    { label: "––––––––", value: "__divider1", divider: true },
+
+    ...camOpsProducers.map((name) => ({ label: name, value: name })),
+    { label: "––––––––", value: "__divider2", divider: true },
+
+    ...camOpsAdmins.map((name) => ({ label: name, value: name })),
+  ];
+
+  // Keep label as-is (no text tags). Dividers already have a line as the label.
+  const camOpOptionsDecorated = camOpOptionsWithDividers;
 
  useEffect(() => {
   fetch(`${API_BASE}/tickets`)
@@ -520,30 +602,30 @@ setSelectedTickets([]);
           </td>
 
           {/* Cam Ops */}
-          <td className="p-2 text-center whitespace-nowrap">
-           {isEditing ? (
-            
-  <MultiSelectCombobox
-  options={camOpOptions}
-  selected={editData.assignedCamOps || []}
-  setSelected={(val) =>
-    
-    setEditData((prev) => ({
-      ...prev,
-      assignedCamOps: [...val],
-    }))
-  }
-/>
-) : Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0 ? (
-  <DutyBadgeWrapper
-    date={ticket.date}
-    filmingTime={ticket.filmingTime}
-    names={ticket.assignedCamOps}
-  />
-) : (
-  "-"
-)}
+<td className="p-2 text-center whitespace-nowrap">
+  {isEditing ? (
+    <MultiSelectCombobox
+      options={camOpOptionsDecorated}
+      selected={editData.assignedCamOps || []}
+      // Normalize & ignore divider markers
+      onChange={(next) => {
+        const values = (next || [])
+          .map((v) => (typeof v === "string" ? v : v?.value))
+          .filter((val) => val && !val.startsWith("__divider"));
+        setEditData((prev) => ({ ...prev, assignedCamOps: values }));
+      }}
+    />
+  ) : Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0 ? (
+    <DutyBadgeWrapper
+      date={ticket.date}
+      filmingTime={ticket.filmingTime}
+      names={ticket.assignedCamOps}
+    />
+  ) : (
+    "-"
+  )}
 </td>
+
           {/* Driver */}
           <td className="p-2 text-center whitespace-nowrap">
             {isEditing ? (

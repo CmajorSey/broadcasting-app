@@ -148,9 +148,56 @@ function TicketForm({ users = [], loggedInUser, tickets = [], setTickets, vehicl
   const [searchQuery, setSearchQuery] = useState("");
 const [filterPriority, setFilterPriority] = useState("");
 const [filterShootType, setFilterShootType] = useState("");
+
 // Load rosters from localStorage
 const [selectedRosterDay, setSelectedRosterDay] = useState(null);
 const [camOpStatuses, setCamOpStatuses] = useState({});
+
+// ✅ Fallback users fetch if the `users` prop is empty
+const [remoteUsers, setRemoteUsers] = useState([]);
+const [usersLoadError, setUsersLoadError] = useState(null);
+
+/**
+ * We only fetch if the `users` prop is empty.
+ * Keeps current behavior when parent already provides users.
+ */
+useEffect(() => {
+  if (users && users.length > 0) {
+    // Parent is providing users; ensure we don't override
+    setRemoteUsers([]);
+    setUsersLoadError(null);
+    return;
+  }
+
+  let cancelled = false;
+
+  (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/users`, { method: "GET" });
+      // normalize response: support [] or { users: [] }
+      const raw = await res.json().catch(() => []);
+      const arr = Array.isArray(raw) ? raw : Array.isArray(raw?.users) ? raw.users : [];
+
+      if (!cancelled) {
+        setRemoteUsers(arr);
+        if (!arr || arr.length === 0) {
+          console.warn("⚠️ /users returned an empty list.");
+        }
+      }
+    } catch (err) {
+      console.error("❌ Failed to fetch users:", err);
+      if (!cancelled) setUsersLoadError(err?.message || "Unknown error");
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, [users]);
+
+// ✅ Use this unified list everywhere below
+const effectiveUsers = (users && users.length > 0) ? users : remoteUsers;
+
 
 useEffect(() => {
   const selectedDateIso = formData.date?.split("T")[0];
@@ -216,19 +263,22 @@ const filteredTickets = tickets.filter((ticket) => {
 
   return matchesSearch && matchesPriority && matchesShootType;
 });
-// Build cam ops lists with final ordering
-const groupOne = []; // camOp without producer
-const groupTwo = []; // camOp + producer
+// Build cam ops lists with final ordering (using unified list)
+const groupOne = [];   // camOp without producer
+const groupTwo = [];   // camOp + producer
 const groupThree = []; // Clive and Gilmer always last
 
 const specialNames = ["gilmer philoe", "clive camille"];
 
-users.forEach((user) => {
-  const name = user.name;
+// Normalize roles to lowercase array and sort into buckets
+(effectiveUsers || []).forEach((user) => {
+  const name = user?.name || "";
   const lowerName = name.toLowerCase();
-  const roles = Array.isArray(user.roles)
-    ? user.roles.map((r) => r.toLowerCase())
-    : [user.role?.toLowerCase()];
+  const roles = Array.isArray(user?.roles)
+    ? user.roles.map((r) => String(r).toLowerCase())
+    : [String(user?.role || "").toLowerCase()];
+
+  if (!name) return;
 
   if (specialNames.includes(lowerName)) {
     groupThree.push(name);
@@ -246,14 +296,47 @@ groupOne.sort();
 groupTwo.sort();
 groupThree.sort();
 
-// Final array with a marker for separation
+// Final array with a marker for separation (kept for future UI groupings)
 const camOperatorsSections = [
   { label: "CamOps (No Producer)", options: groupOne },
   { label: "CamOps + Producer", options: groupTwo },
   { label: "Senior CamOps", options: groupThree },
 ];
+
+// ✅ Flatten into plain options the combobox understands
+//    We insert "divider" markers between groups (rendered as thin lines).
+const camOpOptions = [
+  ...groupOne.map((name) => ({ label: name, value: name })),
+  { label: "––divider––", value: "__divider1", divider: true },
+
+  ...groupTwo.map((name) => ({ label: name, value: name })),
+  { label: "––divider––", value: "__divider2", divider: true },
+
+  ...groupThree.map((name) => ({ label: name, value: name })),
+];
+
+// ✅ Decorate labels with roster status (without changing the value)
+const decorateLabel = (name, baseLabel) => {
+  if (name.startsWith("__divider")) return "––––––––"; // render as line only
+  const status = camOpStatuses[name];
+  if (status === "Off Duty") return `${baseLabel} ⚠️ (Off)`;
+  if (status === "Afternoon Shift") return `${baseLabel} 🌙 (Afternoon)`;
+  if (status === "Primary Duty") return `${baseLabel} ⭐ (Primary)`;
+  if (status === "Backup Duty") return `${baseLabel} 🟢 (Backup)`;
+  if (status === "Other Duty") return `${baseLabel} 🟡 (On Duty)`;
+  return baseLabel;
+};
+
+const camOpOptionsDecorated = camOpOptions.map((opt) => ({
+  ...opt,
+  label: decorateLabel(opt.value, opt.label),
+}));
+
+
 console.log("✅ Cam operators sections:", camOperatorsSections);
-console.log("✅ All users data:", users);
+console.log("✅ CamOp options (decorated with group tags):", camOpOptionsDecorated);
+console.log("✅ All users data (effective):", effectiveUsers);
+
 
  const handleChange = (e) => {
   const { name, value, type, checked } = e.target;
@@ -494,31 +577,30 @@ const handleSubmit = async (e) => {
       return null;
     })()}
 
-   <optgroup label="Journalists">
-  {users
-    .filter((u) => {
-      const roles = (u.roles || []).map((r) => r.toLowerCase());
-      const desc = (u.description || "").toLowerCase();
-      return (
-        roles.includes("journalist") &&
-        !desc.includes("sports") &&
-        u.name !== loggedInUser?.name
-      );
-    })
-    .map((u) => (
-      <option key={`journalist-${u.name}`} value={`Journalist: ${u.name}`}>
-        Journalist: {u.name}
-      </option>
-    ))}
-</optgroup>
-
+    <optgroup label="Journalists">
+      {(effectiveUsers || [])
+        .filter((u) => {
+          const roles = (u.roles || []).map((r) => String(r).toLowerCase());
+          const desc = (u.description || "").toLowerCase();
+          return (
+            roles.includes("journalist") &&
+            !desc.includes("sports") &&
+            u.name !== loggedInUser?.name
+          );
+        })
+        .map((u) => (
+          <option key={`journalist-${u.name}`} value={`Journalist: ${u.name}`}>
+            Journalist: {u.name}
+          </option>
+        ))}
+    </optgroup>
 
     <optgroup label="Sports Journalists">
-      {users
+      {(effectiveUsers || [])
         .filter(
           (u) =>
-            u.description?.toLowerCase().includes("sport") ||
-            (u.roles || []).some((r) => r.toLowerCase() === "sports_journalist")
+            (u.description || "").toLowerCase().includes("sport") ||
+            (u.roles || []).some((r) => String(r).toLowerCase() === "sports_journalist")
         )
         .filter((u) => u.name !== loggedInUser?.name)
         .map((u) => (
@@ -532,9 +614,9 @@ const handleSubmit = async (e) => {
     </optgroup>
 
     <optgroup label="Producers">
-      {users
+      {(effectiveUsers || [])
         .filter((u) =>
-          (u.roles || []).some((r) => r.toLowerCase() === "producer")
+          (u.roles || []).some((r) => String(r).toLowerCase() === "producer")
         )
         .filter((u) => u.name !== loggedInUser?.name)
         .map((u) => (
@@ -545,8 +627,6 @@ const handleSubmit = async (e) => {
     </optgroup>
   </select>
 </div>
-
-
 
         {/* News Dropdown */}
         {formData.type === "News" && (
@@ -795,34 +875,24 @@ const handleSubmit = async (e) => {
    <div className="space-y-2">
   <label className="block font-semibold">Assign Camera Operators:</label>
  <MultiSelectCombobox
-  sections={camOperatorsSections}
+  // ✅ Feed option objects the component can toggle
+  options={camOpOptionsDecorated}
   selected={formData.assignedCamOps}
-  onChange={(newSelection) =>
-    setFormData({
-      ...formData,
-      assignedCamOps: newSelection,
-    })
-  }
-  getOptionLabel={(name) => {
-    const status = camOpStatuses[name];
-    if (status === "Off Duty") {
-      return `${name} ⚠️ (Off)`;
-    }
-    if (status === "Afternoon Shift") {
-      return `${name} 🌙 (Afternoon)`;
-    }
-    if (status === "Primary Duty") {
-      return `${name} ⭐ (Primary)`;
-    }
-    if (status === "Backup Duty") {
-      return `${name} 🟢 (Backup)`;
-    }
-    if (status === "Other Duty") {
-      return `${name} 🟡 (On Duty)`;
-    }
-    return name;
-  }}
+  // Normalize any object values back to plain strings (names)
+  onChange={(next) => {
+  const values = (next || [])
+    .map((v) => (typeof v === "string" ? v : v?.value))
+    .filter((val) => val && !val.startsWith("__divider")); // 🚫 ignore divider markers
+
+  setFormData({
+    ...formData,
+    assignedCamOps: values,
+  });
+}}
+
+  // Remove getOptionLabel — not supported by your component
 />
+
 </div>
   {/* ✅ Extra checkbox just for Production */}
     {formData.type === "Production" && (
