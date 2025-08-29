@@ -286,7 +286,7 @@
     ],
     "description": "Senior Producer",
     "hiddenRoles": [],
-    "password": "Christopher462!",
+    "password": "123456789",
     "requiresPasswordReset": false,
     "leaveBalance": 42,
     "annualLeave": 1,
@@ -396,5 +396,22 @@
     "password": "$2b$10$/smQcK97UYjeCcpsOjYAeuED4UEzLItS0M7l1QerRhRbtA7Hs4tti",
     "forcePasswordChange": false,
     "requiresPasswordReset": true
+  },
+  {
+    "id": "1756461558811",
+    "name": "Jennifer Arnephy",
+    "roles": [
+      "admin"
+    ],
+    "description": "HR/Senior Production Coordinator",
+    "hiddenRoles": [],
+    "password": "Jennifer1",
+    "forcePasswordChange": true,
+    "requiresPasswordReset": true,
+    "passwordIsTemp": true,
+    "tempPasswordExpires": "2025-09-01T09:59:18.811Z",
+    "passwordUpdatedAt": null,
+    "createdAt": "2025-08-29T09:59:18.811Z",
+    "updatedAt": "2025-08-29T09:59:18.811Z"
   }
 ]

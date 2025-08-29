@@ -135,10 +135,11 @@ console.log("🚨 ROUTE CHECKPOINT 1");
 
 dotenv.config();
 
-// ✅ Use persistent disk if on Render Starter plan
-// ✅ Unified data path for both local and Render
-const DATA_DIR = path.join(__dirname, "data");
+// ✅ Use Render's persistent disk directly
+// Everything we save must live under /data to survive restarts/deploys.
+const DATA_DIR = "/data";
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
+
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -170,7 +171,7 @@ const USERS_FILE = path.join(DATA_DIR, "users.json");
 const VEHICLES_FILE = path.join(DATA_DIR, "vehicles.json");
 const ROSTERS_FILE = path.join(DATA_DIR, "rosters.json");
 const PASSWORD_RESET_REQUESTS_FILE = path.join(DATA_DIR, "passwordResetRequests.json");
-const groupsPath = path.join(__dirname, "data", "notificationGroups.json");
+const groupsPath = path.join(DATA_DIR, "notificationGroups.json");
 
 
 // 🔧 Ensure data directory and files exist
@@ -292,7 +293,8 @@ console.log("🚨 ROUTE CHECKPOINT 4");
 console.log("🚨 ROUTE CHECKPOINT 5");
 // ✅ Notifications API (edit, delete-one, clear-all, and polling support)
 (() => {
-  const notificationsPath = path.join(__dirname, "data", "notifications.json");
+  const notificationsPath = path.join(DATA_DIR, "notifications.json");
+
 
   const ensureFile = () => {
     if (!fs.existsSync(notificationsPath)) {
@@ -485,7 +487,7 @@ app.post("/auth/request-admin-reset", async (req, res) => {
 
     // 📣 In-app notification (full recipients for filtering, compact display label, and action payload)
     try {
-      const notificationsPath = path.join(__dirname, "data", "notifications.json");
+      const notificationsPath = path.join(DATA_DIR, "notifications.json");
       const notifRaw = fs.existsSync(notificationsPath)
         ? fs.readFileSync(notificationsPath, "utf-8")
         : "[]";
@@ -839,53 +841,53 @@ console.log("🚨 ROUTE CHECKPOINT 11");
  });
 
 
- // ✅ Patch user (admin edit; safe defaults)
- app.patch("/users/:id", (req, res) => {
-   const usersPath = path.join(__dirname, "data", "users.json");
-   const { id } = req.params;
+ // ✅ Patch user (admin edit; safe defaults) — now uses the persistent USERS_FILE
+app.patch("/users/:id", (req, res) => {
+  const { id } = req.params;
 
-   try {
-     const data = fs.readFileSync(usersPath, "utf-8");
-     const users = JSON.parse(data);
+  try {
+    const data = fs.readFileSync(USERS_FILE, "utf-8");
+    const users = JSON.parse(data);
 
-     const idx = users.findIndex((u) => String(u.id) === String(id));
-     if (idx === -1) return res.status(404).json({ error: "User not found" });
+    const idx = users.findIndex((u) => String(u.id) === String(id));
+    if (idx === -1) return res.status(404).json({ error: "User not found" });
 
-     const body = req.body || {};
-     const u = users[idx];
+    const body = req.body || {};
+    const u = users[idx];
 
-     // Password update (admin-initiated). If you are using this to set a permanent password,
-     // we won't override flags unless you explicitly send them in the body.
-     if (typeof body.password === "string" && body.password.trim()) {
-       u.password = body.password.trim();
-       // Do NOT force-clear flags unless specified:
-       if (typeof body.forcePasswordChange === "undefined" && typeof body.requiresPasswordReset === "undefined") {
-         // leave existing flags as-is
-       }
-     }
+    // Password update (admin-initiated). If you are using this to set a permanent password,
+    // we won't override flags unless you explicitly send them in the body.
+    if (typeof body.password === "string" && body.password.trim()) {
+      u.password = body.password.trim();
+      // Do NOT force-clear flags unless specified:
+      if (typeof body.forcePasswordChange === "undefined" && typeof body.requiresPasswordReset === "undefined") {
+        // leave existing flags as-is
+      }
+    }
 
-     // Optional profile updates (kept harmless)
-     if (Array.isArray(body.roles)) u.roles = body.roles;
-     if (typeof body.description === "string") u.description = body.description;
-     if (Array.isArray(body.hiddenRoles)) u.hiddenRoles = body.hiddenRoles;
+    // Optional profile updates (kept harmless)
+    if (Array.isArray(body.roles)) u.roles = body.roles;
+    if (typeof body.description === "string") u.description = body.description;
+    if (Array.isArray(body.hiddenRoles)) u.hiddenRoles = body.hiddenRoles;
 
-     // Flags: allow explicit control from client
-     if (typeof body.forcePasswordChange === "boolean") {
-       u.forcePasswordChange = body.forcePasswordChange;
-     }
-     if (typeof body.requiresPasswordReset === "boolean") {
-       u.requiresPasswordReset = body.requiresPasswordReset;
-     }
+    // Flags: allow explicit control from client
+    if (typeof body.forcePasswordChange === "boolean") {
+      u.forcePasswordChange = body.forcePasswordChange;
+    }
+    if (typeof body.requiresPasswordReset === "boolean") {
+      u.requiresPasswordReset = body.requiresPasswordReset;
+    }
 
-     u.updatedAt = new Date().toISOString();
+    u.updatedAt = new Date().toISOString();
 
-     fs.writeFileSync(usersPath, JSON.stringify(users, null, 2));
-     return res.json({ success: true, user: u });
-   } catch (err) {
-     console.error("Failed to patch user:", err);
-     res.status(500).json({ error: "Failed to update user" });
-   }
- });
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    return res.json({ success: true, user: u });
+  } catch (err) {
+    console.error("Failed to patch user:", err);
+    res.status(500).json({ error: "Failed to update user" });
+  }
+});
+
 
  // ✅ NEW: Stamp last login (persisted for “Last login” UI)
  //     - Body (optional): { lastLogin: "<ISO string>" }
