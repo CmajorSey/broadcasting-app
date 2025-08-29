@@ -345,13 +345,45 @@ console.log("🚨 ROUTE CHECKPOINT 5");
     }
   };
 
-  // 🧭 GET /notifications
-  //    - returns all by default
-  //    - supports polling: /notifications?after=<ISO> (returns items strictly newer than `after`)
+  // ✉️ POST /notifications — create new notification
+  app.post("/notifications", (req, res) => {
+    try {
+      const body = req.body || {};
+      const title = String(body.title || "").trim();
+      const message = String(body.message || "").trim();
+      const recipients = Array.isArray(body.recipients)
+        ? Array.from(new Set(body.recipients.filter(Boolean).map(String)))
+        : [];
+      const createdAt = body.createdAt && !Number.isNaN(new Date(body.createdAt))
+        ? new Date(body.createdAt).toISOString()
+        : new Date().toISOString();
+
+      if (!title || !message || recipients.length === 0) {
+        return res.status(400).json({ error: "Missing title, message, or recipients" });
+      }
+
+      const all = readNotifs();
+      const newNotification = {
+        title,
+        message,
+        recipients,
+        timestamp: createdAt,
+      };
+
+      all.push(newNotification);
+      writeNotifs(all);
+
+      return res.status(201).json(newNotification);
+    } catch (err) {
+      console.error("Failed to create notification:", err);
+      res.status(500).json({ error: "Could not create notification" });
+    }
+  });
+
+  // 🧭 GET /notifications  (polling supported via ?after=<ISO>)
   app.get("/notifications", (req, res) => {
     try {
       const all = readNotifs();
-
       const { after } = req.query || {};
       if (after) {
         const a = isoSec(after);
@@ -362,7 +394,6 @@ console.log("🚨 ROUTE CHECKPOINT 5");
         });
         return res.json(filtered);
       }
-
       return res.json(all);
     } catch (err) {
       console.error("Failed to read notifications:", err);
@@ -371,8 +402,6 @@ console.log("🚨 ROUTE CHECKPOINT 5");
   });
 
   // ✏️ PATCH /notifications/:timestamp
-  //    - edit title, message, recipients, kind, action
-  //    - path param must be the original timestamp (URL-encoded OK)
   app.patch("/notifications/:timestamp", (req, res) => {
     try {
       const encoded = req.params.timestamp;
@@ -385,15 +414,13 @@ console.log("🚨 ROUTE CHECKPOINT 5");
       if (idx === -1) return res.status(404).json({ error: "Notification not found" });
 
       const body = req.body || {};
-      const allowed = ["title", "message", "recipients", "kind", "action", "displayRecipients"];
+      const allowed = ["title", "message", "recipients", "kind", "action", "displayRecipients", "status"];
       const current = all[idx];
 
       const updated = { ...current };
       for (const key of allowed) {
         if (key in body) updated[key] = body[key];
       }
-      // If you want to support "mark as read/archived" later, you can pass status
-      if (typeof body.status === "string") updated.status = body.status;
 
       all[idx] = updated;
       writeNotifs(all);
@@ -426,8 +453,6 @@ console.log("🚨 ROUTE CHECKPOINT 5");
   });
 
   // 🧹 DELETE /notifications  (clear all, or clear olderThan=<ISO>)
-  //    - Clear all: DELETE /notifications
-  //    - Clear older than a date: DELETE /notifications?olderThan=<ISO>
   app.delete("/notifications", (req, res) => {
     try {
       const { olderThan } = req.query || {};
@@ -452,7 +477,6 @@ console.log("🚨 ROUTE CHECKPOINT 5");
     }
   });
 })();
-
 
 /* ✅ Forgot-password → log request, push admins, and write an in-app notification (with action + compact display) */
 app.post("/auth/request-admin-reset", async (req, res) => {
