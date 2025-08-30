@@ -27,7 +27,7 @@
     "assignmentStatus": "Assigned",
     "isReady": false,
     "status": "Pending",
-    "assignedReporter": "Journalist: Patsy Edmond",
+    "assignedReporter": [],
     "requireDriver": true,
     "expectedCamOps": 3,
     "vehicleStatus": "",

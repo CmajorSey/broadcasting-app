@@ -287,20 +287,32 @@ const reporterOptionsDecorated = reporterOptionsWithDividers;
     autoDriver = "Nelson Joseph";
   }
 
-  // Normalize reporter field to an array
-  let normalizedReporter = [];
-  if (Array.isArray(ticket.assignedReporter)) {
-    normalizedReporter = ticket.assignedReporter.filter(Boolean);
-  } else if (typeof ticket.assignedReporter === "string" && ticket.assignedReporter.trim()) {
-    normalizedReporter = [ticket.assignedReporter.trim()];
-  }
+  // Helper: strip optional role prefixes like "Journalist:", "Sports Journalist:", "Producer:"
+  const stripRolePrefix = (s) =>
+    String(s || "")
+      .replace(/^\s*(?:Journalist|Sports\s*Journalist|Producer)\s*:\s*/i, "")
+      .trim();
+
+  // Normalize reporter field to an array of clean names, deduped
+  const normalizedReporter = Array.from(
+    new Set(
+      (Array.isArray(ticket.assignedReporter)
+        ? ticket.assignedReporter
+        : typeof ticket.assignedReporter === "string" && ticket.assignedReporter.trim()
+        ? [ticket.assignedReporter]
+        : []
+      )
+        .map(stripRolePrefix)
+        .filter(Boolean)
+    )
+  );
 
   setEditingIndex(index);
   setEditData({
     ...ticket,
     assignedDriver: autoDriver,
     assignedCamOps: ticket.assignedCamOps || [],
-    assignedReporter: normalizedReporter, // ✅ NEW
+    assignedReporter: normalizedReporter, // ✅ already-clean, matches option values
     vehicle: ticket.vehicle || "",
     priority: ticket.priority || "Normal",
     assignmentStatus: ticket.assignmentStatus || "Pending",
@@ -317,17 +329,30 @@ console.log("✅ Saving assigned cam ops:", editData.assignedCamOps);
   const updatedTickets = [...tickets];
   const original = updatedTickets[index];
 
-  // Normalize reporter to array (defensive)
-  let reporterArray = [];
-  if (Array.isArray(editData.assignedReporter)) {
-    reporterArray = editData.assignedReporter.filter(Boolean);
-  } else if (typeof editData.assignedReporter === "string" && editData.assignedReporter.trim()) {
-    reporterArray = [editData.assignedReporter.trim()];
-  } else if (Array.isArray(original.assignedReporter)) {
-    reporterArray = original.assignedReporter.filter(Boolean);
-  } else if (typeof original.assignedReporter === "string" && original.assignedReporter.trim()) {
-    reporterArray = [original.assignedReporter.trim()];
-  }
+  // Helper: strip optional role prefixes like "Journalist:", "Sports Journalist:", "Producer:"
+  const stripRolePrefix = (s) =>
+    String(s || "")
+      .replace(/^\s*(?:Journalist|Sports\s*Journalist|Producer)\s*:\s*/i, "")
+      .trim();
+
+  // Normalize reporter to a clean, deduped array of names
+  const sourceReporter =
+    typeof editData.assignedReporter !== "undefined"
+      ? editData.assignedReporter
+      : original.assignedReporter;
+
+  const reporterArray = Array.from(
+    new Set(
+      (Array.isArray(sourceReporter)
+        ? sourceReporter
+        : typeof sourceReporter === "string" && sourceReporter.trim()
+        ? [sourceReporter]
+        : []
+      )
+        .map(stripRolePrefix)
+        .filter(Boolean)
+    )
+  );
 
   const updatedTicket = {
     id: original.id,
@@ -338,7 +363,7 @@ console.log("✅ Saving assigned cam ops:", editData.assignedCamOps);
     departureTime: editData.departureTime || original.departureTime,
     assignedCamOps: editData.assignedCamOps || original.assignedCamOps || [],
     assignedDriver: editData.assignedDriver || original.assignedDriver || "",
-    assignedReporter: reporterArray, // ✅ NEW
+    assignedReporter: reporterArray, // ✅ clean names that match option values
     vehicle: editData.vehicle || original.vehicle || "",
     assignmentStatus: editData.assignmentStatus || original.assignmentStatus || "Unassigned",
     priority: editData.priority || original.priority || "Normal",
@@ -374,6 +399,7 @@ console.log("✅ Saving assigned cam ops:", editData.assignedCamOps);
     alert("Failed to save changes. Please try again.");
   }
 };
+
 
 
 const cancelEditing = () => {
@@ -713,10 +739,22 @@ setSelectedTickets([]);
       options={reporterOptionsDecorated}
       selected={editData.assignedReporter || []}
       onChange={(next) => {
-        // Normalize to values & ignore divider rows
-        const values = (next || [])
-          .map((v) => (typeof v === "string" ? v : v?.value))
-          .filter((val) => val && !String(val).startsWith("__rep_div"));
+        const stripRolePrefix = (s) =>
+          String(s || "")
+            .replace(/^\s*(?:Journalist|Sports\s*Journalist|Producer)\s*:\s*/i, "")
+            .trim();
+
+        // Normalize to values, strip any role prefixes, drop dividers, and dedupe
+        const values = Array.from(
+          new Set(
+            (next || [])
+              .map((v) => (typeof v === "string" ? v : v?.value))
+              .filter((val) => val && !String(val).startsWith("__rep_div"))
+              .map(stripRolePrefix)
+              .filter(Boolean)
+          )
+        );
+
         setEditData((prev) => ({ ...prev, assignedReporter: values }));
       }}
     />
@@ -728,6 +766,7 @@ setSelectedTickets([]);
     "-"
   )}
 </td>
+
           {/* Status */}
           <td className="p-2 text-center whitespace-nowrap">
             <Popover>
