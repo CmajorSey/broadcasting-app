@@ -1166,93 +1166,160 @@ app.post("/tickets", async (req, res) => {
 });
 
 
-// ✅ Patch ticket by ID
+// ✅ Patch ticket by ID (array-safe for assignedReporter + robust FCM targets)
 app.patch("/tickets/:id", async (req, res) => {
   const { id } = req.params;
-  const updatedFields = req.body;
+  const updatedFields = req.body || {};
+
+  // Helpers
+  const stripRolePrefix = (s) =>
+    String(s || "")
+      .replace(/^\s*(?:Journalist|Sports\s*Journalist|Producer)\s*:\s*/i, "")
+      .trim();
+
+  const normReporterArray = (v) => {
+    if (Array.isArray(v)) {
+      return Array.from(new Set(v.map(stripRolePrefix).filter(Boolean)));
+    }
+    if (typeof v === "string" && v.trim()) {
+      return [stripRolePrefix(v)];
+    }
+    return [];
+  };
+
+  const normArr = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+  const sameJSON = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
   try {
+    // Read tickets
     const raw = fs.readFileSync(TICKETS_FILE, "utf-8");
-    const allTickets = JSON.parse(raw);
-    const ticketIndex = allTickets.findIndex((t) => t.id === id);
+    const allTickets = JSON.parse(raw || "[]");
+    const ticketIndex = allTickets.findIndex((t) => String(t.id) === String(id));
 
     if (ticketIndex === -1) {
       return res.status(404).json({ error: "Ticket not found" });
     }
 
     const oldTicket = allTickets[ticketIndex];
-    const newTicket = { ...oldTicket, ...updatedFields };
+
+    // Normalize reporter from body (if provided) else from existing
+    let nextAssignedReporter;
+    if (typeof updatedFields.assignedReporter !== "undefined") {
+      nextAssignedReporter = normReporterArray(updatedFields.assignedReporter);
+    } else {
+      nextAssignedReporter = Array.isArray(oldTicket.assignedReporter)
+        ? normReporterArray(oldTicket.assignedReporter)
+        : normReporterArray(oldTicket.assignedReporter || []);
+    }
+
+    // Build new ticket (preserve existing fields if not provided)
+    const newTicket = {
+      ...oldTicket,
+      ...updatedFields,
+      assignedReporter: nextAssignedReporter, // ← always array of clean names
+    };
+
+    // Ensure other array-ish fields are arrays
+    if (typeof newTicket.assignedCamOps !== "undefined") {
+      newTicket.assignedCamOps = Array.isArray(newTicket.assignedCamOps)
+        ? newTicket.assignedCamOps
+        : normArr(newTicket.assignedCamOps);
+    } else {
+      newTicket.assignedCamOps = Array.isArray(oldTicket.assignedCamOps)
+        ? oldTicket.assignedCamOps
+        : normArr(oldTicket.assignedCamOps);
+    }
+
+    // Write file
     allTickets[ticketIndex] = newTicket;
     fs.writeFileSync(TICKETS_FILE, JSON.stringify(allTickets, null, 2));
 
-    // Load all users for FCM targeting
-    const usersRaw = fs.readFileSync(USERS_FILE, "utf-8");
-    const allUsers = JSON.parse(usersRaw);
+    // ===== FCM NOTIFICATIONS (robust to arrays/strings) =====
+    try {
+      const usersRaw = fs.readFileSync(USERS_FILE, "utf-8");
+      const allUsers = JSON.parse(usersRaw || "[]");
 
-    const getUserByName = (name) =>
-      allUsers.find((u) => u.name.toLowerCase() === name.toLowerCase());
+      const getUserByName = (name) => {
+        if (!name) return undefined;
+        const n = String(name).trim().toLowerCase();
+        return allUsers.find((u) => String(u.name || "").trim().toLowerCase() === n);
+      };
 
-    const recipients = new Set();
+      // Normalize old/new reporters to arrays of names (clean)
+      const oldReporters = Array.isArray(oldTicket.assignedReporter)
+        ? normReporterArray(oldTicket.assignedReporter)
+        : normReporterArray(oldTicket.assignedReporter || []);
 
-    // 🔔 1. If cam ops changed
-    if (
-      JSON.stringify(oldTicket.assignedCamOps || []) !==
-      JSON.stringify(newTicket.assignedCamOps || [])
-    ) {
-      for (const name of newTicket.assignedCamOps || []) {
-        const u = getUserByName(name);
+      const newReporters = nextAssignedReporter;
+
+      const recipients = new Set();
+
+      // 🔔 1. CamOps changed?
+      const oldOps = Array.isArray(oldTicket.assignedCamOps) ? oldTicket.assignedCamOps : normArr(oldTicket.assignedCamOps);
+      const newOps = Array.isArray(newTicket.assignedCamOps) ? newTicket.assignedCamOps : normArr(newTicket.assignedCamOps);
+      if (!sameJSON(oldOps, newOps)) {
+        for (const name of newOps) {
+          const u = getUserByName(name);
+          if (u) recipients.add(u);
+        }
+      }
+
+      // 🔔 2. Driver changed?
+      if (String(oldTicket.assignedDriver || "") !== String(newTicket.assignedDriver || "")) {
+        const u = getUserByName(newTicket.assignedDriver);
         if (u) recipients.add(u);
       }
-    }
 
-    // 🔔 2. If driver assigned
-    if (oldTicket.assignedDriver !== newTicket.assignedDriver) {
-      const u = getUserByName(newTicket.assignedDriver);
-      if (u) recipients.add(u);
-    }
-
-    // 🔔 3. If reporter assigned
-    if (oldTicket.assignedReporter !== newTicket.assignedReporter) {
-      const u = getUserByName(newTicket.assignedReporter?.split(": ")[1]);
-      if (u) recipients.add(u);
-    }
-
-    // 🔔 4. Vehicle added
-    if (!oldTicket.vehicle && newTicket.vehicle) {
-      for (const name of [
-        ...newTicket.assignedCamOps || [],
-        newTicket.assignedDriver,
-        newTicket.assignedReporter?.split(": ")[1]
-      ]) {
-        const u = getUserByName(name);
-        if (u) recipients.add(u);
+      // 🔔 3. Reporter changed?
+      if (!sameJSON(oldReporters, newReporters)) {
+        for (const name of newReporters) {
+          const u = getUserByName(name);
+          if (u) recipients.add(u);
+        }
       }
-    }
 
-    // 🔔 5. Key fields changed (location, time, note, status back from Cancelled)
-    const importantFields = ["location", "filmingTime", "departureTime", "status", "notes"];
-    const fieldChanged = importantFields.some(
-      (f) => JSON.stringify(oldTicket[f]) !== JSON.stringify(newTicket[f])
-    );
-
-    if (fieldChanged) {
-      for (const name of [
-        ...newTicket.assignedCamOps || [],
-        newTicket.assignedDriver,
-        newTicket.assignedReporter?.split(": ")[1]
-      ]) {
-        const u = getUserByName(name);
-        if (u) recipients.add(u);
+      // 🔔 4. Vehicle newly added?
+      if (!oldTicket.vehicle && newTicket.vehicle) {
+        const everyone = [
+          ...(newOps || []),
+          ...(newReporters || []),
+          newTicket.assignedDriver,
+        ].filter(Boolean);
+        for (const name of everyone) {
+          const u = getUserByName(name);
+          if (u) recipients.add(u);
+        }
       }
+
+      // 🔔 5. Important fields changed? (cover both `assignmentStatus` and legacy `status`)
+      const importantFields = ["location", "filmingTime", "departureTime", "assignmentStatus", "status", "notes", "date"];
+      const importantChanged = importantFields.some(
+        (f) => JSON.stringify(oldTicket[f]) !== JSON.stringify(newTicket[f])
+      );
+
+      if (importantChanged) {
+        const everyone = [
+          ...(newOps || []),
+          ...(newReporters || []),
+          newTicket.assignedDriver,
+        ].filter(Boolean);
+        for (const name of everyone) {
+          const u = getUserByName(name);
+          if (u) recipients.add(u);
+        }
+      }
+
+      if (recipients.size > 0) {
+        const title = `Ticket Updated: ${newTicket.title}`;
+        const message = `One or more updates were made. Check filming, location, or assignment changes.`;
+        await sendPushToUsers([...recipients], title, message);
+      }
+    } catch (notifyErr) {
+      // Don't fail the request just because notifications errored
+      console.error("⚠️ Notification step failed (continuing):", notifyErr);
     }
 
-    // Send notification
-    if (recipients.size > 0) {
-      const title = `Ticket Updated: ${newTicket.title}`;
-      const message = `One or more updates were made. Check filming, location, or assignment changes.`;
-      await sendPushToUsers([...recipients], title, message);
-    }
-
+    // Success
     res.json({ success: true, ticket: newTicket });
   } catch (err) {
     console.error("Error updating ticket:", err);

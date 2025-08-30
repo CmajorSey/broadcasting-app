@@ -388,7 +388,18 @@ console.log("✅ Saving assigned cam ops:", editData.assignedCamOps);
       body: JSON.stringify(updatedTicket),
     });
 
-    if (!res.ok) throw new Error("Failed to update ticket");
+    if (!res.ok) {
+      // Server might have persisted then thrown; fall through to refetch check
+      throw new Error(`Failed to update ticket (HTTP ${res.status})`);
+    }
+
+    // Prefer whatever the server returns, but if it didn't send JSON just refetch
+    let updatedFromServer = null;
+    try {
+      updatedFromServer = await res.json();
+    } catch {
+      // ignore parse errors and refetch below
+    }
 
     const refreshed = await fetch(`${API_BASE}/tickets`);
     const data = await refreshed.json();
@@ -396,9 +407,34 @@ console.log("✅ Saving assigned cam ops:", editData.assignedCamOps);
     setEditingIndex(null);
   } catch (err) {
     console.error("Failed to save ticket edits:", err);
+    // Soft fallback: refetch to see if it actually persisted
+    try {
+      const refreshed = await fetch(`${API_BASE}/tickets`);
+      const data = await refreshed.json();
+      setTickets(data);
+
+      const after = data.find((t) => String(t.id) === String(updatedTicket.id)) || {};
+      const reportersOk = Array.isArray(after.assignedReporter)
+        ? JSON.stringify(after.assignedReporter) === JSON.stringify(updatedTicket.assignedReporter)
+        : String(after.assignedReporter || "") === String(updatedTicket.assignedReporter || "");
+
+      const otherCoreOk =
+        String(after.title) === String(updatedTicket.title) &&
+        String(after.location) === String(updatedTicket.location);
+
+      if (reportersOk || otherCoreOk) {
+        // Change did persist — don’t alarm the user
+        setEditingIndex(null);
+        return;
+      }
+    } catch (refetchErr) {
+      console.error("Refetch after failed save also errored:", refetchErr);
+    }
+
+    // Only warn if we verified it didn’t land
     alert("Failed to save changes. Please try again.");
-  }
-};
+  }}
+
 
 
 
