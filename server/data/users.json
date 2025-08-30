@@ -414,14 +414,14 @@
     "id": "1756442865489",
     "name": "John Doe",
     "roles": [
-      "driver"
+      "journalist"
     ],
     "description": "",
     "hiddenRoles": [],
     "password": "$2b$10$/smQcK97UYjeCcpsOjYAeuED4UEzLItS0M7l1QerRhRbtA7Hs4tti",
     "forcePasswordChange": false,
     "requiresPasswordReset": true,
-    "updatedAt": "2025-08-30T06:35:49.729Z",
+    "updatedAt": "2025-08-30T19:47:21.512Z",
     "annualLeave": 21,
     "lastLeaveUpdate": "2025-08-30T06:35:49.721Z"
   },

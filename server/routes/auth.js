@@ -9,21 +9,43 @@ import bcrypt from "bcryptjs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Data folder resolves relative to this routes folder: ../data/users.json
-const DATA_DIR = path.join(__dirname, "..", "data");
+// Data folder uses Render's persistent disk in production, local ../data in dev.
+const isProd = process.env.NODE_ENV === "production";
+const DATA_DIR = isProd ? "/data" : path.join(__dirname, "..", "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 
+// Ensure local data dir exists (Render /data already exists)
+try {
+  if (!isProd && !fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch (e) {
+  console.error("[auth] Failed to ensure DATA_DIR:", DATA_DIR, e);
+}
+
+// Safe JSON read/write with auto-init
 function readUsers() {
   try {
+    if (!fs.existsSync(USERS_FILE)) {
+      // Initialize an empty file if missing
+      fs.writeFileSync(USERS_FILE, "[]", "utf-8");
+      return [];
+    }
     const raw = fs.readFileSync(USERS_FILE, "utf-8");
     return JSON.parse(raw);
-  } catch {
+  } catch (e) {
+    console.warn("[auth] readUsers error:", e.message, "USERS_FILE=", USERS_FILE);
     return [];
   }
 }
 function writeUsers(users) {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf-8");
+  } catch (e) {
+    console.error("[auth] writeUsers error:", e.message, "USERS_FILE=", USERS_FILE);
+  }
 }
+
 function findUserByIdentifier(users, identifier) {
   const lower = String(identifier || "").trim().toLowerCase();
   return users.find((u) => {
