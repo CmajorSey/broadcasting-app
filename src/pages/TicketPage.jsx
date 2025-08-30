@@ -173,54 +173,90 @@ const handleStatusChange = async (ticketId, newStatus) => {
   const nameOf = (u) => String(u?.name || "").trim();
 
   // ✅ Driver options (flat, no dividers)
-  const driverOptions = (effectiveUsers || []).filter((u) => {
-    const rl = toLowerRoles(u);
-    return rl.includes("driver") || rl.includes("driver_limited");
-  });
+const driverOptions = (effectiveUsers || []).filter((u) => {
+  const rl = toLowerRoles(u);
+  return rl.includes("driver") || rl.includes("driver_limited");
+});
 
-  // ✅ Build groups for CamOps dropdown with divider lines:
-  //    Only include users who have the `camOp` role.
-  //    Then split into:
-  //      - pure CamOps (not producer/admin)
-  //      - CamOps who are also Producers
-  //      - CamOps who are also Admins (bottom)
-  const camOpsOnly = [];
-  const camOpsProducers = [];
-  const camOpsAdmins = [];
+// ✅ Build groups for CamOps dropdown with divider lines:
+//    Only include users who have the `camOp` role.
+//    Then split into:
+//      - pure CamOps (not producer/admin)
+//      - CamOps who are also Producers
+//      - CamOps who are also Admins (bottom)
+const camOpsOnly = [];
+const camOpsProducers = [];
+const camOpsAdmins = [];
 
-  (effectiveUsers || []).forEach((u) => {
-    const rl = toLowerRoles(u);
-    const nm = nameOf(u);
-    if (!nm) return;
+(effectiveUsers || []).forEach((u) => {
+  const rl = toLowerRoles(u);
+  const nm = nameOf(u);
+  if (!nm) return;
 
-    // Only eligible if they are CamOps
-    if (!rl.includes("camop")) return;
+  // Only eligible if they are CamOps
+  if (!rl.includes("camop")) return;
 
-    const isProducer = rl.includes("producer");
-    const isAdmin = rl.includes("admin");
+  const isProducer = rl.includes("producer");
+  const isAdmin = rl.includes("admin");
 
-    if (isAdmin) camOpsAdmins.push(nm);
-    else if (isProducer) camOpsProducers.push(nm);
-    else camOpsOnly.push(nm);
-  });
+  if (isAdmin) camOpsAdmins.push(nm);
+  else if (isProducer) camOpsProducers.push(nm);
+  else camOpsOnly.push(nm);
+});
 
-  camOpsOnly.sort();
-  camOpsProducers.sort();
-  camOpsAdmins.sort();
+camOpsOnly.sort();
+camOpsProducers.sort();
+camOpsAdmins.sort();
 
-  // ✅ Flatten into option objects and inject unselectable divider rows
-  const camOpOptionsWithDividers = [
-    ...camOpsOnly.map((name) => ({ label: name, value: name })),
-    { label: "––––––––", value: "__divider1", divider: true },
+// ✅ Flatten into option objects and inject unselectable divider rows
+const camOpOptionsWithDividers = [
+  ...camOpsOnly.map((name) => ({ label: name, value: name })),
+  { label: "––––––––", value: "__divider1", divider: true },
 
-    ...camOpsProducers.map((name) => ({ label: name, value: name })),
-    { label: "––––––––", value: "__divider2", divider: true },
+  ...camOpsProducers.map((name) => ({ label: name, value: name })),
+  { label: "––––––––", value: "__divider2", divider: true },
 
-    ...camOpsAdmins.map((name) => ({ label: name, value: name })),
-  ];
+  ...camOpsAdmins.map((name) => ({ label: name, value: name })),
+];
 
-  // Keep label as-is (no text tags). Dividers already have a line as the label.
-  const camOpOptionsDecorated = camOpOptionsWithDividers;
+// Keep label as-is (no text tags). Dividers already have a line as the label.
+const camOpOptionsDecorated = camOpOptionsWithDividers;
+
+/* ----------------- NEW: Reporter options (Journalists / Sports Journalists / Producers) ----------------- */
+
+// Group by roles: journalist, sports_journalist, producer
+const reportersJournalists = [];
+const reportersSports = [];
+const reportersProducers = [];
+
+(effectiveUsers || []).forEach((u) => {
+  const rl = toLowerRoles(u);
+  const nm = nameOf(u);
+  if (!nm) return;
+
+  if (rl.includes("journalist")) reportersJournalists.push(nm);
+  else if (rl.includes("sports_journalist")) reportersSports.push(nm);
+  else if (rl.includes("producer")) reportersProducers.push(nm);
+});
+
+reportersJournalists.sort();
+reportersSports.sort();
+reportersProducers.sort();
+
+// ✅ Flatten into options with divider lines
+const reporterOptionsWithDividers = [
+  ...reportersJournalists.map((name) => ({ label: name, value: name })),
+  { label: "––––––––", value: "__rep_div1", divider: true },
+
+  ...reportersSports.map((name) => ({ label: name, value: name })),
+  { label: "––––––––", value: "__rep_div2", divider: true },
+
+  ...reportersProducers.map((name) => ({ label: name, value: name })),
+];
+
+// Keep label as-is (no text tags). Dividers already have a line as the label.
+const reporterOptionsDecorated = reporterOptionsWithDividers;
+
 
  useEffect(() => {
   fetch(`${API_BASE}/tickets`)
@@ -251,11 +287,20 @@ const handleStatusChange = async (ticketId, newStatus) => {
     autoDriver = "Nelson Joseph";
   }
 
+  // Normalize reporter field to an array
+  let normalizedReporter = [];
+  if (Array.isArray(ticket.assignedReporter)) {
+    normalizedReporter = ticket.assignedReporter.filter(Boolean);
+  } else if (typeof ticket.assignedReporter === "string" && ticket.assignedReporter.trim()) {
+    normalizedReporter = [ticket.assignedReporter.trim()];
+  }
+
   setEditingIndex(index);
   setEditData({
     ...ticket,
     assignedDriver: autoDriver,
     assignedCamOps: ticket.assignedCamOps || [],
+    assignedReporter: normalizedReporter, // ✅ NEW
     vehicle: ticket.vehicle || "",
     priority: ticket.priority || "Normal",
     assignmentStatus: ticket.assignmentStatus || "Pending",
@@ -265,11 +310,24 @@ const handleStatusChange = async (ticketId, newStatus) => {
     title: ticket.title || "",
   });
 };
+
 console.log("✅ Saving assigned cam ops:", editData.assignedCamOps);
 
   const saveEditing = async (index) => {
   const updatedTickets = [...tickets];
   const original = updatedTickets[index];
+
+  // Normalize reporter to array (defensive)
+  let reporterArray = [];
+  if (Array.isArray(editData.assignedReporter)) {
+    reporterArray = editData.assignedReporter.filter(Boolean);
+  } else if (typeof editData.assignedReporter === "string" && editData.assignedReporter.trim()) {
+    reporterArray = [editData.assignedReporter.trim()];
+  } else if (Array.isArray(original.assignedReporter)) {
+    reporterArray = original.assignedReporter.filter(Boolean);
+  } else if (typeof original.assignedReporter === "string" && original.assignedReporter.trim()) {
+    reporterArray = [original.assignedReporter.trim()];
+  }
 
   const updatedTicket = {
     id: original.id,
@@ -280,6 +338,7 @@ console.log("✅ Saving assigned cam ops:", editData.assignedCamOps);
     departureTime: editData.departureTime || original.departureTime,
     assignedCamOps: editData.assignedCamOps || original.assignedCamOps || [],
     assignedDriver: editData.assignedDriver || original.assignedDriver || "",
+    assignedReporter: reporterArray, // ✅ NEW
     vehicle: editData.vehicle || original.vehicle || "",
     assignmentStatus: editData.assignmentStatus || original.assignmentStatus || "Unassigned",
     priority: editData.priority || original.priority || "Normal",
@@ -649,10 +708,26 @@ setSelectedTickets([]);
           </td>
           {/* Assigned Reporter */}
 <td className="p-2 text-center whitespace-nowrap">
-  {ticket.assignedReporter || "-"}
+  {editingIndex === index ? (
+    <MultiSelectCombobox
+      options={reporterOptionsDecorated}
+      selected={editData.assignedReporter || []}
+      onChange={(next) => {
+        // Normalize to values & ignore divider rows
+        const values = (next || [])
+          .map((v) => (typeof v === "string" ? v : v?.value))
+          .filter((val) => val && !String(val).startsWith("__rep_div"));
+        setEditData((prev) => ({ ...prev, assignedReporter: values }));
+      }}
+    />
+  ) : Array.isArray(ticket.assignedReporter) && ticket.assignedReporter.length > 0 ? (
+    ticket.assignedReporter.join(", ")
+  ) : typeof ticket.assignedReporter === "string" && ticket.assignedReporter.trim() ? (
+    ticket.assignedReporter
+  ) : (
+    "-"
+  )}
 </td>
-
-
           {/* Status */}
           <td className="p-2 text-center whitespace-nowrap">
             <Popover>
