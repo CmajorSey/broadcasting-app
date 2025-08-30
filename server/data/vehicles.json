@@ -1,15 +1,5 @@
 [
   {
-    "id": 101,
-    "name": "Nissan NV200",
-    "licensePlate": "S39223",
-    "status": "Available",
-    "notes": "Cleaned and fueled",
-    "insuranceExpiry": "2025-08-15",
-    "patentExpiry": "2025-08-16",
-    "permanent": true
-  },
-  {
     "id": 102,
     "name": "Kia Niro",
     "licensePlate": "S32533",
@@ -18,5 +8,17 @@
     "insuranceExpiry": "2025-10-15",
     "patentExpiry": "2026-01-01",
     "permanent": true
+  },
+  {
+    "name": "Brezza",
+    "status": "Available",
+    "insuranceExpiry": "",
+    "patentExpiry": "",
+    "licensePlate": "S",
+    "permanent": false,
+    "rentStartISO": "2025-08-29",
+    "rentEndISO": "2025-09-01",
+    "notes": "Ready for Use",
+    "id": 1756581424778
   }
 ]
