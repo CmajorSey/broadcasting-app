@@ -206,11 +206,11 @@ useEffect(() => {
   // 📦 Changelog Dialog logic
   const [showChangelog, setShowChangelog] = useState(() => {
     const lastSeen = localStorage.getItem("lastSeenChangelog");
-    return lastSeen !== "0.6.3";
+    return lastSeen !== "0.6.5";
   });
 
   const handleCloseChangelog = () => {
-    localStorage.setItem("lastSeenChangelog", "0.6.3");
+    localStorage.setItem("lastSeenChangelog", "0.6.5");
     setShowChangelog(false);
   };
 

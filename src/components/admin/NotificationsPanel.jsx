@@ -119,16 +119,43 @@ export default function NotificationsPanel({ loggedInUser }) {
     }
   };
 
-  const fetchSuggestions = async () => {
+     const fetchSuggestions = async () => {
     try {
       const res = await fetch(`${API_BASE}/suggestions`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const ct = (res.headers.get("content-type") || "").toLowerCase();
+      if (!ct.includes("application/json")) {
+        throw new Error("Non-JSON response from /suggestions");
+      }
       const data = await res.json();
-      setSuggestions(Array.isArray(data) ? data : []);
+      if (!Array.isArray(data)) {
+        console.error("Expected array from /suggestions, got:", data);
+        setSuggestions([]);
+        return;
+      }
+      const normalized = data.map((s, i) => {
+        const created = s.createdAt || s.timestamp || null;
+        const tsId = created ? `ts:${isoSec(created)}` : null;
+        return {
+          id: String(s.id ?? tsId ?? ""),
+          userId: s.userId ?? null,
+          userName: s.userName || s.name || "Unknown",
+          section: s.section || "General",
+          message: s.message || s.text || s.suggestion || "",
+          createdAt: created,
+          status: s.status || (s.archived === true ? "archived" : "new"),
+          response: s.response || "",
+          respondedAt: s.respondedAt || null,
+        };
+      });
+      setSuggestions(normalized);
     } catch (err) {
       console.error("Failed to load suggestions:", err);
       setSuggestions([]);
     }
   };
+
+
 
   // ------- compose/send -------
    const resolveRecipients = () => {
@@ -199,14 +226,17 @@ export default function NotificationsPanel({ loggedInUser }) {
 
   // ------- delete / clear -------
   const handleDelete = async (timestamp) => {
-    const ts = isoSec(timestamp);
+    const ts = isoSec(timestamp); // "YYYY-MM-DDTHH:MM:SS"
     if (!ts) {
       toast({ variant: "destructive", title: "Delete failed", description: "Invalid timestamp." });
       return;
     }
+    // Ensure we send UTC by appending Z (server will normalize)
+    const tsParam = `${ts}Z`;
+
     try {
       setDeletingTs(ts);
-      const res = await fetch(`${API_BASE}/notifications/${encodeURIComponent(ts)}`, {
+      const res = await fetch(`${API_BASE}/notifications/${encodeURIComponent(tsParam)}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Delete failed");
@@ -219,6 +249,7 @@ export default function NotificationsPanel({ loggedInUser }) {
       setDeletingTs(null);
     }
   };
+
 
   const handleClearAll = async () => {
     try {
@@ -415,65 +446,6 @@ export default function NotificationsPanel({ loggedInUser }) {
           </div>
 
           <hr className="my-6" />
-
-          {/* Suggestions section (kept) */}
-          <div className="mt-2">
-            <button
-              onClick={() => setShowSuggestions(!showSuggestions)}
-              className="text-sm font-semibold text-blue-600 hover:underline"
-            >
-              {showSuggestions ? "▼ Hide User Suggestions" : "► Show User Suggestions"}
-            </button>
-
-            {showSuggestions && (
-              <div className="mt-4 border rounded p-4 bg-muted/30 max-h-[400px] overflow-y-auto space-y-4">
-                {suggestions.filter((s) => !s.archived).length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No unarchived suggestions.</p>
-                ) : (
-                  suggestions
-                    .filter((s) => !s.archived)
-                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-                    .map((s, i) => (
-                      <div key={i} className="border-b pb-2 mb-2">
-                        <div className="flex items-center justify-between">
-                          <div className="font-medium">{s.name}</div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-xs"
-                            onClick={async () => {
-                              try {
-                                const res = await fetch(
-                                  `${API_BASE}/suggestions/${encodeURIComponent(s.timestamp)}`,
-                                  { method: "PATCH" }
-                                );
-                                if (!res.ok) throw new Error("Failed to archive");
-                                const updated = suggestions.map((item) =>
-                                  item.timestamp === s.timestamp
-                                    ? { ...item, archived: true }
-                                    : item
-                                );
-                                setSuggestions(updated);
-                                toast({ title: "Suggestion archived" });
-                              } catch (err) {
-                                console.error("Archive error:", err);
-                                toast({ title: "Error", description: "Failed to archive" });
-                              }
-                            }}
-                          >
-                            Archive
-                          </Button>
-                        </div>
-                        <div className="text-sm">{s.message}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {new Date(s.timestamp).toLocaleString()}
-                        </div>
-                      </div>
-                    ))
-                )}
-              </div>
-            )}
-          </div>
         </div>
       </TabsContent>
 
@@ -541,6 +513,24 @@ export default function NotificationsPanel({ loggedInUser }) {
             </tbody>
           </table>
         </div>
+
+              {/* 🔽 Collapsible: User Suggestions (beneath history) */}
+        <div className="mt-6" id="suggestions">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-lg font-semibold">
+              💡 User Suggestions {Array.isArray(suggestions) ? `(${suggestions.length})` : ""}
+            </h3>
+            <Button variant="ghost" size="sm" onClick={fetchSuggestions} title="Refresh suggestions">
+              Refresh
+            </Button>
+          </div>
+          <UserSuggestionsSection
+            suggestions={suggestions}
+            setSuggestions={setSuggestions}
+            fetchSuggestions={fetchSuggestions}
+          />
+        </div>
+
       </TabsContent>
 
       {/* GROUPS */}
@@ -548,5 +538,237 @@ export default function NotificationsPanel({ loggedInUser }) {
         <GroupsManager />
       </TabsContent>
     </Tabs>
+  );
+}
+
+/* -----------------------------
+   User Suggestions Section
+   - Renders under History tab
+   - Matches backend schema:
+     { id, userId, userName, section, message, createdAt, status, response }
+------------------------------*/
+function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions }) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(true);
+  const [statusFilter, setStatusFilter] = useState("all"); // all | new | reviewed | responded | archived
+  const [drafts, setDrafts] = useState({}); // id -> response text
+  const [actingId, setActingId] = useState(null);
+
+  const filtered = useMemo(() => {
+    const list = Array.isArray(suggestions) ? suggestions.slice() : [];
+    const norm = (s) => String(s || "").toLowerCase();
+    const want = norm(statusFilter);
+    const out =
+      want === "all" ? list : list.filter((s) => norm(s.status) === want);
+    // newest first
+    out.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    return out;
+  }, [suggestions, statusFilter]);
+
+  const patchSuggestion = async (id, body) => {
+    setActingId(String(id));
+    try {
+      const res = await fetch(`${API_BASE}/suggestions/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body || {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Update failed");
+
+      // Optimistic merge update
+      setSuggestions((prev) =>
+        (prev || []).map((s) =>
+          String(s.id) === String(id) ? { ...s, ...data?.suggestion, ...body } : s
+        )
+      );
+      return true;
+    } catch (err) {
+      console.error("Suggestion patch error:", err);
+      toast({ variant: "destructive", title: "Failed to update suggestion" });
+      return false;
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const deleteSuggestion = async (id) => {
+    if (!window.confirm("Delete this suggestion? This cannot be undone.")) return;
+    setActingId(String(id));
+    try {
+      const res = await fetch(`${API_BASE}/suggestions/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Delete failed");
+      setSuggestions((prev) => (prev || []).filter((s) => String(s.id) !== String(id)));
+      toast({ title: "Suggestion deleted" });
+    } catch (err) {
+      console.error("Suggestion delete error:", err);
+      toast({ variant: "destructive", title: "Failed to delete suggestion" });
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const sendResponse = async (id) => {
+    const text = drafts[id] ?? "";
+    if (!String(text).trim()) {
+      toast({ variant: "destructive", title: "Response required" });
+      return;
+    }
+    const ok = await patchSuggestion(id, { response: String(text).trim() });
+    if (ok) {
+      toast({ title: "Response saved" });
+      // backend auto-sets status=responded if not provided
+      setDrafts((d) => ({ ...d, [id]: "" }));
+      fetchSuggestions(); // ensure we have respondedAt, etc.
+    }
+  };
+
+  const markStatus = async (id, status) => {
+    const ok = await patchSuggestion(id, { status });
+    if (ok) {
+      toast({ title: `Marked as ${status}` });
+      fetchSuggestions();
+    }
+  };
+
+  return (
+    <div className="border rounded p-4 bg-muted/30">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="text-sm font-semibold text-blue-600 hover:underline"
+      >
+        {open ? "▼ Hide User Suggestions" : "► Show User Suggestions"}
+      </button>
+
+      {open && (
+        <div className="mt-4">
+          {/* Filters */}
+          <div className="flex flex-wrap gap-2 mb-3">
+            {["all", "new", "reviewed", "responded", "archived"].map((s) => (
+              <Button
+                key={s}
+                variant={statusFilter === s ? "default" : "secondary"}
+                size="sm"
+                onClick={() => setStatusFilter(s)}
+              >
+                {s[0].toUpperCase() + s.slice(1)}
+              </Button>
+            ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => fetchSuggestions()}
+              title="Refresh suggestions"
+            >
+              Refresh
+            </Button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm border">
+              <thead className="bg-muted">
+                <tr className="border-b">
+                  <th className="text-left py-2 px-2">Date</th>
+                  <th className="text-left py-2 px-2">User</th>
+                  <th className="text-left py-2 px-2">Section</th>
+                  <th className="text-left py-2 px-2">Message</th>
+                  <th className="text-left py-2 px-2">Status</th>
+                  <th className="text-left py-2 px-2">Response</th>
+                  <th className="text-left py-2 px-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((s) => {
+                  const id = String(s.id);
+                  const draft = drafts[id] ?? s.response ?? "";
+                  return (
+                    <tr key={id} className="border-b align-top">
+                      <td className="py-2 px-2 whitespace-nowrap">
+                        {s.createdAt ? new Date(s.createdAt).toLocaleString() : "—"}
+                      </td>
+                      <td className="py-2 px-2 whitespace-nowrap">{s.userName || "Unknown"}</td>
+                      <td className="py-2 px-2 whitespace-nowrap">{s.section || "General"}</td>
+                      <td className="py-2 px-2 max-w-sm break-words">{s.message}</td>
+                      <td className="py-2 px-2">
+                        <Badge>
+                          {(s.status || "new").replace(/^\w/, (c) => c.toUpperCase())}
+                        </Badge>
+                      </td>
+                      <td className="py-2 px-2 w-[280px]">
+                        <Textarea
+                          className="min-h-[68px]"
+                          value={draft}
+                          onChange={(e) =>
+                            setDrafts((d) => ({ ...d, [id]: e.target.value }))
+                          }
+                          placeholder="Write a response…"
+                        />
+                        <div className="mt-2 flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => sendResponse(id)}
+                            disabled={actingId === id}
+                          >
+                            {actingId === id ? "Saving…" : s.response ? "Update Response" : "Send Response"}
+                          </Button>
+                          {s.respondedAt && (
+                            <span className="text-xs text-muted-foreground self-center">
+                              Responded {new Date(s.respondedAt).toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2 px-2">
+                        <div className="flex flex-col gap-2 w-[160px]">
+                          {s.status !== "reviewed" && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => markStatus(id, "reviewed")}
+                              disabled={actingId === id}
+                            >
+                              Mark Reviewed
+                            </Button>
+                          )}
+                          {s.status !== "archived" && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => markStatus(id, "archived")}
+                              disabled={actingId === id}
+                            >
+                              Archive
+                            </Button>
+                          )}
+                            <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => id ? deleteSuggestion(id) : null}
+                            disabled={!id || actingId === id}
+                            title={!id ? "No identifier available for deletion" : "Delete this suggestion"}
+                          >
+                            Delete
+                          </Button>
+
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-4 text-center text-muted-foreground">
+                      No suggestions in this view.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

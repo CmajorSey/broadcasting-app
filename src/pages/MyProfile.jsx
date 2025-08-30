@@ -124,8 +124,9 @@ export default function MyProfile() {
       .catch((err) => console.error("Failed to fetch user balances", err));
   }, [user?.id, user?.name]);
 
-  const handleDismiss = async (timestamp) => {
-    const baseTimestamp = new Date(timestamp).toISOString().split(".")[0];
+   const handleDismiss = async (timestamp) => {
+    const baseTimestamp = new Date(timestamp).toISOString().split(".")[0]; // seconds
+    const utcParam = `${baseTimestamp}Z`; // ensure UTC
 
     // Optimistic UI update
     const existing = JSON.parse(localStorage.getItem("dismissedNotifications") || "[]");
@@ -144,7 +145,7 @@ export default function MyProfile() {
 
     // Attempt backend delete (best effort)
     try {
-      const res = await fetch(`${API_BASE}/notifications/${encodeURIComponent(baseTimestamp)}`, {
+      const res = await fetch(`${API_BASE}/notifications/${encodeURIComponent(utcParam)}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to delete notification");
@@ -153,13 +154,15 @@ export default function MyProfile() {
     }
   };
 
-  const handleSuggestionSubmit = async () => {
+
+    const handleSuggestionSubmit = async () => {
     if (!suggestion.trim()) return;
 
     const payload = {
-      name: user?.name || "Anonymous",
+      userId: user?.id ? String(user.id) : null,
+      userName: user?.name || "Anonymous",
+      section: getSection(),
       message: suggestion.trim(),
-      timestamp: new Date().toISOString(),
     };
 
     try {
@@ -168,7 +171,10 @@ export default function MyProfile() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error("Failed to submit suggestion");
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || "Failed to submit suggestion");
+      }
 
       setSuggestion("");
       toast({ title: "✅ Suggestion sent!" });
@@ -177,6 +183,7 @@ export default function MyProfile() {
       toast({ title: "Error", description: "Failed to submit suggestion" });
     }
   };
+
 
   const getSection = () => {
     if (!user) return "N/A";

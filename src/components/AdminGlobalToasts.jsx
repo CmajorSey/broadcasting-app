@@ -1,11 +1,11 @@
 // src/components/AdminGlobalToasts.jsx
-// v0.6.3 — Global admin toasts: debounced, deduped, password-reset only, reliable redirect
-import { useEffect, useRef } from "react";
+// v0.6.4 — Singleton poller (30s), tab-aware pause, password-reset only, broadcasts updates
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import API_BASE from "@/api";
 import { useToast } from "@/hooks/use-toast";
 
-// Normalize to second precision (matches backend compare)
+// Normalize to second precision (to match backend compares, and to keep keys small)
 const isoSec = (d) => {
   try {
     return new Date(d).toISOString().split(".")[0];
@@ -16,126 +16,120 @@ const isoSec = (d) => {
 
 const STORAGE_LAST_SEEN = "adminGlobalToasts.lastSeenISO";
 const STORAGE_SEEN_SET = "adminGlobalToasts.seenTimestamps"; // JSON array of isoSec strings
+const STORAGE_LAST_COUNT = "notificationsLastCount"; // broadcast to passive listeners
 
 export default function AdminGlobalToasts({ loggedInUser }) {
   const { toast } = useToast();
   const navigate = useNavigate();
-
   const isAdmin =
     Array.isArray(loggedInUser?.roles) && loggedInUser.roles.includes("admin");
-
-  // lastSeen watermark (isoSec string)
-  const lastSeenRef = useRef(
-    isoSec(localStorage.getItem(STORAGE_LAST_SEEN) || new Date(Date.now() - 5000))
-  );
-
-  // seen cache to prevent repeats; initialize once from localStorage (NO function call on the ref!)
-  const seenRef = useRef(new Set());
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_SEEN_SET);
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr)) {
-        seenRef.current = new Set(arr);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  const tickingRef = useRef(false);
-
-  const markSeenAndAdvance = (items) => {
-    if (!items?.length) return;
-
-    // update seen set
-    const copy = new Set(seenRef.current);
-    for (const n of items) {
-      const t = isoSec(n?.timestamp);
-      if (t) copy.add(t);
-    }
-    // cap the set to last 200
-    const arr = Array.from(copy).sort().slice(-200);
-    seenRef.current = new Set(arr);
-    localStorage.setItem(STORAGE_SEEN_SET, JSON.stringify(arr));
-
-    // advance lastSeen to newest timestamp across ALL fetched items
-    const newest = items
-      .map((n) => isoSec(n?.timestamp))
-      .filter(Boolean)
-      .sort()
-      .pop();
-    if (newest) {
-      lastSeenRef.current = newest;
-      localStorage.setItem(STORAGE_LAST_SEEN, newest);
-    }
-  };
-
-  const goToUserManagement = (n) => {
-    const userId = n?.action?.userId;
-    const userName = n?.action?.userName;
-
-    if (userId) {
-      navigate(
-        `/admin?tab=user-management&highlight=${encodeURIComponent(String(userId))}`
-      );
-    } else if (userName) {
-      navigate(
-        `/admin?tab=user-management&highlightName=${encodeURIComponent(String(userName))}`
-      );
-    } else if (n?.action?.url) {
-      navigate(n.action.url);
-    } else {
-      navigate(`/admin?tab=user-management`);
-    }
-  };
 
   useEffect(() => {
     if (!isAdmin) return;
 
-    // poll every 30s to reduce noise
-    const interval = setInterval(async () => {
-      if (tickingRef.current) return;
-      tickingRef.current = true;
+    // 🚦 Singleton guard to prevent multiple intervals across the app
+    if (window.__loBoardNotificationsPoller) return;
+
+    const controller = new AbortController();
+
+    // Initialize lastSeen watermark
+    const lastSeenRef = {
+      value:
+        isoSec(localStorage.getItem(STORAGE_LAST_SEEN)) ||
+        isoSec(new Date(0)),
+    };
+
+    // Initialize seen set from storage
+    const seenSet = new Set();
+    try {
+      const raw = localStorage.getItem(STORAGE_SEEN_SET);
+      const arr = JSON.parse(raw || "[]");
+      if (Array.isArray(arr)) arr.forEach((t) => seenSet.add(String(t)));
+    } catch {
+      // ignore
+    }
+
+    const persistSeen = () => {
+      const arr = Array.from(seenSet).sort().slice(-200);
+      localStorage.setItem(STORAGE_SEEN_SET, JSON.stringify(arr));
+    };
+
+    const advanceWatermark = (items) => {
+      const newest = items
+        .map((n) => isoSec(n?.timestamp || n?.createdAt || n?.date))
+        .filter(Boolean)
+        .sort()
+        .pop();
+      if (newest) {
+        lastSeenRef.value = newest;
+        localStorage.setItem(STORAGE_LAST_SEEN, newest);
+      }
+    };
+
+    const goToUserManagement = (n) => {
+      const userId = n?.action?.userId;
+      const userName = n?.action?.userName;
+      if (userId) {
+        navigate(
+          `/admin?tab=user-management&highlight=${encodeURIComponent(String(userId))}`
+        );
+      } else if (userName) {
+        navigate(
+          `/admin?tab=user-management&highlightName=${encodeURIComponent(String(userName))}`
+        );
+      } else if (n?.action?.url) {
+        navigate(n.action.url);
+      } else {
+        navigate(`/admin?tab=user-management`);
+      }
+    };
+
+    async function poll() {
+      // 💤 Skip when tab is hidden to reduce network/battery
+      if (document.hidden) return;
 
       try {
-        const afterISO =
-          lastSeenRef.current || isoSec(new Date(Date.now() - 5000));
+        const afterISO = lastSeenRef.value || isoSec(new Date(0));
         const res = await fetch(
-          `${API_BASE}/notifications?after=${encodeURIComponent(afterISO)}`
+          `${API_BASE}/notifications?after=${encodeURIComponent(afterISO)}`,
+          { signal: controller.signal }
         );
+        if (!res.ok) return;
+
         const data = await res.json().catch(() => []);
         const items = Array.isArray(data) ? data : [];
-
         if (items.length === 0) return;
 
-        // Always advance watermark & mark seen for everything we fetched
-        markSeenAndAdvance(items);
+        // Mark everything we fetched as "seen-able" and advance the watermark
+        for (const n of items) {
+          const t = isoSec(n?.timestamp || n?.createdAt || n?.date);
+          if (t) seenSet.add(t);
+        }
+        persistSeen();
+        advanceWatermark(items);
 
-        // Only surface password reset requests to avoid spam
+        // 🔎 Only surface admin-relevant password reset requests
         const adminItems = items.filter((n) => {
-          const list = (n?.recipients || []).map((x) =>
-            String(x).toLowerCase()
-          );
-          const relevantToAdmin =
-            list.includes("admin") ||
-            list.includes("admins") ||
-            list.includes(String(loggedInUser?.id || "").toLowerCase()) ||
-            list.includes(String(loggedInUser?.name || "").toLowerCase());
-          return relevantToAdmin && n?.kind === "password_reset_request";
+          const recips = Array.isArray(n?.recipients)
+            ? n.recipients.map((x) => String(x).toLowerCase())
+            : [];
+          const relevant =
+            recips.includes("admin") ||
+            recips.includes("admins") ||
+            recips.includes(String(loggedInUser?.id || "").toLowerCase()) ||
+            recips.includes(String(loggedInUser?.name || "").toLowerCase());
+          return relevant && n?.kind === "password_reset_request";
         });
 
-        // Deduplicate using seen set at isoSec level; only toast unseen
+        // 🚫 Deduplicate by timestamp at second resolution
         const unseen = adminItems.filter((n) => {
-          const t = isoSec(n?.timestamp);
-          return t && !seenRef.current.has(t);
+          const t = isoSec(n?.timestamp || n?.createdAt || n?.date);
+          return t && !seenSet.has(t);
         });
 
         for (const n of unseen) {
           const title = n?.title || "🔑 Password Reset Request";
           const message = n?.message || "A user requested a password reset.";
-
-          // Plain toast + native confirm for redirect
           toast({ title, description: message, duration: 6000 });
 
           const who = n?.action?.userName || "this user";
@@ -144,24 +138,41 @@ export default function AdminGlobalToasts({ loggedInUser }) {
           );
           if (ok) goToUserManagement(n);
 
-          // mark individual as seen so it never replays
-          const t = isoSec(n?.timestamp);
+          // mark as seen so it never replays
+          const t = isoSec(n?.timestamp || n?.createdAt || n?.date);
           if (t) {
-            const next = new Set(seenRef.current);
-            next.add(t);
-            const arr = Array.from(next).sort().slice(-200);
-            seenRef.current = new Set(arr);
-            localStorage.setItem(STORAGE_SEEN_SET, JSON.stringify(arr));
+            seenSet.add(t);
+            persistSeen();
           }
         }
-      } catch {
-        // silent
-      } finally {
-        tickingRef.current = false;
-      }
-    }, 30000);
 
-    return () => clearInterval(interval);
+        // 📣 Broadcast to passive listeners (Navbar/MyProfile etc.)
+        localStorage.setItem(STORAGE_LAST_COUNT, String(items.length));
+        window.dispatchEvent(
+          new CustomEvent("notifications:new", { detail: items })
+        );
+      } catch (e) {
+        if (e?.name !== "AbortError") {
+          console.warn("[AdminGlobalToasts] poll error:", e);
+        }
+      }
+    }
+
+    // Kick off now, then every 30s
+    poll();
+    const id = setInterval(poll, 30000);
+
+    // Expose singleton so other mounts don't double-poll
+    window.__loBoardNotificationsPoller = { id, controller };
+
+    // Cleanup only if this instance created the singleton
+    return () => {
+      if (window.__loBoardNotificationsPoller?.id === id) {
+        clearInterval(id);
+        controller.abort();
+        window.__loBoardNotificationsPoller = null;
+      }
+    };
   }, [isAdmin, loggedInUser?.id, loggedInUser?.name, navigate, toast]);
 
   return null;
