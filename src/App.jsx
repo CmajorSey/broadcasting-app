@@ -108,48 +108,47 @@ function App() {
     localStorage.setItem("deletedTickets", JSON.stringify(deletedTickets));
   }, [deletedTickets]);
 
- const requestedPushOnceRef = useRef(false);
+  const requestedPushOnceRef = useRef(false);
 
-useEffect(() => {
-  if (requestedPushOnceRef.current) return; // avoid React 18 dev-mode double-call
-  requestedPushOnceRef.current = true;
+  useEffect(() => {
+    if (requestedPushOnceRef.current) return; // avoid React 18 dev-mode double-call
+    requestedPushOnceRef.current = true;
 
-  (async () => {
-    try {
-      const token = await requestPermission();
-      if (token) {
-        console.log("🎯 FCM Token:", token);
-        // TODO: optionally POST token to backend to associate with loggedInUser
-      } else {
-        // Silent: user denied or unsupported; no warning spam
+    (async () => {
+      try {
+        const token = await requestPermission();
+        if (token) {
+          console.log("🎯 FCM Token:", token);
+          // TODO: optionally POST token to backend to associate with loggedInUser
+        } else {
+          // Silent: user denied or unsupported; no warning spam
+        }
+      } catch (err) {
+        console.error("Failed to initialize notifications:", err);
       }
-    } catch (err) {
-      console.error("Failed to initialize notifications:", err);
-    }
-  })();
-}, []);
+    })();
+  }, []);
 
+  useEffect(() => {
+    const unsubscribe = onMessage((payload) => {
+      console.log("Foreground notification received:", payload);
 
-useEffect(() => {
-  const unsubscribe = onMessage((payload) => {
-    console.log("Foreground notification received:", payload);
+      const { title, body } = payload?.notification || {};
 
-    const { title, body } = payload?.notification || {};
+      if (title && body) {
+        toast({
+          title,
+          description: body,
+        });
+      }
+    });
 
-    if (title && body) {
-      toast({
-        title,
-        description: body,
-      });
-    }
-  });
+    return () => {
+      if (typeof unsubscribe === "function") unsubscribe();
+    };
+  }, []);
 
-  return () => {
-    if (typeof unsubscribe === "function") unsubscribe();
-  };
-}, []);
-
-    // Migrate users with legacy 'role' field
+  // Migrate users with legacy 'role' field
   useEffect(() => {
     const migrated = users.map((user) => {
       if (!user.roles && user.role) {
@@ -164,44 +163,77 @@ useEffect(() => {
   }, []);
   const firedTestPushOnceRef = useRef(false);
 
-useEffect(() => {
-  if (firedTestPushOnceRef.current) return; // avoid double-fire in dev
-  firedTestPushOnceRef.current = true;
+  useEffect(() => {
+    if (firedTestPushOnceRef.current) return; // avoid double-fire in dev
+    firedTestPushOnceRef.current = true;
 
-  const testPush = async () => {
-    // ⚠️ Keep your test token here OR wire in the freshly obtained token.
-    const token = "cZuEcPz4jfZHlZlJOuFhwm:APA91bGTDvUBe1VVEhu8ZlUWdFkTWHYFBzwa2G8bFWhwSDtrrz0INZSSVkUYrcfSXZps3MamCkp9ihXaiuBUXmu6Bx1VlCmqz2FnhWqpcATBbotYW1SNnA4";
+    const testPush = async () => {
+      // ⚠️ Keep your test token here OR wire in the freshly obtained token.
+      const token = "cZuEcPz4jfZHlZlJOuFhwm:APA91bGTDvUBe1VVEhu8ZlUWdFkTWHYFBzwa2G8bFWhwSDtrrz0INZSSVkUYrcfSXZps3MamCkp9ihXaiuBUXmu6Bx1VlCmqz2FnhWqpcATBbotYW1SNnA4";
 
-    try {
-      const response = await fetch(`${API_BASE}/send-push`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token,
-          title: "🎬 New Ticket Assigned",
-          body: "You’ve been assigned to a ticket at Anse Royale!",
-          data: { source: "app-test", ts: String(Date.now()) },
-        }),
-      });
+      try {
+        const response = await fetch(`${API_BASE}/send-push`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token,
+            title: "🎬 New Ticket Assigned",
+            body: "You’ve been assigned to a ticket at Anse Royale!",
+            data: { source: "app-test", ts: String(Date.now()) },
+          }),
+        });
 
-      const result = await response.json().catch(() => ({}));
+        const result = await response.json().catch(() => ({}));
 
-      if (response.status === 207) {
-        console.warn("Push partial success:", result);
-      } else if (!response.ok) {
-        console.error("Push failed:", result);
-      } else {
-        console.log("Push OK:", result);
+        if (response.status === 207) {
+          console.warn("Push partial success:", result);
+        } else if (!response.ok) {
+          console.error("Push failed:", result);
+        } else {
+          console.log("Push OK:", result);
+        }
+      } catch (err) {
+        console.error("Push request error:", err);
       }
-    } catch (err) {
-      console.error("Push request error:", err);
+    };
+
+    testPush();
+  }, []);
+
+  // ✅ NEW: Heartbeat that stamps "lastOnline" for the logged-in user
+  const onlineHeartbeatRef = useRef(null);
+  useEffect(() => {
+    // Clear any existing timer first
+    if (onlineHeartbeatRef.current) {
+      clearInterval(onlineHeartbeatRef.current);
+      onlineHeartbeatRef.current = null;
     }
-  };
 
-  testPush();
-}, []);
+    if (!loggedInUser?.id) return;
 
+    const ping = async () => {
+      try {
+        await fetch(`${API_BASE}/users/${loggedInUser.id}/last-online`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lastOnline: new Date().toISOString() }),
+        });
+      } catch {
+        // Silent: network hiccups shouldn't spam console
+      }
+    };
 
+    // Stamp immediately, then every 5 minutes
+    ping();
+    onlineHeartbeatRef.current = setInterval(ping, 5 * 60 * 1000);
+
+    return () => {
+      if (onlineHeartbeatRef.current) {
+        clearInterval(onlineHeartbeatRef.current);
+        onlineHeartbeatRef.current = null;
+      }
+    };
+  }, [loggedInUser?.id]);
 
   // 📦 Changelog Dialog logic
   const [showChangelog, setShowChangelog] = useState(() => {
@@ -214,139 +246,139 @@ useEffect(() => {
     setShowChangelog(false);
   };
 
-
   return (
-  <>
-    {!hideLayout && (
-      <Navbar
-        loggedInUser={loggedInUser}
-        setLoggedInUser={setLoggedInUser}
-        users={users}
-      />
-    )}
+    <>
+      {!hideLayout && (
+        <Navbar
+          loggedInUser={loggedInUser}
+          setLoggedInUser={setLoggedInUser}
+          users={users}
+        />
+      )}
 
-       <div className="p-4 min-h-[80vh]">
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <HomeCarousel
-              tickets={tickets}
-              users={users}
-              vehicles={vehicles}
-              loggedInUser={loggedInUser}
-              setTickets={setTickets}
-            />
-          }
-        />
-        <Route
-          path="/operations"
-          element={
-            <OperationsPage
-              users={users}
-              setUsers={setUsers}
-              tickets={tickets}
-              loggedInUser={loggedInUser}
-            />
-          }
-        />
-        <Route
-          path="/profile"
-          element={<MyProfile loggedInUser={loggedInUser} />}
-        />
-        <Route
-          path="/fleet"
-          element={
-            <FleetPage
-              vehicles={vehicles}
-              setVehicles={setVehicles}
-              loggedInUser={loggedInUser}
-              tickets={tickets}
-            />
-          }
-        />
-        <Route
-          path="/admin"
-          element={
-            loggedInUser?.roles?.includes("admin") ? (
-              <AdminPage
-                users={users}
-                setUsers={setUsers}
-                loggedInUser={loggedInUser}
-              />
-            ) : (
+      <div className="p-4 min-h-[80vh]">
+        <Routes>
+          <Route
+            path="/"
+            element={
               <HomeCarousel
                 tickets={tickets}
                 users={users}
+                vehicles={vehicles}
                 loggedInUser={loggedInUser}
                 setTickets={setTickets}
               />
-            )
-          }
-        />
-        <Route
-          path="/login"
-          element={<LoginPage users={users} setLoggedInUser={setLoggedInUser} />}
-        />
+            }
+          />
+          <Route
+            path="/operations"
+            element={
+              <OperationsPage
+                users={users}
+                setUsers={setUsers}
+                tickets={tickets}
+                loggedInUser={loggedInUser}
+              />
+            }
+          />
+          <Route
+            path="/profile"
+            element={<MyProfile loggedInUser={loggedInUser} />}
+          />
+          <Route
+            path="/fleet"
+            element={
+              <FleetPage
+                vehicles={vehicles}
+                setVehicles={setVehicles}
+                loggedInUser={loggedInUser}
+                tickets={tickets}
+              />
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              loggedInUser?.roles?.includes("admin") ? (
+                <AdminPage
+                  users={users}
+                  setUsers={setUsers}
+                  loggedInUser={loggedInUser}
+                />
+              ) : (
+                <HomeCarousel
+                  tickets={tickets}
+                  users={users}
+                  loggedInUser={loggedInUser}
+                  setTickets={setTickets}
+                />
+              )
+            }
+          />
+          <Route
+            path="/login"
+            element={<LoginPage users={users} setLoggedInUser={setLoggedInUser} />}
+          />
 
-        {/* ✅ New: password reset flow */}
-        <Route path="/forgot" element={<ForgotPassword />} />
-        <Route path="/reset" element={<ResetPassword />} />
+          {/* ✅ New: password reset flow */}
+          <Route path="/forgot" element={<ForgotPassword />} />
+          <Route path="/reset" element={<ResetPassword />} />
 
-        <Route path="/set-password" element={<SetPasswordPage />} />
-        <Route
-          path="/tickets"
-          element={
-            <TicketPage
-              tickets={tickets}
-              setTickets={setTickets}
-              archivedTickets={archivedTickets}
-              setArchivedTickets={setArchivedTickets}
-              deletedTickets={deletedTickets}
-              setDeletedTickets={setDeletedTickets}
-              users={users}
-              vehicles={vehicles}
-              loggedInUser={loggedInUser}
-            />
-          }
-        />
-        <Route
-          path="/create"
-          element={
-            <TicketForm
-              users={users}
-              tickets={tickets}
-              setTickets={setTickets}
-              loggedInUser={loggedInUser}
-              vehicles={vehicles}
-            />
-          }
-        />
-        <Route
-          path="*"
-          element={
-            <HomeCarousel
-              tickets={tickets}
-              users={users}
-              vehicles={vehicles}
-              loggedInUser={loggedInUser}
-              setTickets={setTickets}
-            />
-          }
-        />
-      </Routes>
-    </div>
+          <Route path="/set-password" element={<SetPasswordPage />} />
+          <Route
+            path="/tickets"
+            element={
+              <TicketPage
+                tickets={tickets}
+                setTickets={setTickets}
+                archivedTickets={archivedTickets}
+                setArchivedTickets={setArchivedTickets}
+                deletedTickets={deletedTickets}
+                setDeletedTickets={setDeletedTickets}
+                users={users}
+                vehicles={vehicles}
+                loggedInUser={loggedInUser}
+              />
+            }
+          />
+          <Route
+            path="/create"
+            element={
+              <TicketForm
+                users={users}
+                tickets={tickets}
+                setTickets={setTickets}
+                loggedInUser={loggedInUser}
+                vehicles={vehicles}
+              />
+            }
+          />
+          <Route
+            path="*"
+            element={
+              <HomeCarousel
+                tickets={tickets}
+                users={users}
+                vehicles={vehicles}
+                loggedInUser={loggedInUser}
+                setTickets={setTickets}
+              />
+            }
+          />
+        </Routes>
+      </div>
 
-       {!hideLayout && <Footer />}
+      {!hideLayout && <Footer />}
       {showChangelog && <ChangelogDialog open={true} onClose={handleCloseChangelog} />}
 
-    {/* 🔔 Global admin toasts appear across the entire app */}
-    <AdminGlobalToasts loggedInUser={loggedInUser} />
+      {/* 🔔 Global admin toasts appear across the entire app */}
+      <AdminGlobalToasts loggedInUser={loggedInUser} />
 
-    <Toaster toastOptions={{ position: "top-center" }} />
-  </>
-);
+      <Toaster toastOptions={{ position: "top-center" }} />
+    </>
+  );
 }
+
 
 
 export default AppWrapper;

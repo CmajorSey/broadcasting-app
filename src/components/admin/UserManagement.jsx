@@ -316,9 +316,10 @@ export default function UserManagement({
       <div className="space-y-4">
       
 {users.map((user) => {
-  // Small, safe formatter: "YYYY-MM-DD HH:MM" or "Never"
-  const prettyLastLogin = (() => {
-    const v = user?.lastLogin;
+  // Safe formatter: "YYYY-MM-DD HH:MM" or "Never"
+  // Uses lastOnline if present, otherwise falls back to lastLogin.
+  const prettyLastOnline = (() => {
+    const v = user?.lastOnline || user?.lastLogin;
     if (!v) return "Never";
     const d = new Date(v);
     if (Number.isNaN(d.getTime())) return "Never";
@@ -346,7 +347,7 @@ export default function UserManagement({
             <p className="text-sm text-gray-500">{user.description}</p>
           )}
           <p className="text-xs text-gray-400 mt-1">
-            Last login: <span className="opacity-80">{prettyLastLogin}</span>
+            Last online: <span className="opacity-80">{prettyLastOnline}</span>
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -394,7 +395,6 @@ export default function UserManagement({
     </div>
   );
 })}
-
       </div>
 
       <div className="flex flex-wrap gap-4 pt-4 border-t">

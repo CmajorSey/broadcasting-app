@@ -1303,7 +1303,6 @@ function readUsersSafe() {
   }
 }
 
-
 // ✅ New: combobox-friendly minimal list (string IDs)
 app.get("/users-brief", (req, res) => {
   const users = readUsersSafe();
@@ -1504,6 +1503,7 @@ app.patch("/users/:id/password", (req, res) => {
 });
 
 // ✅ Patch user (admin edit + leave balances; server clamps annualLeave to 0–42 and returns RAW user)
+//    Also accepts an optional ISO string "lastOnline" (safely normalized) for completeness.
 app.patch("/users/:id", (req, res) => {
   const { id } = req.params;
 
@@ -1555,6 +1555,11 @@ app.patch("/users/:id", (req, res) => {
       u.lastLeaveUpdate = new Date(body.lastLeaveUpdate).toISOString();
     }
 
+    // ✅ Optional "lastOnline" passthrough (normalized ISO)
+    if (typeof body.lastOnline === "string" && !Number.isNaN(Date.parse(body.lastOnline))) {
+      u.lastOnline = new Date(body.lastOnline).toISOString();
+    }
+
     u.updatedAt = new Date().toISOString();
 
     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
@@ -1565,9 +1570,7 @@ app.patch("/users/:id", (req, res) => {
   }
 });
 
-
-
-// ✅ Stamp last login (unchanged)
+// ✅ Stamp last login (existing)
 app.patch("/users/:id/last-login", (req, res) => {
   const { id } = req.params;
   const bodyTs = req.body?.lastLogin;
@@ -1593,15 +1596,40 @@ app.patch("/users/:id/last-login", (req, res) => {
   }
 });
 
+// ✅ NEW: Stamp last online (mirrors last-login route)
+app.patch("/users/:id/last-online", (req, res) => {
+  const { id } = req.params;
+  const bodyTs = req.body?.lastOnline;
+
+  try {
+    const users = readUsersSafe();
+    const idx = users.findIndex((u) => String(u.id) === String(id));
+    if (idx === -1) return res.status(404).json({ error: "User not found" });
+
+    const safeIso = (() => {
+      const d = new Date(bodyTs);
+      return bodyTs && !Number.isNaN(d.getTime()) ? d.toISOString() : new Date().toISOString();
+    })();
+
+    users[idx].lastOnline = safeIso;
+    users[idx].updatedAt = new Date().toISOString();
+
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    return res.json({ success: true, user: users[idx] });
+  } catch (err) {
+    console.error("Failed to update last online:", err);
+    return res.status(500).json({ error: "Failed to update last online" });
+  }
+});
+
 // Ensure every user has an id
-const users = readUsersSafe().map(u => {
+const usersFixed = readUsersSafe().map(u => {
   if (!u.id) {
     u.id = Date.now().toString() + Math.floor(Math.random() * 1000);
   }
   return u;
 });
-fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-
+fs.writeFileSync(USERS_FILE, JSON.stringify(usersFixed, null, 2));
 
 // ✅ Delete user (unchanged)
 app.delete("/users/:id", (req, res) => {
@@ -1618,6 +1646,7 @@ app.delete("/users/:id", (req, res) => {
 console.log("🚨 ROUTE CHECKPOINT 12");
 console.log("🚨 ROUTE CHECKPOINT 13");
 // [B] END: Users API (new, with last-login route)
+
 
 
 
