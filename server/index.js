@@ -13,6 +13,7 @@ console.log("🔍 Looking for service account at:", path.resolve("firebase-servi
 import { GoogleAuth } from "google-auth-library";
 import { createRequire } from "module";
 import authRouter from "./routes/auth.js";
+
 const require = createRequire(import.meta.url);
 
 // Ensure .env is loaded before we read process.env (helps local dev)
@@ -694,16 +695,44 @@ console.log("🚨 ROUTE CHECKPOINT 11");
 // 👤 Users API (with temp-password + must-change flow) + normalized read helpers
 // ==========================
 
-// Helper: read users safely
+// Helper: read users safely and ensure every user has a stable string id
 function readUsersSafe() {
   try {
     const raw = fs.readFileSync(USERS_FILE, "utf-8");
     const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch {
+    const users = Array.isArray(arr) ? arr : [];
+
+    let changed = false;
+    const seen = new Set();
+
+    users.forEach((u, idx) => {
+      // Ensure id exists and is a string
+      if (!u?.id) {
+        u.id = `${Date.now()}-${idx}-${Math.floor(Math.random() * 100000)}`;
+        changed = true;
+      }
+      u.id = String(u.id);
+
+      // Avoid duplicates (very rare but safe to guard)
+      if (seen.has(u.id)) {
+        u.id = `${u.id}-${idx}`;
+        changed = true;
+      }
+      seen.add(u.id);
+    });
+
+    if (changed) {
+      fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+      console.log("🛠 Fixed missing/duplicate user IDs in users.json");
+    }
+
+    return users;
+  } catch (e) {
+    console.error("readUsersSafe error:", e);
     return [];
   }
 }
+
 
 // ✅ New: combobox-friendly minimal list (string IDs)
 app.get("/users-brief", (req, res) => {
@@ -904,9 +933,15 @@ app.patch("/users/:id/password", (req, res) => {
   }
 });
 
-// ✅ Patch user (admin edit; safe defaults) — uses persistent USERS_FILE
+// ✅ Patch user (admin edit + leave balances; server clamps annualLeave to 0–42 and returns RAW user)
 app.patch("/users/:id", (req, res) => {
   const { id } = req.params;
+
+  const toInt = (v, fb = 0) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.round(n) : fb;
+  };
+  const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
   try {
     const data = fs.readFileSync(USERS_FILE, "utf-8");
@@ -918,29 +953,49 @@ app.patch("/users/:id", (req, res) => {
     const body = req.body || {};
     const u = users[idx];
 
+    // Password flow
     if (typeof body.password === "string" && body.password.trim()) {
       u.password = body.password.trim();
-      if (typeof body.forcePasswordChange === "undefined" && typeof body.requiresPasswordReset === "undefined") {
-        // leave flags as-is
+      if (typeof body.forcePasswordChange !== "undefined") {
+        u.forcePasswordChange = !!body.forcePasswordChange;
+      }
+      if (typeof body.requiresPasswordReset !== "undefined") {
+        u.requiresPasswordReset = !!body.requiresPasswordReset;
       }
     }
 
+    // Admin-editable meta
     if (Array.isArray(body.roles)) u.roles = body.roles;
     if (typeof body.description === "string") u.description = body.description;
     if (Array.isArray(body.hiddenRoles)) u.hiddenRoles = body.hiddenRoles;
-
     if (typeof body.forcePasswordChange === "boolean") u.forcePasswordChange = body.forcePasswordChange;
     if (typeof body.requiresPasswordReset === "boolean") u.requiresPasswordReset = body.requiresPasswordReset;
+
+    // 🔁 Leave management fields
+    if (typeof body.annualLeave !== "undefined") {
+      u.annualLeave = clamp(toInt(body.annualLeave, 0), 0, 42);
+    }
+    if (typeof body.offDays !== "undefined") {
+      u.offDays = Math.max(0, toInt(body.offDays, 0));
+    }
+    if (typeof body.currentLeaveStatus === "string") {
+      u.currentLeaveStatus = body.currentLeaveStatus;
+    }
+    if (typeof body.lastLeaveUpdate === "string" && !Number.isNaN(Date.parse(body.lastLeaveUpdate))) {
+      u.lastLeaveUpdate = new Date(body.lastLeaveUpdate).toISOString();
+    }
 
     u.updatedAt = new Date().toISOString();
 
     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-    return res.json({ success: true, user: u });
+    return res.json(u); // ← return RAW user, not { success, user }
   } catch (err) {
     console.error("Failed to patch user:", err);
     res.status(500).json({ error: "Failed to update user" });
   }
 });
+
+
 
 // ✅ Stamp last login (unchanged)
 app.patch("/users/:id/last-login", (req, res) => {
@@ -967,6 +1022,16 @@ app.patch("/users/:id/last-login", (req, res) => {
     return res.status(500).json({ error: "Failed to update last login" });
   }
 });
+
+// Ensure every user has an id
+const users = readUsersSafe().map(u => {
+  if (!u.id) {
+    u.id = Date.now().toString() + Math.floor(Math.random() * 1000);
+  }
+  return u;
+});
+fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+
 
 // ✅ Delete user (unchanged)
 app.delete("/users/:id", (req, res) => {

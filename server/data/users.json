@@ -1,6 +1,6 @@
 [
   {
-    "id": 1,
+    "id": "1",
     "name": "Admin",
     "password": "admin123",
     "roles": [
@@ -19,8 +19,9 @@
     "password": "Patsy1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.377Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.377Z",
+    "updatedAt": "2025-08-30T06:40:12.028Z"
   },
   {
     "id": "1752896520996",
@@ -33,8 +34,9 @@
     "password": "Naila1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
+    "updatedAt": "2025-08-30T06:40:13.451Z"
   },
   {
     "id": "1752896585613",
@@ -47,8 +49,9 @@
     "password": "Melissa1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
+    "updatedAt": "2025-08-30T06:40:14.481Z"
   },
   {
     "id": "1752899122153",
@@ -61,8 +64,9 @@
     "password": "Jana1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
+    "updatedAt": "2025-08-30T06:40:15.526Z"
   },
   {
     "id": "1752899122157",
@@ -75,8 +79,9 @@
     "password": "Joshua1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
+    "updatedAt": "2025-08-30T06:40:16.972Z"
   },
   {
     "id": "1752899122160",
@@ -90,7 +95,8 @@
     "requiresPasswordReset": true,
     "leaveBalance": 42,
     "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z"
+    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
+    "updatedAt": "2025-08-29T18:36:16.482Z"
   },
   {
     "id": "1752899481148",
@@ -108,7 +114,8 @@
     "requiresPasswordReset": true,
     "leaveBalance": 42,
     "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z"
+    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
+    "updatedAt": "2025-08-29T18:36:25.886Z"
   },
   {
     "id": "1752899481152",
@@ -139,8 +146,9 @@
     "password": "Kerine1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
+    "updatedAt": "2025-08-30T06:40:04.304Z"
   },
   {
     "id": "1752899657883",
@@ -153,8 +161,9 @@
     "password": "Ronny1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
+    "updatedAt": "2025-08-30T06:40:05.696Z"
   },
   {
     "id": "1752899657886",
@@ -168,8 +177,9 @@
     "password": "Andy1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
+    "updatedAt": "2025-08-30T06:40:07.204Z"
   },
   {
     "id": "1752899657889",
@@ -197,8 +207,9 @@
     "password": "Jiad1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:28:47.616Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:28:47.616Z",
+    "updatedAt": "2025-08-30T06:40:08.155Z"
   },
   {
     "id": "1752899830250",
@@ -213,8 +224,9 @@
     "password": "Ronny1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
+    "updatedAt": "2025-08-30T06:40:20.718Z"
   },
   {
     "id": "1752899830254",
@@ -228,8 +240,9 @@
     "password": "Stephanie1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
+    "updatedAt": "2025-08-30T06:40:21.783Z"
   },
   {
     "id": "1752899830258",
@@ -243,8 +256,9 @@
     "password": "Gael1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
+    "updatedAt": "2025-08-30T06:40:22.885Z"
   },
   {
     "id": "1752899830261",
@@ -259,8 +273,9 @@
     "password": "Aaron1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
+    "updatedAt": "2025-08-30T06:40:24.227Z"
   },
   {
     "id": "1752899830266",
@@ -273,8 +288,9 @@
     "password": "Irene1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
+    "updatedAt": "2025-08-30T06:40:25.580Z"
   },
   {
     "id": "1752899830269",
@@ -289,12 +305,15 @@
     "password": "123456789",
     "requiresPasswordReset": false,
     "leaveBalance": 42,
-    "annualLeave": 1,
+    "annualLeave": 21,
     "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
-    "offDays": 3,
+    "offDays": 20,
     "fcmToken": "cZuEcPz4jfZHlZlJOuFhwm:APA91bGTDvUBe1VVEhu8ZlUWdFkTWHYFBzwa2G8bFWhwSDtrrz0INZSSVkUYrcfSXZps3MamCkp9ihXaiuBUXmu6Bx1VlCmqz2FnhWqpcATBbotYW1SNnA4",
     "email": "christopher.gabriel@telesesel.sc",
-    "forcePasswordChange": false
+    "forcePasswordChange": false,
+    "lastLoginAt": "2025-08-29T18:35:37.692Z",
+    "lastLogin": "2025-08-29T18:35:37.695Z",
+    "updatedAt": "2025-08-30T06:40:29.382Z"
   },
   {
     "id": "1752900071147",
@@ -307,9 +326,10 @@
     "password": "Shereen1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 1,
+    "annualLeave": 21,
     "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
-    "offDays": null
+    "offDays": null,
+    "updatedAt": "2025-08-30T06:39:54.288Z"
   },
   {
     "id": "1752900071153",
@@ -323,8 +343,9 @@
     "password": "Julius1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.444Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.444Z",
+    "updatedAt": "2025-08-30T06:39:56.764Z"
   },
   {
     "id": "1752900071157",
@@ -338,8 +359,9 @@
     "password": "Alexander1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.451Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.451Z",
+    "updatedAt": "2025-08-30T06:39:58.221Z"
   },
   {
     "id": "1752900071162",
@@ -353,8 +375,9 @@
     "password": "Darino1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.451Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.451Z",
+    "updatedAt": "2025-08-30T06:39:59.812Z"
   },
   {
     "id": "1752900071166",
@@ -368,8 +391,9 @@
     "password": "Joshua1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 42,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.451Z"
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-07-25T15:30:20.451Z",
+    "updatedAt": "2025-08-30T06:40:01.084Z"
   },
   {
     "id": "1752900107023",
@@ -395,7 +419,10 @@
     "hiddenRoles": [],
     "password": "$2b$10$/smQcK97UYjeCcpsOjYAeuED4UEzLItS0M7l1QerRhRbtA7Hs4tti",
     "forcePasswordChange": false,
-    "requiresPasswordReset": true
+    "requiresPasswordReset": true,
+    "updatedAt": "2025-08-30T06:35:49.729Z",
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-08-30T06:35:49.721Z"
   },
   {
     "id": "1756461558811",
@@ -412,6 +439,8 @@
     "tempPasswordExpires": "2025-09-01T09:59:18.811Z",
     "passwordUpdatedAt": null,
     "createdAt": "2025-08-29T09:59:18.811Z",
-    "updatedAt": "2025-08-29T09:59:18.811Z"
+    "updatedAt": "2025-08-30T06:35:49.732Z",
+    "annualLeave": 21,
+    "lastLeaveUpdate": "2025-08-30T06:35:49.721Z"
   }
 ]

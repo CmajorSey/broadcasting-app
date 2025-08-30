@@ -36,6 +36,9 @@ export default function Navbar({ loggedInUser, setLoggedInUser, users }) {
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
+  // Generate a stable key for each user button; falls back if id is missing
+  const userKey = (u, idx) => String(u.id ?? `${u.name ?? "user"}-${idx}`);
+
   return (
     <nav className="bg-blue-800 text-white px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2 shadow-md">
       <div className="flex flex-wrap items-center gap-4">
@@ -78,9 +81,9 @@ export default function Navbar({ loggedInUser, setLoggedInUser, users }) {
           users?.length > 0 && (
             <div className="flex flex-wrap items-center gap-1">
               <span className="text-xs opacity-70">View as:</span>
-              {users.map((u) => (
+              {users.map((u, idx) => (
                 <Button
-                  key={u.id}
+                  key={userKey(u, idx)}
                   size="xs"
                   variant="secondary"
                   className={`text-xs ${

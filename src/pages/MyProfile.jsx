@@ -3,7 +3,6 @@ import API_BASE from "@/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -14,9 +13,10 @@ export default function MyProfile() {
   const [suggestion, setSuggestion] = useState("");
   const [toastEnabled, setToastEnabled] = useState(true);
   const { toast } = useToast();
-    const getSectionFromUser = (userObj) => {
-    const name = userObj.name || "";
-    const desc = userObj.description?.toLowerCase() || "";
+
+  const getSectionFromUser = (userObj) => {
+    const name = userObj?.name || "";
+    const desc = userObj?.description?.toLowerCase() || "";
 
     if (["clive camille", "jennifer arnephy", "gilmer philoe"].includes(name.toLowerCase())) {
       return "Admin";
@@ -29,168 +29,154 @@ export default function MyProfile() {
     } else if (desc.includes("producer") || desc.includes("production")) {
       return "Production";
     }
-
-    return userObj.section || "Unspecified";
+    return userObj?.section || "Unspecified";
   };
 
-
-  // ✅ Load user and notifications
-useEffect(() => {
-  const override = localStorage.getItem("adminViewAs");
-  const fallback = localStorage.getItem("loggedInUser");
-  const parsed = override || fallback;
-  const parsedUser = parsed ? JSON.parse(parsed) : null;
-
-  const toastPref = localStorage.getItem("notificationToastsEnabled");
-  setToastEnabled(toastPref !== "false");
-
-  if (!parsedUser) return;
-
-  setUser(parsedUser);
-
- const rawDismissed = JSON.parse(localStorage.getItem("dismissedNotifications") || "[]") || [];
-
-const hiddenTimestamps = rawDismissed.reduce((acc, t) => {
-  try {
-    if (!t) return acc;
-    const date = new Date(t);
-    if (isNaN(date)) {
-      console.warn("Skipping invalid timestamp in localStorage:", t);
-      return acc;
-    }
-    acc.push(date.toISOString().split(".")[0]);
-  } catch (err) {
-    console.error("Error processing dismissed timestamp:", t, err);
-  }
-  return acc;
-}, []);
-
-
-
-Promise.all([
-  fetch(`${API_BASE}/notifications`).then((res) => res.json()), // 🔄 removed ?user=...
-  fetch(`${API_BASE}/notification-groups`).then((res) => res.json()),
-])
-  .then(([allNotifications, allGroups]) => {
-    const userName = parsedUser.name;
-    const section = getSectionFromUser(parsedUser);
-    const userGroups = allGroups.filter((group) =>
-      group.userIds.includes(parsedUser.id)
-    );
-    const groupIds = userGroups.map((g) => g.id);
-
-    const relevant = allNotifications.filter((note) => {
-      try {
-        const noteDate = new Date(note.timestamp);
-        if (isNaN(noteDate)) {
-          console.warn("Skipping invalid notification timestamp:", note.timestamp);
-          return false;
-        }
-        const noteTime = noteDate.toISOString().split(".")[0];
-
-        return (
-          (note.recipients.includes(userName) ||
-            note.recipients.includes(section) ||
-            note.recipients.some((r) => groupIds.includes(r))) &&
-          !hiddenTimestamps.includes(noteTime)
-        );
-      } catch (err) {
-        console.error("Failed to process note:", note, err);
-        return false;
-      }
-    });
-
-
-
-      // Sort newest first
-      relevant.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-      setNotifications(relevant);
-
-      const lastSeen = localStorage.getItem("lastNotificationSeen");
-      const latest = relevant[0]?.timestamp;
-      if (toastEnabled && latest && latest !== lastSeen) {
-        toast({
-          title: relevant[0].title,
-          description: relevant[0].message,
-        });
-        localStorage.setItem("lastNotificationSeen", latest);
-      }
-    })
-    .catch((err) => console.error("Failed to fetch notifications or groups", err));
-}, []); // 👈 removed toastEnabled from dependencies to avoid re-trigger
-
-
-  // ✅ Enrich user with leave/off balances
+  // ✅ Load user + notifications (one-time)
   useEffect(() => {
-    if (!user?.name) return;
+    const override = localStorage.getItem("adminViewAs");
+    const fallback = localStorage.getItem("loggedInUser");
+    const parsed = override || fallback;
+    const parsedUser = parsed ? JSON.parse(parsed) : null;
+
+    const toastPref = localStorage.getItem("notificationToastsEnabled");
+    setToastEnabled(toastPref !== "false");
+
+    if (!parsedUser) return;
+
+    setUser(parsedUser);
+
+    // Normalize dismissed timestamps to seconds precision
+    const rawDismissed = JSON.parse(localStorage.getItem("dismissedNotifications") || "[]") || [];
+    const hiddenTimestamps = rawDismissed.reduce((acc, t) => {
+      try {
+        if (!t) return acc;
+        const date = new Date(t);
+        if (isNaN(date)) {
+          console.warn("Skipping invalid timestamp in localStorage:", t);
+          return acc;
+        }
+        acc.push(date.toISOString().split(".")[0]);
+      } catch (err) {
+        console.error("Error processing dismissed timestamp:", t, err);
+      }
+      return acc;
+    }, []);
+
+    Promise.all([
+      fetch(`${API_BASE}/notifications`).then((res) => res.json()),
+      fetch(`${API_BASE}/notification-groups`).then((res) => res.json()),
+    ])
+      .then(([allNotifications, allGroups]) => {
+        const userName = parsedUser.name;
+        const section = getSectionFromUser(parsedUser);
+        const userGroups = allGroups.filter((group) => group.userIds.includes(parsedUser.id));
+        const groupIds = userGroups.map((g) => g.id);
+
+        const relevant = allNotifications.filter((note) => {
+          try {
+            const noteDate = new Date(note.timestamp);
+            if (isNaN(noteDate)) {
+              console.warn("Skipping invalid notification timestamp:", note.timestamp);
+              return false;
+            }
+            const noteTime = noteDate.toISOString().split(".")[0];
+
+            return (
+              (note.recipients.includes(userName) ||
+                note.recipients.includes(section) ||
+                note.recipients.some((r) => groupIds.includes(r))) &&
+              !hiddenTimestamps.includes(noteTime)
+            );
+          } catch (err) {
+            console.error("Failed to process note:", note, err);
+            return false;
+          }
+        });
+
+        relevant.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        setNotifications(relevant);
+
+        const lastSeen = localStorage.getItem("lastNotificationSeen");
+        const latest = relevant[0]?.timestamp;
+        if (toastEnabled && latest && latest !== lastSeen) {
+          toast({ title: relevant[0].title, description: relevant[0].message });
+          localStorage.setItem("lastNotificationSeen", latest);
+        }
+      })
+      .catch((err) => console.error("Failed to fetch notifications or groups", err));
+  }, []); // do not include toastEnabled to avoid re-trigger
+
+  // ✅ Enrich user with server copy (for balances)
+  // Reads from /users and replaces local user with the server record that matches id (fallback: name)
+  useEffect(() => {
+    if (!user?.id && !user?.name) return;
 
     fetch(`${API_BASE}/users`)
       .then((res) => res.json())
       .then((allUsers) => {
-        const fullUser = allUsers.find((u) => u.name === user.name);
+        const byId = user?.id ? allUsers.find((u) => String(u.id) === String(user.id)) : null;
+        const fullUser = byId || allUsers.find((u) => u.name === user?.name);
         if (fullUser && JSON.stringify(fullUser) !== JSON.stringify(user)) {
           setUser(fullUser);
         }
       })
       .catch((err) => console.error("Failed to fetch user balances", err));
-  }, [user?.name]);
+  }, [user?.id, user?.name]);
 
-    const handleDismiss = async (timestamp) => {
-  const baseTimestamp = new Date(timestamp).toISOString().split(".")[0];
+  const handleDismiss = async (timestamp) => {
+    const baseTimestamp = new Date(timestamp).toISOString().split(".")[0];
 
-  // Optimistically update UI
-  const updatedDismissed = [...new Set([...(JSON.parse(localStorage.getItem("dismissedNotifications") || "[]")), baseTimestamp])];
-  localStorage.setItem("dismissedNotifications", JSON.stringify(updatedDismissed));
+    // Optimistic UI update
+    const existing = JSON.parse(localStorage.getItem("dismissedNotifications") || "[]");
+    const updatedDismissed = [...new Set([...existing, baseTimestamp])];
+    localStorage.setItem("dismissedNotifications", JSON.stringify(updatedDismissed));
 
-  setNotifications((prev) =>
-    prev.filter((n) => {
-      try {
-        return new Date(n.timestamp).toISOString().split(".")[0] !== baseTimestamp;
-      } catch {
-        return true; // Keep it if broken
-      }
-    })
-  );
+    setNotifications((prev) =>
+      prev.filter((n) => {
+        try {
+          return new Date(n.timestamp).toISOString().split(".")[0] !== baseTimestamp;
+        } catch {
+          return true;
+        }
+      })
+    );
 
-  // Attempt to delete from backend
-  try {
-    const res = await fetch(`${API_BASE}/notifications/${encodeURIComponent(baseTimestamp)}`, {
-      method: "DELETE",
-    });
-
-    if (!res.ok) throw new Error("Failed to delete notification");
-  } catch (err) {
-    console.error("Failed to delete notification from backend:", err);
-  }
-};
-
-const handleSuggestionSubmit = async () => {
-  if (!suggestion.trim()) return;
-
-  const payload = {
-    name: user?.name || "Anonymous",
-    message: suggestion.trim(),
-    timestamp: new Date().toISOString(),
+    // Attempt backend delete (best effort)
+    try {
+      const res = await fetch(`${API_BASE}/notifications/${encodeURIComponent(baseTimestamp)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete notification");
+    } catch (err) {
+      console.error("Failed to delete notification from backend:", err);
+    }
   };
 
-  try {
-    const res = await fetch(`${API_BASE}/suggestions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+  const handleSuggestionSubmit = async () => {
+    if (!suggestion.trim()) return;
 
-    if (!res.ok) throw new Error("Failed to submit suggestion");
+    const payload = {
+      name: user?.name || "Anonymous",
+      message: suggestion.trim(),
+      timestamp: new Date().toISOString(),
+    };
 
-    setSuggestion("");
-    toast({ title: "✅ Suggestion sent!" });
-  } catch (err) {
-    console.error("Error submitting suggestion:", err);
-    toast({ title: "Error", description: "Failed to submit suggestion" });
-  }
-};
+    try {
+      const res = await fetch(`${API_BASE}/suggestions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("Failed to submit suggestion");
 
+      setSuggestion("");
+      toast({ title: "✅ Suggestion sent!" });
+    } catch (err) {
+      console.error("Error submitting suggestion:", err);
+      toast({ title: "Error", description: "Failed to submit suggestion" });
+    }
+  };
 
   const getSection = () => {
     if (!user) return "N/A";
@@ -231,12 +217,17 @@ const handleSuggestionSubmit = async () => {
           <p><strong>Role(s):</strong> {Array.isArray(user?.roles) ? user.roles.join(", ") : user?.roles}</p>
           <p><strong>Description:</strong> {user?.description || "N/A"}</p>
           <p><strong>Section:</strong> {getSection()}</p>
-          <p><strong>Annual Leave Balances:</strong> {user?.leaveBalance ?? "N/A"} days</p>
-          <p><strong>Off Days:</strong> {user?.offDayBalance ?? "N/A"} days</p> //test 
+
+          {/* 🔁 Match LeaveManager fields exactly */}
+          <p><strong>Annual Leave (max 42):</strong> {user?.annualLeave ?? "N/A"} days</p>
+          <p><strong>Off Days:</strong> {user?.offDays ?? "N/A"} days</p>
+          {user?.currentLeaveStatus && (
+            <p><strong>Status:</strong> {user.currentLeaveStatus}</p>
+          )}
         </CardContent>
       </Card>
 
-      {/* Toggle */}
+      {/* Notification Settings */}
       <Card>
         <CardHeader>
           <CardTitle>Notification Settings</CardTitle>
@@ -255,57 +246,62 @@ const handleSuggestionSubmit = async () => {
         </CardContent>
       </Card>
 
-      {/* Notifications */}
-   {/* Notifications */}
-<Card>
-  <CardHeader className="flex items-center justify-between">
-    <CardTitle>Notifications Inbox</CardTitle>
-    {notifications.length > 0 && (
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={() => {
-            const dismissed = JSON.parse(localStorage.getItem("dismissedNotifications") || "[]");
-            const allTimestamps = notifications.map((n) => n.timestamp);
-            const updated = [...new Set([...dismissed, ...allTimestamps])];
-            localStorage.setItem("dismissedNotifications", JSON.stringify(updated));
-            setNotifications([]);
-        }}
-        >
-        Clear All
-        </Button>
-
-    )}
-  </CardHeader>
-  <CardContent>
-    <div className="border rounded p-2 max-h-[300px] overflow-y-auto space-y-3">
-      {notifications.length === 0 ? (
-        <p className="text-muted-foreground text-sm">No notifications yet.</p>
-      ) : (
-        notifications.map((note) => (
-          <div
-            key={`${note.timestamp}-${note.title}-${note.message}`}
-            className="relative border p-3 rounded bg-muted pr-10"
-          >
-           <button
-            className="absolute top-1 right-1 text-gray-500 hover:text-red-500 text-xs"
-            onClick={() => handleDismiss(note.timestamp)}
+      {/* Notifications Inbox */}
+      <Card>
+        <CardHeader className="flex items-center justify-between">
+          <CardTitle>Notifications Inbox</CardTitle>
+          {notifications.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                const dismissed = JSON.parse(localStorage.getItem("dismissedNotifications") || "[]");
+                const allTimestamps = notifications
+                  .map((n) => {
+                    try {
+                      return new Date(n.timestamp).toISOString().split(".")[0];
+                    } catch {
+                      return null;
+                    }
+                  })
+                  .filter(Boolean);
+                const updated = [...new Set([...dismissed, ...allTimestamps])];
+                localStorage.setItem("dismissedNotifications", JSON.stringify(updated));
+                setNotifications([]);
+              }}
             >
-            ✕
-            </button>
+              Clear All
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent>
+          <div className="border rounded p-2 max-h-[300px] overflow-y-auto space-y-3">
+            {notifications.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No notifications yet.</p>
+            ) : (
+              notifications.map((note) => (
+                <div
+                  key={`${note.timestamp}-${note.title}-${note.message}`}
+                  className="relative border p-3 rounded bg-muted pr-10"
+                >
+                  <button
+                    className="absolute top-1 right-1 text-gray-500 hover:text-red-500 text-xs"
+                    onClick={() => handleDismiss(note.timestamp)}
+                  >
+                    ✕
+                  </button>
 
-            <p className="font-semibold">{note.title}</p>
-            <p className="text-sm">{note.message}</p>
-            <p className="text-xs text-gray-500 mt-1">
-              {new Date(note.timestamp).toLocaleString()}
-            </p>
+                  <p className="font-semibold">{note.title}</p>
+                  <p className="text-sm">{note.message}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {new Date(note.timestamp).toLocaleString()}
+                  </p>
+                </div>
+              ))
+            )}
           </div>
-        ))
-      )}
-    </div>
-  </CardContent>
-</Card>
-
+        </CardContent>
+      </Card>
 
       {/* Suggestion Box */}
       <Card>

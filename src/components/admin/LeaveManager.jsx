@@ -1,5 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import API_BASE from "@/api";
+import { useToast } from "@/hooks/use-toast";
+
+const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+const toInt = (v, fb = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n) : fb;
+};
 
 const groupedBySegment = (users) => {
   const segments = {
@@ -18,11 +25,11 @@ const groupedBySegment = (users) => {
       segments.Admins.push(user);
     } else if (/cam ?op|camera ?operator|operations/i.test(user.description || "")) {
       segments.Operations.push(user);
-    } else if (user.description?.toLowerCase().includes("sports journalist")) {
+    } else if ((user.description || "").toLowerCase().includes("sports journalist")) {
       segments["Sports Section"].push(user);
-    } else if (user.description?.toLowerCase().includes("journalist")) {
+    } else if ((user.description || "").toLowerCase().includes("journalist")) {
       segments.Newsroom.push(user);
-    } else if (user.description?.toLowerCase().includes("producer")) {
+    } else if ((user.description || "").toLowerCase().includes("producer")) {
       segments.Production.push(user);
     }
   });
@@ -31,78 +38,165 @@ const groupedBySegment = (users) => {
 };
 
 export default function LeaveManager({ users, setUsers }) {
+  const { toast } = useToast();
+
+  // Drafts for immediate edit experience
+  const [drafts, setDrafts] = useState({});
   const [savingUserId, setSavingUserId] = useState(null);
 
-  const handleAutoSave = async (id, field, value) => {
-    setSavingUserId(id);
-    const user = users.find((u) => u.id === id);
-    if (!user) return;
+  // Remember which users we already auto-replenished this session/year
+  const replenishedRef = useRef(new Set()); // keys like `${id}:${year}`
 
-    const updated = {
-      ...user,
-      [field]: value,
-    };
+  // Map names -> IDs as a fallback if some users still lack id in memory
+  const nameToId = useMemo(() => {
+    const map = {};
+    users.forEach((u) => {
+      if (u?.name && u?.id) {
+        map[u.name.toLowerCase()] = String(u.id);
+      }
+    });
+    return map;
+  }, [users]);
 
+  const idOf = (u) => {
+    if (!u) return null;
+    if (u.id) return String(u.id);
+    const key = (u.name || "").toLowerCase();
+    return nameToId[key] || null;
+  };
+
+  // Initialize drafts from server users
+  useEffect(() => {
+    const next = {};
+    users.forEach((u) => {
+      if (u.name === "Admin") return;
+      next[u.id || u.name] = {
+        annualLeave: toInt(u.annualLeave ?? 0),
+        offDays: toInt(u.offDays ?? 0),
+      };
+    });
+    setDrafts(next);
+  }, [users]);
+
+  // Persist one field (only if changed)
+  const persistField = async (userObj, field, rawValue) => {
+    const uid = idOf(userObj);
+    if (!uid) {
+      toast({
+        title: "Cannot save",
+        description: `User "${userObj?.name || "Unknown"}" has no ID. Reload the page or contact admin.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const value =
+      field === "annualLeave"
+        ? clamp(toInt(rawValue, 0), 0, 42)
+        : Math.max(0, toInt(rawValue, 0));
+
+    // Skip PATCH if no change vs current server state
+    const current = users.find((u) => String(u.id) === String(uid));
+    if (current && toInt(current[field] ?? 0) === value) return;
+
+    setSavingUserId(uid);
     try {
-      const res = await fetch(`${API_BASE}/users/${id}`, {
+      const res = await fetch(`${API_BASE}/users/${uid}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [field]: value }),
       });
+      if (!res.ok) throw new Error(`Failed to update ${field}`);
 
-      if (!res.ok) throw new Error("Failed to update leave balances");
+      const data = await res.json();
+      const saved = data?.user ?? data;
 
-      const saved = await res.json();
-      setUsers((prev) => prev.map((u) => (u.id === id ? saved : u)));
-     } catch (err) {
+      // If the backend ever returns partial fields, merge to avoid row drops
+      const merged = { ...(current || {}), ...saved };
+
+      setUsers((prev) => prev.map((u) => (String(u.id) === String(uid) ? merged : u)));
+
+      setDrafts((prev) => ({
+        ...prev,
+        [userObj.id || userObj.name]: {
+          annualLeave: toInt(merged.annualLeave ?? 0),
+          offDays: toInt(merged.offDays ?? 0),
+        },
+      }));
+
       toast({
-        title: "Save Failed",
-        description: err.message,
+        title: "Saved",
+        description: `${field === "annualLeave" ? "Annual Leave" : "Off Days"} updated.`,
+      });
+    } catch (err) {
+      toast({
+        title: "Save failed",
+        description: err?.message || "Unable to persist change.",
         variant: "destructive",
       });
+      const fallback = current || userObj;
+      setDrafts((prev) => ({
+        ...prev,
+        [userObj.id || userObj.name]: {
+          annualLeave: toInt(fallback.annualLeave ?? 0),
+          offDays: toInt(fallback.offDays ?? 0),
+        },
+      }));
     } finally {
       setSavingUserId(null);
     }
-
   };
 
+  // Yearly auto-replenish (adds 21 up to max 42), guarded so it runs once per user/year
   useEffect(() => {
     const now = new Date();
     const currentYear = now.getFullYear();
 
-    const updatedUsers = users.map((user) => {
-      if (user.name === "Admin") return user;
+    users.forEach((user) => {
+      if (user.name === "Admin") return;
+
+      const uid = idOf(user);
+      if (!uid) return;
+
+      const key = `${uid}:${currentYear}`;
+      if (replenishedRef.current.has(key)) return; // already processed this session
 
       const lastUpdated = user.lastLeaveUpdate ? new Date(user.lastLeaveUpdate) : null;
-      const lastYear = lastUpdated?.getFullYear() ?? currentYear - 1;
+      const lastYear = lastUpdated?.getFullYear?.() ?? currentYear - 1;
 
-      // Only replenish if year has changed
       if (currentYear > lastYear) {
-        const newAnnualLeave = Math.min((user.annualLeave ?? 0) + 21, 42);
+        const nextAnnual = clamp(toInt(user.annualLeave ?? 0) + 21, 0, 42);
 
-        // PATCH to backend and update local state
-        fetch(`${API_BASE}/users/${user.id}`, {
+        // Optimistically mark as processed to avoid loops even if request fails
+        replenishedRef.current.add(key);
+
+        fetch(`${API_BASE}/users/${uid}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            annualLeave: newAnnualLeave,
+            annualLeave: nextAnnual,
             lastLeaveUpdate: now.toISOString(),
           }),
         })
-          .then((res) => res.json())
-          .then((updatedUser) => {
-            setUsers((prev) => prev.map((u) => (u.id === user.id ? updatedUser : u)));
+          .then((res) => {
+            if (!res.ok) throw new Error("Replenish failed");
+            return res.json();
           })
-          .catch((err) => console.error("Error replenishing leave:", err));
+          .then((data) => {
+            const updatedUser = data?.user ?? data;
+            // Merge to preserve any fields the server didn't echo
+            const merged = { ...user, ...updatedUser };
+            setUsers((prev) => prev.map((u) => (String(u.id) === String(uid) ? merged : u)));
+          })
+          .catch((err) => {
+            console.error("Error replenishing leave:", err);
+            // (we keep it marked as processed to avoid thrashing)
+          });
       }
-
-      return user;
     });
+  }, [users, setUsers]);
 
-    // Do not setUsers here directly — we let PATCH responses handle that
-  }, [users]);
-
-  const segments = groupedBySegment(users);
+  const segments = useMemo(() => groupedBySegment(users), [users]);
 
   return (
     <div className="space-y-8">
@@ -122,38 +216,59 @@ export default function LeaveManager({ users, setUsers }) {
                 </tr>
               </thead>
               <tbody>
-                {segmentUsers.map((user) => (
-                  <tr key={user.id} className="border-t">
-                    <td className="p-2 border-r">{user.name}</td>
-                    <td className="p-2 border-r">{user.description}</td>
-                    <td className="p-2 border-r">
-                                        <input
-                    type="number"
-                    min={0}
-                    max={42}
-                    value={user.annualLeave || 0}
-                    onChange={(e) => {
-                        const val = Math.min(parseInt(e.target.value), 42);
-                        handleAutoSave(user.id, "annualLeave", val);
-                    }}
-                    className="w-20 border px-2 py-1 rounded"
-                    />
+                {segmentUsers.map((user, idx) => {
+                  const rowKey = user.id || `${user.name}-${idx}`;
+                  const draftKey = user.id || user.name;
+                  const draft = drafts[draftKey] || { annualLeave: 0, offDays: 0 };
+                  const uid = idOf(user);
+                  const disabled = !uid;
+                  const isSaving = savingUserId === uid;
 
-                    </td>
-                    <td className="p-2">
-                    <input
-                        type="number"
-                        min={0}
-                        value={user.offDays || 0}
-                        onChange={(e) =>
-                        handleAutoSave(user.id, "offDays", parseInt(e.target.value))
-                        }
-                        className="w-20 border px-2 py-1 rounded"
-                    />
-                    </td>
-
-                  </tr>
-                ))}
+                  return (
+                    <tr key={rowKey} className="border-t">
+                      <td className="p-2 border-r">{user.name}</td>
+                      <td className="p-2 border-r">{user.description}</td>
+                      <td className="p-2 border-r">
+                        <input
+                          type="number"
+                          min={0}
+                          max={42}
+                          value={draft.annualLeave}
+                          onChange={(e) => {
+                            const val = clamp(toInt(e.target.value, 0), 0, 42);
+                            setDrafts((prev) => ({
+                              ...prev,
+                              [draftKey]: { ...prev[draftKey], annualLeave: val },
+                            }));
+                          }}
+                          onBlur={() => !disabled && persistField(user, "annualLeave", drafts[draftKey]?.annualLeave)}
+                          className="w-24 border px-2 py-1 rounded"
+                          disabled={disabled}
+                          title={disabled ? "Cannot edit — user is missing an ID" : undefined}
+                        />
+                      </td>
+                      <td className="p-2">
+                        <input
+                          type="number"
+                          min={0}
+                          value={draft.offDays}
+                          onChange={(e) => {
+                            const val = Math.max(0, toInt(e.target.value, 0));
+                            setDrafts((prev) => ({
+                              ...prev,
+                              [draftKey]: { ...prev[draftKey], offDays: val },
+                            }));
+                          }}
+                          onBlur={() => !disabled && persistField(user, "offDays", drafts[draftKey]?.offDays)}
+                          className="w-24 border px-2 py-1 rounded"
+                          disabled={disabled}
+                          title={disabled ? "Cannot edit — user is missing an ID" : undefined}
+                        />
+                        {isSaving && <span className="ml-2 text-xs text-gray-500">Saving…</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
