@@ -38,3 +38,4 @@ firebase-service-account.json
 *.crt
 *.cer
 *.der
+firebase-messaging-sw.js
