@@ -83,7 +83,7 @@ const diff = Math.floor((dateObj - start) / 86400000);
 
         setTicketsByDay(grouped);
       } catch (err) {
-        console.error("Failed to fetch tickets:", err);
+        console.error("Failed to fetch request forms:", err);
       }
     }
 
@@ -133,7 +133,7 @@ const diff = Math.floor((dateObj - start) / 86400000);
 
       {/* Ticket Display */}
       {todayTickets.length === 0 ? (
-        <p className="text-gray-500 text-center">No tickets for {dayName}.</p>
+        <p className="text-gray-500 text-center">No requests for {dayName}.</p>
       ) : (
         <div className="space-y-4">
           {todayTickets.map((ticket) => (
@@ -169,7 +169,7 @@ const diff = Math.floor((dateObj - start) / 86400000);
           onClick={() => navigate("/create")}
           className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
         >
-          + Create Ticket
+          + Create Request
         </button>
         <button
           onClick={() => navigate("/fleet")}

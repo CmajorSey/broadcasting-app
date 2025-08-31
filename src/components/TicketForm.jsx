@@ -402,13 +402,13 @@ const handleSubmit = async (e) => {
     console.log("✅ Ticket submitted to backend by:", name);
 
     toast({
-      title: "✅ Ticket Created",
-      description: "Your ticket was successfully submitted.",
+      title: "✅ Request Created",
+      description: "Your request was successfully submitted.",
       duration: 2000,
     });
   } catch (error) {
-    console.error("❌ Error submitting ticket:", error);
-    alert("Ticket submission failed. Please try again.");
+    console.error("❌ Error submitting request:", error);
+    alert("Request submission failed. Please try again.");
   }
 };
 
@@ -417,7 +417,7 @@ const handleSubmit = async (e) => {
   };
 
   const deleteTicket = (id) => {
-  const confirmDelete = window.confirm("Are you sure you want to delete this ticket?");
+  const confirmDelete = window.confirm("Are you sure you want to delete this request form?");
   if (!confirmDelete) return;
 
   setTickets((prev) => prev.filter((t) => t.id !== id));
@@ -1008,13 +1008,13 @@ const handleSubmit = async (e) => {
         <button
           type="submit"
           className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
-        >Submit Ticket</button>
+        >Submit Request</button>
       </form>
       )}
 {/* === Show Only 7 Most Recent Tickets (Better Layout + Status + See More) === */}
 {showRecent && (
   <div className="mt-10 bg-white p-4 rounded-lg shadow space-y-2">
-    <h2 className="text-lg font-semibold mb-2">Recent Tickets</h2>
+    <h2 className="text-lg font-semibold mb-2">Recent Request Forms</h2>
     <ul className="space-y-4">
       {[...tickets].reverse().slice(0, 7).map((ticket) => (
         <li key={ticket.id} className="bg-white p-4 rounded shadow-sm border">

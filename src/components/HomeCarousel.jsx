@@ -273,13 +273,13 @@ function DutyBadgeWrapper({ date, filmingTime, names, rosterCache }) {
               onClick={() => navigate("/create")}
               className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
             >
-              Create Ticket
+              Create Request
             </button>
             <button
               onClick={() => navigate("/tickets")}
               className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
             >
-              View All Tickets
+              View All Request Forms
             </button>
           </>
         )}
@@ -303,10 +303,10 @@ function DutyBadgeWrapper({ date, filmingTime, names, rosterCache }) {
 
       {/* My Tickets */}
       <div>
-        <h2 className="text-lg font-semibold mb-2">My Tickets</h2>
+        <h2 className="text-lg font-semibold mb-2">My Assignments</h2>
         {myTickets.length === 0 ? (
           <p className="text-gray-500 text-sm">
-            You have no assigned tickets.
+            You have no assigned requests.
           </p>
         ) : (
           <div className="flex overflow-x-auto space-x-4 pb-2">
@@ -358,7 +358,7 @@ function DutyBadgeWrapper({ date, filmingTime, names, rosterCache }) {
       {/* Ticket Cards */}
       {groupedTickets[currentDay.isoDate].length === 0 ? (
         <p className="text-gray-500 text-sm text-center">
-          No tickets for this day.
+          No requests for this day.
         </p>
       ) : (
         <div className="flex flex-wrap justify-center gap-6">

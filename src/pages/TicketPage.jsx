@@ -513,7 +513,7 @@ const cancelEditing = () => {
 };
   return (
     <div className="p-4">
-      <h2 className="text-xl font-bold mb-4">All Tickets</h2>
+      <h2 className="text-xl font-bold mb-4">All Request Forms</h2>
 
       <div className="flex flex-wrap items-center mb-2 gap-2">
         <button
@@ -523,7 +523,7 @@ const cancelEditing = () => {
           }}
           className="px-3 py-1 border rounded"
         >
-          {showSelectBoxes ? "Hide Selection" : "Select Tickets"}
+          {showSelectBoxes ? "Hide Selection" : "Select Forms"}
         </button>
         {showSelectBoxes && (
           <button
@@ -985,7 +985,7 @@ setSelectedTickets([]);
   {showArchived && (
     <div className="mt-3 border rounded shadow">
       {tickets.filter((t) => t.archived).length === 0 ? (
-        <p className="text-gray-500 px-2 py-2">No archived tickets.</p>
+        <p className="text-gray-500 px-2 py-2">No archived forms.</p>
       ) : (
         <>
           <div className="flex items-center justify-between p-2">
@@ -1178,7 +1178,7 @@ setSelectedTickets([]);
     </div>
 
     {tickets.filter((t) => t.deleted).length === 0 ? (
-      <p className="text-gray-500 px-2 py-2">No deleted tickets.</p>
+      <p className="text-gray-500 px-2 py-2">No deleted forms.</p>
     ) : (
       <table className="min-w-full text-sm">
     <thead className="bg-gray-200">
@@ -1243,9 +1243,9 @@ setSelectedTickets([]);
 <AlertDialog open={showRecycleModal} onOpenChange={setShowRecycleModal}>
   <AlertDialogContent>
     <AlertDialogHeader>
-      <AlertDialogTitle>Send selected tickets to Recycle Bin?</AlertDialogTitle>
+      <AlertDialogTitle>Send selected forms to Recycle Bin?</AlertDialogTitle>
       <AlertDialogDescription>
-        These tickets will be moved to the Recycle Bin. You can restore them later.
+        These forms will be moved to the Recycle Bin. You can restore them later.
       </AlertDialogDescription>
     </AlertDialogHeader>
     <AlertDialogFooter>
@@ -1286,9 +1286,9 @@ setSelectedTickets([]);
 <AlertDialog open={showRestoreModal} onOpenChange={setShowRestoreModal}>
   <AlertDialogContent>
     <AlertDialogHeader>
-      <AlertDialogTitle>Restore selected tickets?</AlertDialogTitle>
+      <AlertDialogTitle>Restore selected forms?</AlertDialogTitle>
       <AlertDialogDescription>
-        These tickets will be restored to the main list.
+        These forms will be restored to the main list.
       </AlertDialogDescription>
     </AlertDialogHeader>
     <AlertDialogFooter>
@@ -1330,9 +1330,9 @@ setSelectedTickets([]);
 <AlertDialog open={showPermanentDeleteModal} onOpenChange={setShowPermanentDeleteModal}>
   <AlertDialogContent>
     <AlertDialogHeader>
-      <AlertDialogTitle>Permanently delete selected tickets?</AlertDialogTitle>
+      <AlertDialogTitle>Permanently delete selected forms?</AlertDialogTitle>
       <AlertDialogDescription className="text-red-600 font-semibold">
-        This action cannot be undone. The selected tickets will be deleted forever.
+        This action cannot be undone. The selected forms will be deleted forever.
       </AlertDialogDescription>
     </AlertDialogHeader>
     <AlertDialogFooter>
@@ -1358,7 +1358,7 @@ setSelectedTickets([]);
             const data = await response.json();
             setTickets(data);
           } catch (err) {
-            console.error("Failed to permanently delete tickets:", err);
+            console.error("Failed to permanently forms:", err);
           }
         }}
       >

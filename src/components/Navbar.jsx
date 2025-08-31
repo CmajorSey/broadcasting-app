@@ -125,7 +125,7 @@ export default function Navbar({ loggedInUser, setLoggedInUser, users }) {
 
       <Link to="/tickets" className="flex items-center gap-1 hover:underline">
         <FileText size={18} />
-        Tickets
+        Request Forms
       </Link>
 
       <Link to="/fleet" className="flex items-center gap-1 hover:underline">
@@ -140,7 +140,7 @@ export default function Navbar({ loggedInUser, setLoggedInUser, users }) {
 
       <Link to="/create" className="flex items-center gap-1 hover:underline">
         <PlusCircle size={18} />
-        Create Ticket
+        Create Request
       </Link>
 
       {loggedInUser?.roles?.includes("admin") && (

@@ -7,7 +7,8 @@
       "admin"
     ],
     "offDayBalance": 5,
-    "updatedAt": "2025-08-30T18:10:50.095Z"
+    "updatedAt": "2025-08-31T08:19:53.701Z",
+    "lastOnline": "2025-08-31T08:19:53.653Z"
   },
   {
     "id": "1752896482068",
@@ -314,7 +315,8 @@
     "forcePasswordChange": false,
     "lastLoginAt": "2025-08-29T18:35:37.692Z",
     "lastLogin": "2025-08-29T18:35:37.695Z",
-    "updatedAt": "2025-08-30T18:28:47.363Z"
+    "updatedAt": "2025-08-31T08:19:50.897Z",
+    "lastOnline": "2025-08-31T08:19:50.889Z"
   },
   {
     "id": "1752900071147",
