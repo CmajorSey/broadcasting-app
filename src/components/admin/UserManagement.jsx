@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+// ✅ Ensure both hooks are imported from react-router-dom
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertDialog,
@@ -309,92 +310,167 @@ export default function UserManagement({
       ? { transition: "background-color 0.3s ease", backgroundColor: "rgba(250, 204, 21, 0.35)" } // amber-300 @ ~35%
       : { transition: "background-color 0.6s ease" };
 
+  // =========================
+  // NEW: Grouping + Sorting
+  // =========================
+  const hasRole = (u, role) => Array.isArray(u?.roles) && u.roles.includes(role);
+  const isJournalist = (u) =>
+    hasRole(u, "journalist") || hasRole(u, "sports_journalist");
+  const inSportsTeam = (u) => {
+    const desc = String(u?.description || "").toLowerCase();
+    return hasRole(u, "sports_journalist") || desc.includes("sport");
+  };
+
+  // Decide the single display group for a user
+  const groupKeyFor = (u) => {
+    if (hasRole(u, "admin")) return "admins";
+    if (hasRole(u, "producer")) return "producers";
+    if (hasRole(u, "camOp") || hasRole(u, "driver") || hasRole(u, "driver_limited"))
+      return "operations";
+    if (isJournalist(u) && inSportsTeam(u)) return "journalists_sports";
+    if (isJournalist(u)) return "journalists_news";
+    // Fallback
+    return "journalists_news";
+  };
+
+  const groupLabel = {
+    operations: "Operations (Cam Ops & Drivers)",
+    journalists_news: "Journalists – News",
+    journalists_sports: "Journalists – Sports",
+    producers: "Producers",
+    admins: "Admins",
+  };
+
+  const groupsOrder = [
+    "operations",
+    "journalists_news",
+    "journalists_sports",
+    "producers",
+    "admins",
+  ];
+
+  const collator = new Intl.Collator(undefined, { sensitivity: "base" });
+
+  const grouped = groupsOrder.reduce((acc, key) => ({ ...acc, [key]: [] }), {});
+  (Array.isArray(users) ? users : []).forEach((u) => {
+    grouped[groupKeyFor(u)].push(u);
+  });
+  groupsOrder.forEach((key) => {
+    grouped[key].sort((a, b) => collator.compare(a?.name || "", b?.name || ""));
+  });
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-bold text-gray-800">User Management</h2>
 
-      <div className="space-y-4">
-      
-{users.map((user) => {
-  // Safe formatter: "YYYY-MM-DD HH:MM" or "Never"
-  // Uses lastOnline if present, otherwise falls back to lastLogin.
-  const prettyLastOnline = (() => {
-    const v = user?.lastOnline || user?.lastLogin;
-    if (!v) return "Never";
-    const d = new Date(v);
-    if (Number.isNaN(d.getTime())) return "Never";
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mi = String(d.getMinutes()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
-  })();
-
-  return (
-    <div
-      key={user.id}
-      ref={(el) => {
-        if (el) rowRefs.current[user.id] = el;
-      }}
-      style={highlightStyle(user.id)}
-      className="border p-4 rounded-lg shadow-sm bg-gray-50 space-y-3"
-    >
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="font-semibold text-lg text-gray-700">{user.name}</h3>
-          {user.description && (
-            <p className="text-sm text-gray-500">{user.description}</p>
-          )}
-          <p className="text-xs text-gray-400 mt-1">
-            Last online: <span className="opacity-80">{prettyLastOnline}</span>
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            className="text-blue-600 text-sm underline hover:text-blue-800"
-            onClick={() => setUserBeingEdited(user)}
-          >
-            ✏️ Edit
-          </button>
-          <button
-            className="text-yellow-600 text-sm underline hover:text-yellow-800"
-            onClick={() => {
-              setResetTarget(user);
-              setNewPassword(makeTempPassword(user.name));
-            }}
-          >
-            Reset Password
-          </button>
-          <button
-            className="text-red-600 text-sm underline hover:text-red-800"
-            onClick={() => setUserToDelete(user)}
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-4">
-        {availableRoles.map((role) => {
-          const isHidden = user.hiddenRoles?.includes(role);
-          if (role === "admin" && isHidden) return null;
+      {/* Users, grouped & alphabetized */}
+      <div className="space-y-2">
+        {groupsOrder.map((key, idx) => {
+          const list = grouped[key] || [];
+          if (!list.length) return null;
 
           return (
-            <label key={role} className="flex items-center gap-1">
-              <input
-                type="checkbox"
-                checked={(user.roles || []).includes(role)}
-                onChange={() => handleRoleChange(user.id, role)}
-              />
-              <span>{role}</span>
-            </label>
+            <div key={key} className="space-y-2">
+              {/* subtle divider except before first block */}
+              {idx > 0 && <div className="h-px bg-gray-200 my-2" />}
+
+              {/* small grey label */}
+              <div className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">
+                {groupLabel[key]}
+              </div>
+
+              <div className="space-y-3">
+                {list.map((user) => {
+                  // Safe formatter: "YYYY-MM-DD HH:MM" or "Never"
+                  // Uses lastOnline if present, otherwise falls back to lastLogin.
+                  const prettyLastOnline = (() => {
+                    const v = user?.lastOnline || user?.lastLogin;
+                    if (!v) return "Never";
+                    const d = new Date(v);
+                    if (Number.isNaN(d.getTime())) return "Never";
+                    const yyyy = d.getFullYear();
+                    const mm = String(d.getMonth() + 1).padStart(2, "0");
+                    const dd = String(d.getDate()).padStart(2, "0");
+                    const hh = String(d.getHours()).padStart(2, "0");
+                    const mi = String(d.getMinutes()).padStart(2, "0");
+                    return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
+                  })();
+
+                  return (
+                    <div
+                      key={user.id}
+                      ref={(el) => {
+                        if (el) rowRefs.current[user.id] = el;
+                      }}
+                      style={highlightStyle(user.id)}
+                      className="border p-4 rounded-lg shadow-sm bg-gray-50 space-y-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-semibold text-lg text-gray-700">
+                            {user.name}
+                          </h3>
+                          {user.description && (
+                            <p className="text-sm text-gray-500">
+                              {user.description}
+                            </p>
+                          )}
+                          <p className="text-xs text-gray-400 mt-1">
+                            Last online:{" "}
+                            <span className="opacity-80">
+                              {prettyLastOnline}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button
+                            className="text-blue-600 text-sm underline hover:text-blue-800"
+                            onClick={() => setUserBeingEdited(user)}
+                          >
+                            ✏️ Edit
+                          </button>
+                          <button
+                            className="text-yellow-600 text-sm underline hover:text-yellow-800"
+                            onClick={() => {
+                              setResetTarget(user);
+                              setNewPassword(makeTempPassword(user.name));
+                            }}
+                          >
+                            Reset Password
+                          </button>
+                          <button
+                            className="text-red-600 text-sm underline hover:text-red-800"
+                            onClick={() => setUserToDelete(user)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-4">
+                        {availableRoles.map((role) => {
+                          const isHidden = user.hiddenRoles?.includes(role);
+                          if (role === "admin" && isHidden) return null;
+
+                          return (
+                            <label key={role} className="flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={(user.roles || []).includes(role)}
+                                onChange={() => handleRoleChange(user.id, role)}
+                              />
+                              <span>{role}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           );
         })}
-      </div>
-    </div>
-  );
-})}
       </div>
 
       <div className="flex flex-wrap gap-4 pt-4 border-t">
