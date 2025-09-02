@@ -25,61 +25,183 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 
+// (removed duplicate helpers – single source of truth lives above)
+
+
+// === Duty/Roster helpers (added) ===
+function getWeekStart(dateISO) {
+  const d = new Date(dateISO);
+  if (isNaN(d.getTime())) return "";
+  const day = d.getDay(); // 0=Sun ... 6=Sat
+  const diff = day === 0 ? -6 : 1 - day; // force Monday start
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
+
+function getHourForBadges(dateISO, filmingTime) {
+  try {
+    // Prefer explicit filmingTime "HH:MM" if present
+    if (filmingTime && /^\d{2}:\d{2}/.test(filmingTime)) {
+      const h = parseInt(filmingTime.split(":")[0], 10);
+      if (Number.isFinite(h)) return h;
+    }
+    // Fallback to hour from the ticket filming date/time
+    const d = new Date(dateISO);
+    if (!isNaN(d.getTime())) return d.getHours();
+  } catch {}
+  return 0;
+}
+
 export default function TicketPage({ users, vehicles, loggedInUser }) {
   const [tickets, setTickets] = useState([]);
   const rosterCache = useRef({});
 
-  async function fetchRosterForDate(dateISO) {
+    async function fetchRosterForDate(dateISO) {
     const weekStart = getWeekStart(dateISO);
+    if (!weekStart) return [];
     if (rosterCache.current[weekStart]) {
       return rosterCache.current[weekStart];
     }
-
     try {
       const res = await fetch(`${API_BASE}/rosters/${weekStart}`);
       if (!res.ok) throw new Error("Roster not found");
       const data = await res.json();
-      rosterCache.current[weekStart] = data;
-      return data;
+      rosterCache.current[weekStart] = Array.isArray(data) ? data : [];
+      return rosterCache.current[weekStart];
     } catch (err) {
-      console.warn("No roster for week:", weekStart);
+      console.warn("No roster for week:", weekStart, err?.message || err);
+      rosterCache.current[weekStart] = [];
       return [];
     }
   }
 
-  async function getTodayRoster(dateISO) {
-    const week = await fetchRosterForDate(dateISO);
-    const day = week.find((d) => d.date === dateISO);
-    return day || null;
+
+   async function getTodayRoster(dateOnlyISO) {
+    // Expect "YYYY-MM-DD"; still guard with slice for safety
+    const week = await fetchRosterForDate(dateOnlyISO);
+    const day = week.find(
+      (d) => d?.date?.slice(0, 10) === String(dateOnlyISO).slice(0, 10)
+    );
+
+    // Normalize to the three groups TicketPage expects: off, afternoonShift, primary
+    if (!day) return { off: [], afternoonShift: [], primary: [] };
+
+    // --- Helpers to normalize names from strings/arrays/objects ---
+    const toArray = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+    const extractNames = (list) => {
+      const arr = toArray(list);
+      const names = [];
+      for (const item of arr) {
+        if (!item) continue;
+        if (typeof item === "string") {
+          // also support comma-separated strings
+          item
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .forEach((n) => names.push(n));
+        } else if (typeof item === "object" && item.name) {
+          names.push(String(item.name).trim());
+        }
+      }
+      return Array.from(new Set(names.filter(Boolean)));
+    };
+
+    // Operations can store cam-ops in a few places; check common shapes
+    const camOpsRoot =
+      day.camOps || day.operations?.camOps || day.ops?.camOps || day;
+
+    const off =
+      extractNames(
+        camOpsRoot?.off ??
+          camOpsRoot?.offDuty ??
+          camOpsRoot?.off_cam_ops ??
+          day.off ??
+          day.offDuty
+      ) || [];
+
+    const afternoonShift =
+      extractNames(
+        camOpsRoot?.afternoonShift ??
+          camOpsRoot?.pmShift ??
+          camOpsRoot?.afternoon ??
+          day.afternoonShift ??
+          day.pmShift
+      ) || [];
+
+    const primary =
+      extractNames(
+        camOpsRoot?.primary ??
+          camOpsRoot?.directingNews ??
+          camOpsRoot?.directing ??
+          day.primary ??
+          day.directingNews ??
+          day.directing
+      ) || [];
+
+    return { off, afternoonShift, primary };
   }
 
-  // Safer: default names to [] to avoid map on null/undefined
+
+
+      // Duty badges driven by Operations roster + time.
+  // Shows:
+  // - Off Duty (always wins)
+  // - Directing News if on primary AND filming time is >= 12:00
+  // - Afternoon Shift if on afternoonShift AND filming time is < 12:00
   function DutyBadgeWrapper({ date, filmingTime, names = [] }) {
-    const [duty, setDuty] = useState(null);
-    const filmingHour = parseInt(filmingTime?.split(":")[0] || "0", 10);
-    const dutyDate = date?.slice(0, 10);
+    const [groups, setGroups] = useState({ off: [], afternoonShift: [], primary: [] });
+    const dutyDateOnly = String(date || "").slice(0, 10);
+    const hour = getHourForBadges(date, filmingTime); // fallback to ticket.date if filmingTime missing
 
     useEffect(() => {
-      if (dutyDate) {
-        getTodayRoster(dutyDate).then(setDuty);
+      if (dutyDateOnly) {
+        getTodayRoster(dutyDateOnly).then((g) =>
+          setGroups({
+            off: Array.isArray(g?.off) ? g.off : [],
+            afternoonShift: Array.isArray(g?.afternoonShift) ? g.afternoonShift : [],
+            primary: Array.isArray(g?.primary) ? g.primary : [],
+          })
+        );
+      } else {
+        setGroups({ off: [], afternoonShift: [], primary: [] });
       }
-    }, [dutyDate]);
+    }, [dutyDateOnly]);
+
+    // Normalize names for robust comparison:
+    // - trim, lowercase
+    // - drop common role prefixes ("camop:", "journalist:", "producer:")
+    // - collapse multiple spaces
+    const normalizeName = (val) => {
+      const s = String(val || "")
+        .replace(/^\s*(cam\s*op|camop|journalist|sports\s*journalist|producer)\s*:\s*/i, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+      return s;
+    };
 
     const list = Array.isArray(names) ? names : [];
+    const has = (arr, name) => {
+      if (!Array.isArray(arr)) return false;
+      const target = normalizeName(name);
+      return arr.some((n) => normalizeName(n) === target);
+    };
 
     return (
       <div className="flex flex-col gap-1">
         {list.map((name, i) => {
           let badge = null;
-          if (duty) {
-            if (duty.off?.includes(name)) {
-              badge = <DutyBadge label="Off Duty" color="red" />;
-            } else if (duty.afternoonShift?.includes(name) && filmingHour < 12) {
-              badge = <DutyBadge label="Afternoon Shift" color="yellow" />;
-            } else if (duty.primary?.includes(name) && filmingHour >= 14) {
-              badge = <DutyBadge label="Directing News" color="blue" />;
-            }
+
+          if (has(groups.off, name)) {
+            badge = <DutyBadge label="Off Duty" color="red" />;
+          } else if (has(groups.primary, name) && hour >= 12) {
+            badge = <DutyBadge label="Directing News" color="blue" />;
+          } else if (has(groups.afternoonShift, name) && hour < 12) {
+            badge = <DutyBadge label="Afternoon Shift" color="yellow" />;
           }
+
           return (
             <div key={i} className="flex items-center justify-center gap-2">
               <span>{name}</span>
