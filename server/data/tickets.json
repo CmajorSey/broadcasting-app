@@ -1,1 +1,118 @@
-[]
+[
+  {
+    "id": "1756826974264",
+    "title": "ctfvyghbj",
+    "type": "News",
+    "category": "Interview",
+    "subtype": "",
+    "date": "2025-09-02T14:40",
+    "location": "894562",
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "Production",
+    "notes": [],
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "14:20",
+    "filmingTime": "20:40",
+    "assignedCamOps": [
+      "Shereen Florentine",
+      "Alexander Moumou",
+      "Darino Esther",
+      "Joshua Dodin",
+      "Julius Payet"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Completed",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Naila D'acambra"
+    ],
+    "vehicleStatus": "",
+    "createdBy": "Christopher Gabriel",
+    "createdAt": "2025-09-02T15:29:34.264Z",
+    "assignedBy": "Christopher Gabriel"
+  },
+  {
+    "id": "1756832092235",
+    "title": "asv",
+    "type": "Production",
+    "category": "",
+    "subtype": "",
+    "date": "2025-09-02T20:45",
+    "location": "sav",
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "Production",
+    "notes": [],
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "20:45",
+    "filmingTime": "20:45",
+    "assignedCamOps": [
+      "Alexander Moumou"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Completed",
+    "isReady": false,
+    "status": "Pending",
+    "vehicleStatus": "",
+    "assignedReporter": [
+      "Senior Producer Christopher Gabriel",
+      "Emma Laporte"
+    ],
+    "createdBy": "Christopher Gabriel",
+    "createdAt": "2025-09-02T16:54:52.235Z",
+    "assignedBy": "Admin"
+  },
+  {
+    "id": "1756835117683",
+    "title": "efadzv",
+    "type": "News",
+    "category": "Press Conference",
+    "subtype": "",
+    "date": "2025-09-02T22:45",
+    "location": "asv",
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "notes": [],
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "22:15",
+    "filmingTime": "22:45",
+    "assignedCamOps": [
+      "Shereen Florentine"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Completed",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Andy Henriette"
+    ],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2025-09-02T17:45:17.683Z",
+    "assignedBy": "Admin"
+  }
+]

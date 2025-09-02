@@ -7,8 +7,10 @@
       "admin"
     ],
     "offDayBalance": 5,
-    "updatedAt": "2025-09-02T04:51:54.281Z",
-    "lastOnline": "2025-09-02T04:51:54.256Z"
+    "updatedAt": "2025-09-02T18:14:59.187Z",
+    "lastOnline": "2025-09-02T18:14:59.182Z",
+    "lastLoginAt": "2025-09-02T17:29:09.869Z",
+    "lastLogin": "2025-09-02T17:29:09.871Z"
   },
   {
     "id": "1752896482068",
@@ -315,8 +317,8 @@
     "forcePasswordChange": false,
     "lastLoginAt": "2025-08-29T18:35:37.692Z",
     "lastLogin": "2025-08-29T18:35:37.695Z",
-    "updatedAt": "2025-08-31T12:06:45.896Z",
-    "lastOnline": "2025-08-31T12:06:45.888Z"
+    "updatedAt": "2025-09-02T17:28:52.840Z",
+    "lastOnline": "2025-09-02T17:28:52.824Z"
   },
   {
     "id": "1752900071147",
