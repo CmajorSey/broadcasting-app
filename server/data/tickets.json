@@ -29,7 +29,7 @@
     ],
     "assignedDriver": "Nelson Joseph",
     "vehicle": "",
-    "assignmentStatus": "Completed",
+    "assignmentStatus": "In Progress",
     "isReady": false,
     "status": "Pending",
     "assignedReporter": [
@@ -38,7 +38,8 @@
     "vehicleStatus": "",
     "createdBy": "Christopher Gabriel",
     "createdAt": "2025-09-02T15:29:34.264Z",
-    "assignedBy": "Christopher Gabriel"
+    "assignedBy": "Christopher Gabriel",
+    "archived": true
   },
   {
     "id": "1756832092235",
@@ -66,7 +67,7 @@
     ],
     "assignedDriver": "Nelson Joseph",
     "vehicle": "",
-    "assignmentStatus": "Completed",
+    "assignmentStatus": "Cancelled",
     "isReady": false,
     "status": "Pending",
     "vehicleStatus": "",
@@ -76,7 +77,8 @@
     ],
     "createdBy": "Christopher Gabriel",
     "createdAt": "2025-09-02T16:54:52.235Z",
-    "assignedBy": "Admin"
+    "assignedBy": "Admin",
+    "archived": true
   },
   {
     "id": "1756835117683",
@@ -104,7 +106,7 @@
     ],
     "assignedDriver": "Nelson Joseph",
     "vehicle": "",
-    "assignmentStatus": "Completed",
+    "assignmentStatus": "Postponed",
     "isReady": false,
     "status": "Pending",
     "assignedReporter": [
@@ -113,6 +115,118 @@
     "vehicleStatus": "",
     "createdBy": "Admin",
     "createdAt": "2025-09-02T17:45:17.683Z",
+    "assignedBy": "Admin",
+    "archived": true
+  },
+  {
+    "id": "1756871393213",
+    "title": "1",
+    "type": "Sports",
+    "category": "",
+    "subtype": "Football",
+    "date": "2025-09-03T07:50",
+    "location": "fdsfbx",
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "notes": [],
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "07:50",
+    "filmingTime": "07:50",
+    "assignedCamOps": [
+      "Darino Esther"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Completed",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Ronny Solin"
+    ],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2025-09-03T03:49:53.213Z",
+    "assignedBy": "Admin"
+  },
+  {
+    "id": "1756871409623",
+    "title": "sgdbxfc",
+    "type": "Production",
+    "category": "",
+    "subtype": "",
+    "date": "2025-09-03T09:35",
+    "location": "sbf",
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "Production",
+    "notes": [],
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "09:05",
+    "filmingTime": "09:35",
+    "assignedCamOps": [
+      "Ronny Marengo"
+    ],
+    "assignedDriver": "Ronny Marengo",
+    "vehicle": "",
+    "assignmentStatus": "Cancelled",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Ronny Marengo"
+    ],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2025-09-03T03:50:09.623Z",
+    "assignedBy": "Admin"
+  },
+  {
+    "id": "1756871428749",
+    "title": "srhfgndrsh",
+    "type": "News",
+    "category": "",
+    "subtype": "",
+    "date": "2025-09-03T12:45",
+    "location": "egaesg",
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "notes": [],
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "12:15",
+    "filmingTime": "12:45",
+    "assignedCamOps": [
+      "Shereen Florentine"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Cancelled",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Emma Laporte"
+    ],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2025-09-03T03:50:28.749Z",
     "assignedBy": "Admin"
   }
 ]
