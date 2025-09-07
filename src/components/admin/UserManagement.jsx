@@ -38,7 +38,8 @@ export default function UserManagement({
   const [roleToDelete, setRoleToDelete] = useState(null);
   const [userToDelete, setUserToDelete] = useState(null);
   const [userBeingEdited, setUserBeingEdited] = useState(null);
-  const [branding, setBranding] = useState({ siteName: "" });
+  // Branding moved to SettingsPage — keep placeholder to avoid ref errors if any
+const [branding, setBranding] = useState({ siteName: "" }); // no longer used here
 
   // 🔑 reset dialog state
   const [resetTarget, setResetTarget] = useState(null);
@@ -86,14 +87,11 @@ export default function UserManagement({
     }
   };
 
-  useEffect(() => {
-    fetch(`${API_BASE}/settings`)
-      .then((res) => res.json())
-      .then((data) => {
-        setBranding({ siteName: data.siteName || "" });
-      })
-      .catch((err) => console.error("Failed to load branding:", err));
-  }, []);
+  // Branding fetch moved to SettingsPage
+useEffect(() => {
+  // no-op
+}, []);
+
 
   // ✅ Auto-open Reset dialog if query string requests it (existing behavior kept)
   useEffect(() => {
@@ -155,19 +153,16 @@ export default function UserManagement({
     }
   }, [users, highlightId, highlightName]);
 
-  const saveBranding = () => {
-    fetch(`${API_BASE}/settings`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(branding),
-    })
-      .then((res) => res.json())
-      .then(() => alert("✅ Branding updated"))
-      .catch((err) => {
-        console.error("Branding update failed:", err);
-        alert("⚠️ Failed to update branding");
-      });
-  };
+  // Branding save moved to SettingsPage
+const saveBranding = () => {
+  // Gently redirect admins to the new Settings page for branding
+  try {
+    alert("Branding has moved to the Settings page.");
+    navigate("/admin-settings");
+  } catch {
+    // swallow
+  }
+};
 
   const handleRoleChange = async (userId, role) => {
     const user = users.find((u) => u.id === userId);
@@ -310,7 +305,7 @@ export default function UserManagement({
       ? { transition: "background-color 0.3s ease", backgroundColor: "rgba(250, 204, 21, 0.35)" } // amber-300 @ ~35%
       : { transition: "background-color 0.6s ease" };
 
-  // =========================
+    // =========================
   // NEW: Grouping + Sorting
   // =========================
   const hasRole = (u, role) => Array.isArray(u?.roles) && u.roles.includes(role);
@@ -322,11 +317,12 @@ export default function UserManagement({
   };
 
   // Decide the single display group for a user
+  // Change: ONLY full drivers (driver) count for Operations; driver_limited does NOT.
+  // Journalists with driver_limited remain under Journalists (News/Sports).
   const groupKeyFor = (u) => {
     if (hasRole(u, "admin")) return "admins";
     if (hasRole(u, "producer")) return "producers";
-    if (hasRole(u, "camOp") || hasRole(u, "driver") || hasRole(u, "driver_limited"))
-      return "operations";
+    if (hasRole(u, "camOp") || hasRole(u, "driver")) return "operations"; // <-- removed driver_limited
     if (isJournalist(u) && inSportsTeam(u)) return "journalists_sports";
     if (isJournalist(u)) return "journalists_news";
     // Fallback
@@ -358,6 +354,7 @@ export default function UserManagement({
   groupsOrder.forEach((key) => {
     grouped[key].sort((a, b) => collator.compare(a?.name || "", b?.name || ""));
   });
+
 
   return (
     <div className="space-y-6">
@@ -508,25 +505,27 @@ export default function UserManagement({
       </div>
 
       <div className="bg-white rounded shadow p-6 space-y-4 mt-6">
-        <h2 className="text-lg font-semibold text-gray-700">Site Branding</h2>
+  <h2 className="text-lg font-semibold text-gray-700">Site Branding</h2>
+  <p className="text-sm text-gray-600">
+    Branding has moved to the Settings page to keep things tidy.
+  </p>
+  <div className="flex gap-3">
+    <button
+  onClick={() => navigate("/admin-settings")}
+  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+>
+  Open Settings
+</button>
+    <button
+      onClick={saveBranding}
+      className="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300"
+      title="If clicked, you’ll be redirected to the Settings page."
+    >
+      I’ll move it later
+    </button>
+  </div>
+</div>
 
-        <div className="space-y-2">
-          <label className="block text-sm text-gray-600">Welcome Text</label>
-          <input
-            type="text"
-            value={branding.siteName}
-            onChange={(e) => setBranding({ siteName: e.target.value })}
-            className="input w-full border px-3 py-2 rounded"
-            placeholder="Enter login screen title"
-          />
-        </div>
-        <button
-          onClick={saveBranding}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-        >
-          Save Branding
-        </button>
-      </div>
 
       {/* 🔑 Reset Password Dialog */}
       {resetTarget && (

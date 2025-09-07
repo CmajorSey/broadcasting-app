@@ -1,4 +1,25 @@
 {
-  "siteName": "Byenveni Lo Board ",
-  "logo": "🟦 Logo"
+  "siteName": "Byenveni Lo Board",
+  "logo": "🟦 Logo",
+  "apiKeys": {
+    "google": "",
+    "firebase": ""
+  },
+  "holidayApi": {
+    "provider": "Nager.Date",
+    "countryCode": "SC"
+  },
+  "rules": {
+    "after4pmCounts": 0.5,
+    "saturdayCounts": 1,
+    "sundayCounts": 1,
+    "publicHolidayCounts": 1,
+    "halfDayAfter4PM": true
+  },
+  "holidaySource": {
+    "provider": "google_calendar",
+    "countryCode": "SC",
+    "googleCalendarId": "https://calendar.google.com/calendar/ical/en.sc%23holiday%40group.v.calendar.google.com/public/basic.ics",
+    "icsUrl": ""
+  }
 }

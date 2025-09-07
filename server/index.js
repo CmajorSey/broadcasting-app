@@ -14,6 +14,7 @@ import { GoogleAuth } from "google-auth-library";
 import { createRequire } from "module";
 import authRouter from "./routes/auth.js";
 import userPrefsRouter from "./routes/user-prefs.js";
+import holidaysRouter from "./routes/holidays.js"; // NEW
 
 
 const require = createRequire(import.meta.url);
@@ -173,7 +174,7 @@ app.use(express.json());
 // ✅ Mount password reset routes
 app.use("/auth", authRouter);
 app.use("/user-prefs", userPrefsRouter);
-
+app.use("/holidays", holidaysRouter); // NEW
 
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
