@@ -55,6 +55,10 @@ function getHourForBadges(dateISO, filmingTime) {
 
 export default function TicketPage({ users, vehicles, loggedInUser }) {
   const [tickets, setTickets] = useState([]);
+
+// Sorting state for "Filming Date & Time"
+// true = ascending (oldest → newest), false = descending (newest → oldest)
+const [filmSortAsc, setFilmSortAsc] = useState(true);
   const rosterCache = useRef({});
 
     async function fetchRosterForDate(dateISO) {
@@ -677,28 +681,97 @@ export default function TicketPage({ users, vehicles, loggedInUser }) {
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm border border-gray-300">
           <thead className="bg-blue-800 text-white">
-            <tr>
-              {showSelectBoxes && <th className="p-2 text-center">Select</th>}
-              {[
-                "Title",
-                "Filming Date & Time",
-                "Departure Time",
-                "Location",
-                "Cam Ops",
-                "Driver",
-                "Assigned Reporter",
-                "Status",
-                "Actions",
-              ].map((header) => (
-                <th key={header} className="p-2 text-center whitespace-nowrap">
-                  {header}
-                </th>
-              ))}
-            </tr>
-          </thead>
+  <tr>
+    {showSelectBoxes && <th className="p-2 text-center">Select</th>}
+
+    {/* Title */}
+    <th className="p-2 text-center whitespace-nowrap">Title</th>
+
+    {/* Filming Date & Time — clickable sort header */}
+    <th
+      className="p-2 text-center whitespace-nowrap select-none cursor-pointer"
+      onClick={() => setFilmSortAsc((v) => !v)}
+      title="Sort by Filming Date & Time"
+    >
+      <div className="inline-flex items-center justify-center gap-2">
+        <span>Filming Date &amp; Time</span>
+        <span aria-hidden="true">{filmSortAsc ? "▲" : "▼"}</span>
+      </div>
+    </th>
+
+    {/* Departure Time */}
+    <th className="p-2 text-center whitespace-nowrap">Departure Time</th>
+
+    {/* Location */}
+    <th className="p-2 text-center whitespace-nowrap">Location</th>
+
+    {/* Cam Ops */}
+    <th className="p-2 text-center whitespace-nowrap">Cam Ops</th>
+
+    {/* Driver */}
+    <th className="p-2 text-center whitespace-nowrap">Driver</th>
+
+    {/* Assigned Reporter */}
+    <th className="p-2 text-center whitespace-nowrap">Assigned Reporter</th>
+
+    {/* Status */}
+    <th className="p-2 text-center whitespace-nowrap">Status</th>
+
+    {/* Actions */}
+    <th className="p-2 text-center whitespace-nowrap">Actions</th>
+  </tr>
+</thead>
+
 
           <tbody>
-            {currentTickets.map((ticket, rowIdx) => {
+            {currentTickets
+  .slice()
+  .sort((a, b) => {
+    // safe getters
+    const isoA = String(a?.date || "").trim();
+    const isoB = String(b?.date || "").trim();
+
+    const dateA = isoA.slice(0, 10); // "YYYY-MM-DD"
+    const dateB = isoB.slice(0, 10);
+
+    // Primary: compare date (missing sorts last)
+    if (dateA !== dateB) {
+      const cmpDate =
+        !dateA ? 1 :
+        !dateB ? -1 :
+        dateA < dateB ? -1 : 1;
+      return filmSortAsc ? cmpDate : -cmpDate;
+    }
+
+    // Secondary: compare time (prefer explicit filmingTime "HH:mm")
+    const timeFromISO = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      return `${hh}:${mm}`;
+    };
+
+    const normTime = (t) => (/^\d{2}:\d{2}$/.test(String(t || "")) ? t : "");
+
+    const timeA =
+      normTime(a?.filmingTime) || timeFromISO(isoA) || "";
+    const timeB =
+      normTime(b?.filmingTime) || timeFromISO(isoB) || "";
+
+    if (timeA !== timeB) {
+      // Rows with a valid time come before rows without a time on same date
+      const cmpTime =
+        !timeA ? 1 :
+        !timeB ? -1 :
+        timeA < timeB ? -1 : 1;
+      return filmSortAsc ? cmpTime : -cmpTime;
+    }
+
+    return 0;
+  })
+  .map((ticket, rowIdx) => {
               const isEditing = editingId === ticket.id;
               const isExpanded = expandedIds.includes(ticket.id);
 

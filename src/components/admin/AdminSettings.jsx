@@ -23,11 +23,17 @@ const DEFAULTS = {
     googleCalendarId: "en.sc.official#holiday@group.v.calendar.google.com",
     icsUrl: "",
   },
-  rules: {
+    rules: {
     after4pmCounts: 0.5,
     saturdayCounts: 1,
     sundayCounts: 1,
     publicHolidayCounts: 3,
+
+    // NEW: Only grant after-4pm credit if the person was NOT on an afternoon shift
+    after4pmOnlyForNonAfternoon: true,
+    // NEW: Comma-separated role keys that represent an afternoon shift in your roster
+    // (example: "afternoon,afternoon_shift,pm,evening")
+    afternoonShiftRoleKeys: "afternoon,afternoon_shift",
   },
 };
 
@@ -410,12 +416,57 @@ export default function AdminSettings() {
         </CardContent>
       </Card>
 
-      {/* HR Rules */}
+        {/* HR Rules */}
       <Card>
         <CardHeader>
           <CardTitle>HR Rules</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-5">
+          {/* NEW: After-4pm applies only to non-afternoon shifts */}
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="block">After 4PM is extra (non-afternoon shifts only)</Label>
+              <p className="text-xs text-gray-500 mt-1">
+                If enabled, after-4PM credit is only added when the person was already on duty since morning
+                (i.e., NOT scheduled on an afternoon/PM shift).
+              </p>
+            </div>
+            <Switch
+              checked={!!settings?.rules?.after4pmOnlyForNonAfternoon}
+              onCheckedChange={(val) =>
+                setSettings({
+                  ...settings,
+                  rules: {
+                    ...(settings?.rules ?? DEFAULTS.rules),
+                    after4pmOnlyForNonAfternoon: !!val,
+                  },
+                })
+              }
+            />
+          </div>
+
+          {/* NEW: Which roles count as afternoon shift */}
+          <div>
+            <Label>Afternoon shift role keys (comma-separated)</Label>
+            <Input
+              type="text"
+              value={settings?.rules?.afternoonShiftRoleKeys ?? ""}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  rules: {
+                    ...(settings?.rules ?? DEFAULTS.rules),
+                    afternoonShiftRoleKeys: e.target.value,
+                  },
+                })
+              }
+              placeholder="afternoon,afternoon_shift,pm,evening"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              These are matched against the duty/roster role key (case-insensitive, trims spaces).
+            </p>
+          </div>
+
           <div>
             <Label>After 4PM credit =</Label>
             <Input
@@ -432,7 +483,9 @@ export default function AdminSettings() {
                 })
               }
             />
-            <p className="text-xs text-gray-500 mt-1">Credit added when a person works after 16:00 (e.g., 0.5 = half-day).</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Credit added when eligible work extends past 16:00 (e.g., 0.5 = half-day).
+            </p>
           </div>
 
           <div>
@@ -489,7 +542,9 @@ export default function AdminSettings() {
                 })
               }
             />
-            <p className="text-xs text-gray-500 mt-1">Credit granted when working on a public holiday (e.g., 3 = three days).</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Credit granted when working on a public holiday (e.g., 3 = three days).
+            </p>
           </div>
         </CardContent>
 
