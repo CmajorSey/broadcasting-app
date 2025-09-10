@@ -218,23 +218,30 @@ const [filmSortAsc, setFilmSortAsc] = useState(true);
   }
 
   // ===== ID-based UI State =====
-  const [selectedCurrentIds, setSelectedCurrentIds] = useState([]);
-  const [selectedArchivedIds, setSelectedArchivedIds] = useState([]);
-  const [selectedDeletedIds, setSelectedDeletedIds] = useState([]);
+const [selectedCurrentIds, setSelectedCurrentIds] = useState([]);
+const [selectedArchivedIds, setSelectedArchivedIds] = useState([]);
+const [selectedDeletedIds, setSelectedDeletedIds] = useState([]);
 
-  const [showSelectBoxes, setShowSelectBoxes] = useState(false);
-  const [showRecycleModal, setShowRecycleModal] = useState(false);
-  const [showRestoreModal, setShowRestoreModal] = useState(false);
-  const [showPermanentDeleteModal, setShowPermanentDeleteModal] = useState(false);
+const [showSelectBoxes, setShowSelectBoxes] = useState(false);
+const [showRecycleModal, setShowRecycleModal] = useState(false);
+const [showRestoreModal, setShowRestoreModal] = useState(false);
+const [showPermanentDeleteModal, setShowPermanentDeleteModal] = useState(false);
 
-  const [editingId, setEditingId] = useState(null);
-  const [editData, setEditData] = useState(null);
-  const [newNotes, setNewNotes] = useState({});
+const [editingId, setEditingId] = useState(null);
+const [editData, setEditData] = useState(null);
+const [newNotes, setNewNotes] = useState({});
 
-  const [expandedIds, setExpandedIds] = useState([]);
-  const [expandAll, setExpandAll] = useState(false);
+// Current table expand
+const [expandedIds, setExpandedIds] = useState([]);
+const [expandAll, setExpandAll] = useState(false);
 
-  const isAdmin = loggedInUser?.roles?.includes("admin");
+// Archived table UI (search/filter/expand)
+const [archSearch, setArchSearch] = useState("");
+const [archStatus, setArchStatus] = useState("all"); // all | Unassigned | Assigned | In Progress | Completed | Postponed | Cancelled
+const [archExpandedIds, setArchExpandedIds] = useState([]);
+
+const isAdmin = loggedInUser?.roles?.includes("admin");
+
   const isProducer = loggedInUser?.roles?.includes("producer");
   const isDriver = loggedInUser?.roles?.includes("driver");
   const [showArchived, setShowArchived] = useState(false);
@@ -426,18 +433,25 @@ const [filmSortAsc, setFilmSortAsc] = useState(true);
 
     setEditingId(ticket.id);
     setEditData({
-      ...ticket,
-      assignedDriver: autoDriver,
-      assignedCamOps: ticket.assignedCamOps || [],
-      assignedReporter: normalizedReporter,
-      vehicle: ticket.vehicle || "",
-      priority: ticket.priority || "Normal",
-      assignmentStatus: ticket.assignmentStatus || "Pending",
-      departureTime: ticket.departureTime?.slice(0, 5) || "",
-      filmingTime: ticket.filmingTime?.slice(0, 5) || "",
-      location: ticket.location || "",
-      title: ticket.title || "",
-    });
+  ...ticket,
+  // Main driver (TO)
+  assignedDriver: autoDriver,
+  // Always keep Return (FROM) same as TO by default
+  assignedDriverFrom: autoDriver,
+  // Optional: additional drivers for extra vehicles
+  additionalDrivers: Array.isArray(ticket.additionalDrivers)
+    ? [...ticket.additionalDrivers]
+    : [],
+  assignedCamOps: ticket.assignedCamOps || [],
+  assignedReporter: normalizedReporter,
+  vehicle: ticket.vehicle || "",
+  priority: ticket.priority || "Normal",
+  assignmentStatus: ticket.assignmentStatus || "Pending",
+  departureTime: ticket.departureTime?.slice(0, 5) || "",
+  filmingTime: ticket.filmingTime?.slice(0, 5) || "",
+  location: ticket.location || "",
+  title: ticket.title || "",
+});
   };
 
   const saveEditing = async () => {
@@ -471,26 +485,52 @@ const [filmSortAsc, setFilmSortAsc] = useState(true);
       )
     );
 
-    const updatedTicket = {
-      id: original.id,
-      title: editData.title || original.title,
-      date: editData.date || original.date,
-      location: editData.location || original.location,
-      filmingTime: editData.filmingTime || original.filmingTime,
-      departureTime: editData.departureTime || original.departureTime,
-      assignedCamOps:
-        editData.assignedCamOps || original.assignedCamOps || [],
-      assignedDriver:
-        editData.assignedDriver || original.assignedDriver || "",
-      assignedReporter: reporterArray,
-      vehicle: editData.vehicle || original.vehicle || "",
-      assignmentStatus:
-        editData.assignmentStatus ||
-        original.assignmentStatus ||
-        "Unassigned",
-      priority: editData.priority || original.priority || "Normal",
-      assignedBy: loggedInUser?.name || "Unknown",
-    };
+    const unique = (arr) =>
+  Array.from(new Set((arr || []).map((s) => String(s || "").trim()).filter(Boolean)));
+
+const updatedTicket = {
+  id: original.id,
+  title: editData.title || original.title,
+  date: editData.date || original.date,
+  location: editData.location || original.location,
+  filmingTime: editData.filmingTime || original.filmingTime,
+  departureTime: editData.departureTime || original.departureTime,
+
+  assignedCamOps:
+    editData.assignedCamOps || original.assignedCamOps || [],
+
+  // Primary driver (TO location)
+  assignedDriver:
+    editData.assignedDriver || original.assignedDriver || "",
+
+  // NEW: Return driver (FROM location)
+  assignedDriverFrom:
+    editData.assignedDriverFrom || original.assignedDriverFrom || "",
+
+  // NEW: Additional drivers (extra vehicles)
+  additionalDrivers: unique(
+    Array.isArray(editData.additionalDrivers)
+      ? editData.additionalDrivers
+      : Array.isArray(original.additionalDrivers)
+      ? original.additionalDrivers
+      : []
+  ),
+
+  assignedReporter: reporterArray,
+  vehicle: editData.vehicle || original.vehicle || "",
+  assignmentStatus:
+    editData.assignmentStatus ||
+    original.assignmentStatus ||
+    "Unassigned",
+  priority: editData.priority || original.priority || "Normal",
+  assignedBy: loggedInUser?.name || "Unknown",
+};
+
+// If "return driver" equals main driver, keep it but it's fine (UI treats as single).
+// Optionally, you could blank it:
+// if (updatedTicket.assignedDriverFrom === updatedTicket.assignedDriver) {
+//   updatedTicket.assignedDriverFrom = "";
+// }
 
     if (
       updatedTicket.assignmentStatus === "Unassigned" &&
@@ -679,46 +719,47 @@ const [filmSortAsc, setFilmSortAsc] = useState(true);
       )}
 
       <div className="overflow-x-auto">
-        <table className="min-w-full text-sm border border-gray-300">
+  <table className="min-w-full text-sm border border-gray-300 table-fixed">
           <thead className="bg-blue-800 text-white">
   <tr>
     {showSelectBoxes && <th className="p-2 text-center">Select</th>}
 
     {/* Title */}
-    <th className="p-2 text-center whitespace-nowrap">Title</th>
+<th className="px-2 py-1 text-center text-xs font-semibold">Title</th>
 
-    {/* Filming Date & Time — clickable sort header */}
-    <th
-      className="p-2 text-center whitespace-nowrap select-none cursor-pointer"
-      onClick={() => setFilmSortAsc((v) => !v)}
-      title="Sort by Filming Date & Time"
-    >
-      <div className="inline-flex items-center justify-center gap-2">
-        <span>Filming Date &amp; Time</span>
-        <span aria-hidden="true">{filmSortAsc ? "▲" : "▼"}</span>
-      </div>
-    </th>
+{/* Filming Date & Time — clickable sort header */}
+<th
+  className="px-2 py-1 text-center text-xs font-semibold select-none cursor-pointer"
+  onClick={() => setFilmSortAsc((v) => !v)}
+  title="Sort by Filming Date & Time"
+>
+  <div className="inline-flex items-center justify-center gap-2">
+    <span>Filming Date &amp; Time</span>
+    <span aria-hidden="true">{filmSortAsc ? "▲" : "▼"}</span>
+  </div>
+</th>
 
-    {/* Departure Time */}
-    <th className="p-2 text-center whitespace-nowrap">Departure Time</th>
+{/* Departure Time */}
+<th className="px-2 py-1 text-center text-xs font-semibold">Departure Time</th>
 
-    {/* Location */}
-    <th className="p-2 text-center whitespace-nowrap">Location</th>
+{/* Location */}
+<th className="px-2 py-1 text-center text-xs font-semibold">Location</th>
 
-    {/* Cam Ops */}
-    <th className="p-2 text-center whitespace-nowrap">Cam Ops</th>
+{/* Cam Ops */}
+<th className="px-2 py-1 text-center text-xs font-semibold">Cam Ops</th>
 
-    {/* Driver */}
-    <th className="p-2 text-center whitespace-nowrap">Driver</th>
+{/* Driver */}
+<th className="px-2 py-1 text-center text-xs font-semibold">Driver</th>
 
-    {/* Assigned Reporter */}
-    <th className="p-2 text-center whitespace-nowrap">Assigned Reporter</th>
+{/* Assigned Reporter */}
+<th className="px-2 py-1 text-center text-xs font-semibold">Assigned Reporter</th>
 
-    {/* Status */}
-    <th className="p-2 text-center whitespace-nowrap">Status</th>
+{/* Status */}
+<th className="px-2 py-1 text-center text-xs font-semibold">Status</th>
 
-    {/* Actions */}
-    <th className="p-2 text-center whitespace-nowrap">Actions</th>
+{/* Actions */}
+<th className="px-2 py-1 text-center text-xs font-semibold">Actions</th>
+
   </tr>
 </thead>
 
@@ -799,32 +840,31 @@ const [filmSortAsc, setFilmSortAsc] = useState(true);
                     )}
 
                     {/* Title */}
-                    <td className="p-2 text-center whitespace-nowrap">
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={editData?.title || ""}
-                          onChange={(e) =>
-                            setEditData((d) => ({
-                              ...d,
-                              title: e.target.value,
-                            }))
-                          }
-                          className="border px-2 py-1 rounded w-full"
-                        />
-                      ) : (
-                        <div className="flex items-center justify-center gap-2">
-                          <span>{ticket.title}</span>
-                          {(ticket.camCount > 1 ||
-                            ticket.expectedCamOps > 1) && (
-                            <Badge variant="secondary" className="text-xs">
-                              👤{ticket.expectedCamOps || 1}🎥
-                              {ticket.camCount || 1}
-                            </Badge>
-                          )}
-                        </div>
-                      )}
-                    </td>
+<td className="px-2 py-1 text-center align-middle">
+  {isEditing ? (
+    <input
+      type="text"
+      value={editData?.title || ""}
+      onChange={(e) =>
+        setEditData((d) => ({
+          ...d,
+          title: e.target.value,
+        }))
+      }
+      className="border px-2 py-1 rounded w-full"
+    />
+  ) : (
+    <div className="flex items-center justify-center gap-2">
+      <div className="truncate max-w-[160px]">{ticket.title}</div>
+      {(ticket.camCount > 1 || ticket.expectedCamOps > 1) && (
+        <Badge variant="secondary" className="text-[10px]">
+          👤{ticket.expectedCamOps || 1}🎥{ticket.camCount || 1}
+        </Badge>
+      )}
+    </div>
+  )}
+</td>
+
 
                     {/* Filming Date & Time */}
                     <td className="p-2 text-center whitespace-nowrap">
@@ -895,23 +935,24 @@ const [filmSortAsc, setFilmSortAsc] = useState(true);
                     </td>
 
                     {/* Location */}
-                    <td className="p-2 text-center whitespace-nowrap">
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={editData?.location || ""}
-                          onChange={(e) =>
-                            setEditData((d) => ({
-                              ...d,
-                              location: e.target.value,
-                            }))
-                          }
-                          className="border px-2 py-1 rounded w-full"
-                        />
-                      ) : (
-                        ticket.location || "-"
-                      )}
-                    </td>
+<td className="px-2 py-1 text-center align-middle">
+  {isEditing ? (
+    <input
+      type="text"
+      value={editData?.location || ""}
+      onChange={(e) =>
+        setEditData((d) => ({
+          ...d,
+          location: e.target.value,
+        }))
+      }
+      className="border px-2 py-1 rounded w-full"
+    />
+  ) : (
+    <div className="truncate max-w-[140px] mx-auto">{ticket.location || "-"}</div>
+  )}
+</td>
+
 
                     {/* Cam Ops */}
                     <td className="p-2 text-center whitespace-nowrap">
@@ -947,77 +988,191 @@ const [filmSortAsc, setFilmSortAsc] = useState(true);
                     </td>
 
                     {/* Driver */}
-                    <td className="p-2 text-center whitespace-nowrap">
-                      {isEditing ? (
-                        <select
-                          value={editData?.assignedDriver || ""}
-                          onChange={(e) =>
-                            setEditData((d) => ({
-                              ...d,
-                              assignedDriver: e.target.value,
-                            }))
-                          }
-                          className="border px-2 py-1 rounded"
-                        >
-                          <option value="">Select Driver</option>
-                          {driverOptions.map((u) => (
-                            <option key={u.name} value={u.name}>
-                              {u.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        ticket.assignedDriver || "-"
-                      )}
-                    </td>
+<td className="px-2 py-1 text-center align-middle">
+  {isEditing ? (
+    <div className="space-y-1">
+      {/* Main driver (TO location) */}
+      <div className="flex items-center justify-center gap-2">
+        <label className="text-xs text-gray-600">Driver (TO):</label>
+        <select
+          value={editData?.assignedDriver || ""}
+          onChange={(e) => {
+            const v = e.target.value;
+            // Sync FROM with TO automatically on every TO change
+            setEditData((d) => ({
+              ...d,
+              assignedDriver: v,
+              assignedDriverFrom: v,
+            }));
+          }}
+          className="border px-2 py-1 rounded text-xs"
+        >
+          <option value="">Select Driver</option>
+          {driverOptions.map((u) => (
+            <option key={u.name} value={u.name}>
+              {u.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Return driver (FROM) — visible, but can be changed after */}
+      <div className="flex items-center justify-center gap-2">
+        <label className="text-xs text-gray-600">Return (FROM):</label>
+        <select
+          value={editData?.assignedDriverFrom || ""}
+          onChange={(e) =>
+            setEditData((d) => ({
+              ...d,
+              assignedDriverFrom: e.target.value,
+            }))
+          }
+          className="border px-2 py-1 rounded text-xs"
+        >
+          <option value="">Select Return Driver</option>
+          {driverOptions.map((u) => (
+            <option key={u.name} value={u.name}>
+              {u.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Additional drivers (extra vehicles) */}
+      <div className="space-y-1">
+        {Array.isArray(editData?.additionalDrivers) &&
+          editData.additionalDrivers.map((name, idx) => (
+            <div key={idx} className="flex items-center justify-center gap-2">
+              <label className="text-xs text-gray-600">
+                Additional #{idx + 1}:
+              </label>
+              <select
+                value={name || ""}
+                onChange={(e) =>
+                  setEditData((d) => {
+                    const next = Array.isArray(d.additionalDrivers)
+                      ? [...d.additionalDrivers]
+                      : [];
+                    next[idx] = e.target.value;
+                    return { ...d, additionalDrivers: next };
+                  })
+                }
+                className="border px-2 py-1 rounded text-xs"
+              >
+                <option value="">Select Driver</option>
+                {driverOptions.map((u) => (
+                  <option key={u.name} value={u.name}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="text-[11px] text-gray-600 underline"
+                onClick={() =>
+                  setEditData((d) => {
+                    const next = (d.additionalDrivers || []).slice();
+                    next.splice(idx, 1);
+                    return { ...d, additionalDrivers: next };
+                  })
+                }
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+
+        <div className="text-[11px]">
+          <button
+            type="button"
+            className="underline text-blue-600"
+            onClick={() =>
+              setEditData((d) => ({
+                ...d,
+                additionalDrivers: Array.isArray(d.additionalDrivers)
+                  ? [...d.additionalDrivers, ""]
+                  : [""],
+              }))
+            }
+          >
+            + Add driver
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : (
+    // VIEW MODE: compact summary
+    (() => {
+      const main = ticket.assignedDriver || "";
+      const ret = ticket.assignedDriverFrom || "";
+      const extras = Array.isArray(ticket.additionalDrivers)
+        ? ticket.additionalDrivers.filter(Boolean)
+        : [];
+
+      const parts = [];
+      if (main) parts.push(main);
+      if (ret && ret !== main) parts.push(`Return: ${ret}`);
+      const extraCount = extras.filter((n) => n && n !== main && n !== ret).length;
+      if (extraCount > 0) parts.push(`+${extraCount}`);
+
+      const compact = parts.length ? parts.join(" • ") : "-";
+      const fullList = [
+        main && `To: ${main}`,
+        ret && ret !== main && `From: ${ret}`,
+        ...extras.filter(Boolean).map((n, i) => `Additional ${i + 1}: ${n}`),
+      ]
+        .filter(Boolean)
+        .join(" | ");
+
+      return (
+        <div className="truncate max-w-[160px] mx-auto" title={fullList || ""}>
+          {compact}
+        </div>
+      );
+    })()
+  )}
+</td>
 
                     {/* Assigned Reporter */}
-                    <td className="p-2 text-center whitespace-nowrap">
-                      {isEditing ? (
-                        <MultiSelectCombobox
-                          options={reporterOptionsDecorated}
-                          selected={editData?.assignedReporter || []}
-                          onChange={(next) => {
-                            const stripRolePrefix = (s) =>
-                              String(s || "")
-                                .replace(
-                                  /^\s*(?:Journalist|Sports\s*Journalist|Producer)\s*:\s*/i,
-                                  ""
-                                )
-                                .trim();
+<td className="px-2 py-1 text-center align-middle">
+  {isEditing ? (
+    <MultiSelectCombobox
+      options={reporterOptionsDecorated}
+      selected={editData?.assignedReporter || []}
+      onChange={(next) => {
+        const stripRolePrefix = (s) =>
+          String(s || "")
+            .replace(
+              /^\s*(?:Journalist|Sports\s*Journalist|Producer)\s*:\s*/i,
+              ""
+            )
+            .trim();
 
-                            const values = Array.from(
-                              new Set(
-                                (next || [])
-                                  .map((v) =>
-                                    typeof v === "string" ? v : v?.value
-                                  )
-                                  .filter(
-                                    (val) =>
-                                      val &&
-                                      !String(val).startsWith("__rep_div")
-                                  )
-                                  .map(stripRolePrefix)
-                                  .filter(Boolean)
-                              )
-                            );
+        const values = Array.from(
+          new Set(
+            (next || [])
+              .map((v) => (typeof v === "string" ? v : v?.value))
+              .filter((val) => val && !String(val).startsWith("__rep_div"))
+              .map(stripRolePrefix)
+              .filter(Boolean)
+          )
+        );
 
-                            setEditData((prev) => ({
-                              ...prev,
-                              assignedReporter: values,
-                            }));
-                          }}
-                        />
-                      ) : Array.isArray(ticket.assignedReporter) &&
-                        ticket.assignedReporter.length > 0 ? (
-                        ticket.assignedReporter.join(", ")
-                      ) : typeof ticket.assignedReporter === "string" &&
-                        ticket.assignedReporter.trim() ? (
-                        ticket.assignedReporter
-                      ) : (
-                        "-"
-                      )}
-                    </td>
+        setEditData((prev) => ({
+          ...prev,
+          assignedReporter: values,
+        }));
+      }}
+    />
+  ) : Array.isArray(ticket.assignedReporter) && ticket.assignedReporter.length > 0 ? (
+    <div className="truncate max-w-[160px] mx-auto">{ticket.assignedReporter.join(", ")}</div>
+  ) : typeof ticket.assignedReporter === "string" && ticket.assignedReporter.trim() ? (
+    <div className="truncate max-w-[160px] mx-auto">{ticket.assignedReporter}</div>
+  ) : (
+    "-"
+  )}
+</td>
+
 
                     {/* Status */}
                     <td className="p-2 text-center whitespace-nowrap">
@@ -1111,97 +1266,131 @@ const [filmSortAsc, setFilmSortAsc] = useState(true);
 
                   {/* Expanded Row */}
                   {isExpanded && (
-                    <tr className="bg-gray-100">
-                      <td
-                        colSpan={showSelectBoxes ? 9 : 8}
-                        className="p-4 text-sm text-gray-700"
-                      >
-                        <div className="mb-2 space-y-1">
-                          <div>
-                            <strong>Number of Cameras:</strong>{" "}
-                            {ticket.camCount}
-                          </div>
-                          <div>
-                            <strong>Cam Op Requirement:</strong>{" "}
-                            {ticket.expectedCamOps
-                              ? `${ticket.expectedCamOps} operator${
-                                  ticket.expectedCamOps > 1 ? "s" : ""
-                                } expected`
-                              : ticket.onlyOneCamOp
-                              ? "Only one operator required"
-                              : "Multiple operators expected"}
-                          </div>
-                          <div>
-                            <strong>Assigned Cam Ops:</strong>{" "}
-                            {Array.isArray(ticket.assignedCamOps) &&
-                            ticket.assignedCamOps.length > 0
-                              ? ticket.assignedCamOps.join(", ")
-                              : "-"}
-                          </div>
-                          {ticket.type === "News" && ticket.category && (
-                            <div>
-                              <strong>News Category:</strong> {ticket.category}
-                            </div>
-                          )}
-                          {ticket.type === "Sports" && ticket.subtype && (
-                            <div>
-                              <strong>Sports Subtype:</strong>{" "}
-                              {ticket.subtype}
-                            </div>
-                          )}
-                        </div>
+  <tr className="bg-gray-100">
+    <td
+      colSpan={showSelectBoxes ? 9 : 8}
+      className="p-4 text-sm text-gray-700"
+    >
+      {/* FULL TITLE (expanded view) */}
+      <div className="mb-3">
+        <strong className="block text-gray-600">Title</strong>
+        <div className="text-base font-semibold leading-snug break-words">
+          {ticket.title || "-"}
+        </div>
+      </div>
 
-                        <div className="mt-3">
-                          <strong>Assigned By:</strong>{" "}
-                          <span className="text-gray-700 font-medium">
-                            {ticket.assignedBy || "Unknown"}
-                          </span>
-                        </div>
+      <div className="mb-2 space-y-1">
+        <div>
+          <strong>Number of Cameras:</strong>{" "}
+          {ticket.camCount}
+        </div>
+        <div>
+          <strong>Cam Op Requirement:</strong>{" "}
+          {ticket.expectedCamOps
+            ? `${ticket.expectedCamOps} operator${
+                ticket.expectedCamOps > 1 ? "s" : ""
+              } expected`
+            : ticket.onlyOneCamOp
+            ? "Only one operator required"
+            : "Multiple operators expected"}
+        </div>
+        <div>
+          <strong>Assigned Cam Ops:</strong>{" "}
+          {Array.isArray(ticket.assignedCamOps) &&
+          ticket.assignedCamOps.length > 0
+            ? ticket.assignedCamOps.join(", ")
+            : "-"}
+        </div>
+        {ticket.type === "News" && ticket.category && (
+          <div>
+            <strong>News Category:</strong> {ticket.category}
+          </div>
+        )}
+        {ticket.type === "Sports" && ticket.subtype && (
+  <div>
+    <strong>Sports Subtype:</strong>{" "}
+    {ticket.subtype}
+  </div>
+)}
 
-                        <div className="mt-2">
-                          <strong>Notes:</strong>
-                          {Array.isArray(ticket.notes) &&
-                          ticket.notes.length > 0 ? (
-                            <ul className="list-disc list-inside ml-2 mt-1">
-                              {ticket.notes.map((note, noteIdx) => (
-                                <li key={noteIdx}>
-                                  {note.text}{" "}
-                                  <span className="text-gray-500 text-xs">
-                                    — {note.author}, {note.timestamp}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="text-gray-500 italic">No notes</p>
-                          )}
-                        </div>
+/* Full drivers section (expanded view) */
+<div className="mt-3">
+  <strong>Drivers:</strong>
+  <div className="mt-1 space-y-1">
+    <div>
+      <span className="text-gray-600">To (main):</span>{" "}
+      <span className="font-medium">
+        {ticket.assignedDriver || "-"}
+      </span>
+    </div>
+    <div>
+      <span className="text-gray-600">From (return):</span>{" "}
+      <span className="font-medium">
+        {ticket.assignedDriverFrom || "-"}
+      </span>
+    </div>
+    <div>
+      <span className="text-gray-600">Additional:</span>{" "}
+      <span className="font-medium">
+        {Array.isArray(ticket.additionalDrivers) && ticket.additionalDrivers.length > 0
+          ? ticket.additionalDrivers.filter(Boolean).join(", ")
+          : "-"}
+      </span>
+    </div>
+  </div>
+</div>
+      </div>
 
-                        {canAddNotes && (
-                          <div className="mt-2">
-                            <input
-                              type="text"
-                              placeholder="Add note"
-                              value={newNotes[ticket.id] || ""}
-                              onChange={(e) =>
-                                setNewNotes((prev) => ({
-                                  ...prev,
-                                  [ticket.id]: e.target.value,
-                                }))
-                              }
-                              className="border rounded p-1 w-2/3 mr-2"
-                            />
-                            <button
-                              onClick={() => handleAddNote(ticket.id)}
-                              className="text-xs text-blue-600 hover:underline"
-                            >
-                              Add Note
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )}
+      <div className="mt-3">
+        <strong>Assigned By:</strong>{" "}
+        <span className="text-gray-700 font-medium">
+          {ticket.assignedBy || "Unknown"}
+        </span>
+      </div>
+
+      <div className="mt-2">
+        <strong>Notes:</strong>
+        {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
+          <ul className="list-disc list-inside ml-2 mt-1">
+            {ticket.notes.map((note, noteIdx) => (
+              <li key={noteIdx}>
+                {note.text}{" "}
+                <span className="text-gray-500 text-xs">
+                  — {note.author}, {note.timestamp}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-gray-500 italic">No notes</p>
+        )}
+      </div>
+
+      {canAddNotes && (
+        <div className="mt-2">
+          <input
+            type="text"
+            placeholder="Add note"
+            value={newNotes[ticket.id] || ""}
+            onChange={(e) =>
+              setNewNotes((prev) => ({
+                ...prev,
+                [ticket.id]: e.target.value,
+              }))
+            }
+            className="border rounded p-1 w-2/3 mr-2"
+          />
+          <button
+            onClick={() => handleAddNote(ticket.id)}
+            className="text-xs text-blue-600 hover:underline"
+          >
+            Add Note
+          </button>
+        </div>
+      )}
+    </td>
+  </tr>
+)}
                 </React.Fragment>
               );
             })}
@@ -1210,206 +1399,433 @@ const [filmSortAsc, setFilmSortAsc] = useState(true);
       </div>
 
       {/* Archived Tickets */}
-      <div className="mt-6">
-        <button
-          onClick={() => setShowArchived(!showArchived)}
-          className="flex items-center gap-1 text-sm underline"
-        >
-          {showArchived ? (
-            <>
-              <ChevronUp size={16} /> Hide Archived (
-              {tickets.filter((t) => t.archived).length})
-            </>
-          ) : (
-            <>
-              <ChevronDown size={16} /> Show Archived (
-              {tickets.filter((t) => t.archived).length})
-            </>
-          )}
-        </button>
+<div className="mt-6">
+  <button
+    onClick={() => setShowArchived(!showArchived)}
+    className="flex items-center gap-1 text-sm underline"
+  >
+    {showArchived ? (
+      <>
+        <ChevronUp size={16} /> Hide Archived (
+        {tickets.filter((t) => t.archived).length})
+      </>
+    ) : (
+      <>
+        <ChevronDown size={16} /> Show Archived (
+        {tickets.filter((t) => t.archived).length})
+      </>
+    )}
+  </button>
 
-        {showArchived && (
-          <div className="mt-3 border rounded shadow">
-            {tickets.filter((t) => t.archived).length === 0 ? (
-              <p className="text-gray-500 px-2 py-2">No archived forms.</p>
-            ) : (
-              <>
-                <div className="flex items-center justify-between p-2">
-                  <button
-                    className="text-sm text-blue-600 underline"
-                    onClick={() => {
-                      const archived = tickets.filter((t) => t.archived);
-                      if (selectedArchivedIds.length === archived.length) {
-                        setSelectedArchivedIds([]);
-                      } else {
-                        setSelectedArchivedIds(archived.map((t) => t.id));
-                      }
-                    }}
-                  >
-                    {selectedArchivedIds.length ===
-                    tickets.filter((t) => t.archived).length
-                      ? "Deselect All"
-                      : "Select All in Archives"}
-                  </button>
+  {showArchived && (
+    <div className="mt-3 border rounded shadow p-2">
+      {tickets.filter((t) => t.archived).length === 0 ? (
+        <p className="text-gray-500 px-2 py-2">No archived forms.</p>
+      ) : (
+        <>
+          {/* Controls row: Select all, Search, Status filter, Bulk actions */}
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2">
+            <div className="flex items-center gap-3">
+              <button
+                className="text-sm text-blue-600 underline"
+                onClick={() => {
+                  const archived = tickets.filter((t) => t.archived);
+                  if (selectedArchivedIds.length === archived.length) {
+                    setSelectedArchivedIds([]);
+                  } else {
+                    setSelectedArchivedIds(archived.map((t) => t.id));
+                  }
+                }}
+              >
+                {selectedArchivedIds.length === tickets.filter((t) => t.archived).length
+                  ? "Deselect All"
+                  : "Select All in Archives"}
+              </button>
 
-                  {selectedArchivedIds.length > 0 && (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={async () => {
-                          try {
-                            const toRestore = tickets.filter(
-                              (t) =>
-                                t.archived &&
-                                selectedArchivedIds.includes(t.id)
-                            );
-                            for (const ticket of toRestore) {
-                              await fetch(`${API_BASE}/tickets/${ticket.id}`, {
-                                method: "PATCH",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                },
-                                body: JSON.stringify({ archived: false }),
-                              });
-                            }
+              {/* Search */}
+              <input
+                type="text"
+                value={archSearch}
+                onChange={(e) => setArchSearch(e.target.value)}
+                placeholder="Search (title, location, driver, reporter, cam ops)…"
+                className="border rounded px-2 py-1 text-sm w-64"
+              />
 
-                            setSelectedArchivedIds([]);
-                            const response = await fetch(`${API_BASE}/tickets`);
-                            const data = await response.json();
-                            setTickets(data);
-                          } catch (err) {
-                            console.error(
-                              "Failed to restore archived tickets:",
-                              err
-                            );
-                          }
-                        }}
-                        className="px-3 py-1 border rounded text-green-600 border-green-600 hover:bg-green-50"
-                      >
-                        Restore Selected
-                      </button>
+              {/* Status filter */}
+              <select
+                value={archStatus}
+                onChange={(e) => setArchStatus(e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
+                title="Filter by status"
+              >
+                {["all","Unassigned","Assigned","In Progress","Completed","Postponed","Cancelled"].map(s => (
+                  <option key={s} value={s}>{s === "all" ? "All statuses" : s}</option>
+                ))}
+              </select>
+            </div>
 
-                      <button
-                        onClick={async () => {
-                          try {
-                            const toRecycle = tickets.filter(
-                              (t) =>
-                                t.archived &&
-                                selectedArchivedIds.includes(t.id)
-                            );
-                            for (const ticket of toRecycle) {
-                              await fetch(`${API_BASE}/tickets/${ticket.id}`, {
-                                method: "PATCH",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                },
-                                body: JSON.stringify({
-                                  archived: false,
-                                  deleted: true,
-                                }),
-                              });
-                            }
-
-                            setSelectedArchivedIds([]);
-                            const response = await fetch(`${API_BASE}/tickets`);
-                            const data = await response.json();
-                            setTickets(data);
-                          } catch (err) {
-                            console.error(
-                              "Failed to move archived tickets to recycle bin:",
-                              err
-                            );
-                          }
-                        }}
-                        className="px-3 py-1 border rounded text-red-600 border-red-600 hover:bg-red-100"
-                      >
-                        Send to Recycle Bin
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <table className="min-w-full text-sm">
-                  <thead className="bg-gray-200">
-                    <tr>
-                      <th className="p-2 text-center">Select</th>
-                      <th className="p-2 text-center">Title</th>
-                      <th className="p-2 text-center">Filming</th>
-                      <th className="p-2 text-center">Departure</th>
-                      <th className="p-2 text-center">Location</th>
-                      <th className="p-2 text-center">Driver</th>
-                      <th className="p-2 text-center">Status</th>
-                      <th className="p-2 text-center">Priority</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tickets
-                      .filter((t) => t.archived)
-                      .map((ticket, idx) => {
-                        const isSelected = selectedArchivedIds.includes(
-                          ticket.id
-                        );
-                        const date = ticket.date?.trim?.();
-                        const d = new Date(date);
-                        const day = String(d.getDate()).padStart(2, "0");
-                        const month = d.toLocaleString("en-US", {
-                          month: "short",
+            {/* Bulk actions */}
+            {selectedArchivedIds.length > 0 && (
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      const toRestore = tickets.filter(
+                        (t) => t.archived && selectedArchivedIds.includes(t.id)
+                      );
+                      for (const ticket of toRestore) {
+                        await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ archived: false }),
                         });
-                        const year = String(d.getFullYear()).slice(2);
-                        const hh = String(d.getHours()).padStart(2, "0");
-                        const mm = String(d.getMinutes()).padStart(2, "0");
-                        const formatted = !isNaN(d.getTime())
-                          ? `${day}-${month}-${year}, ${hh}:${mm}`
-                          : "-";
+                      }
+                      setSelectedArchivedIds([]);
+                      const response = await fetch(`${API_BASE}/tickets`);
+                      const data = await response.json();
+                      setTickets(data);
+                    } catch (err) {
+                      console.error("Failed to restore archived tickets:", err);
+                    }
+                  }}
+                  className="px-3 py-1 border rounded text-green-600 border-green-600 hover:bg-green-50"
+                >
+                  Restore Selected
+                </button>
 
-                        return (
-                          <tr
-                            key={ticket.id}
-                            className={
-                              idx % 2 === 0 ? "bg-white" : "bg-gray-50"
-                            }
-                          >
-                            <td className="p-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => {
-                                  setSelectedArchivedIds((prev) =>
-                                    prev.includes(ticket.id)
-                                      ? prev.filter((x) => x !== ticket.id)
-                                      : [...prev, ticket.id]
-                                  );
-                                }}
-                              />
-                            </td>
-                            <td className="p-2 text-center">{ticket.title}</td>
-                            <td className="p-2 text-center">{formatted}</td>
-                            <td className="p-2 text-center">
-                              {ticket.departureTime || "-"}
-                            </td>
-                            <td className="p-2 text-center">
-                              {ticket.location || "-"}
-                            </td>
-                            <td className="p-2 text-center">
-                              {ticket.assignedDriver || "-"}
-                            </td>
-                            <td className="p-2 text-center">
-                              <StatusBadge
-                                status={ticket.assignmentStatus || "Unassigned"}
-                              />
-                            </td>
-                            <td className="p-2 text-center">
-                              {ticket.priority || "Normal"}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
-              </>
+                <button
+                  onClick={async () => {
+                    try {
+                      const toRecycle = tickets.filter(
+                        (t) => t.archived && selectedArchivedIds.includes(t.id)
+                      );
+                      for (const ticket of toRecycle) {
+                        await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ archived: false, deleted: true }),
+                        });
+                      }
+                      setSelectedArchivedIds([]);
+                      const response = await fetch(`${API_BASE}/tickets`);
+                      const data = await response.json();
+                      setTickets(data);
+                    } catch (err) {
+                      console.error("Failed to move archived tickets to recycle bin:", err);
+                    }
+                  }}
+                  className="px-3 py-1 border rounded text-red-600 border-red-600 hover:bg-red-100"
+                >
+                  Send to Recycle Bin
+                </button>
+              </div>
             )}
           </div>
-        )}
-      </div>
+
+          {/* Derived archived list with search + filter */}
+          {(() => {
+  const q = archSearch.trim().toLowerCase();
+
+  const matchesQuery = (t) => {
+    if (!q) return true;
+    const check = (val) => String(val || "").toLowerCase().includes(q);
+
+    return (
+      check(t.title) ||
+      check(t.location) ||
+      check(t.assignedDriver) ||
+      check(t.assignedDriverFrom) ||
+      (Array.isArray(t.additionalDrivers) && t.additionalDrivers.some(check)) ||
+      (Array.isArray(t.assignedReporter) && t.assignedReporter.some(check)) ||
+      (Array.isArray(t.assignedCamOps) && t.assignedCamOps.some(check))
+    );
+  };
+
+  // ✅ Rename to avoid any shadowing: function, not boolean
+  const isStatusMatch = (t) => {
+    const filter = String(archStatus || "all").toLowerCase();
+    if (filter === "all") return true;
+    const current = String(t.assignmentStatus || "Unassigned").toLowerCase();
+    return current === filter;
+  };
+
+  const archivedFiltered = tickets.filter(
+    (t) => t.archived && matchesQuery(t) && isStatusMatch(t)
+  );
+
+  if (archivedFiltered.length === 0) {
+    return (
+      <p className="text-gray-500 px-2 py-2">
+        No archived forms match your search/filter.
+      </p>
+    );
+  }
+
+  // Same columns as the main table, compact / table-fixed
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm border border-gray-300 table-fixed">
+        <thead className="bg-blue-800 text-white">
+          <tr>
+            <th className="px-2 py-1 text-center text-xs font-semibold">Select</th>
+            <th className="px-2 py-1 text-center text-xs font-semibold">Title</th>
+            <th className="px-2 py-1 text-center text-xs font-semibold">Filming Date &amp; Time</th>
+            <th className="px-2 py-1 text-center text-xs font-semibold">Departure Time</th>
+            <th className="px-2 py-1 text-center text-xs font-semibold">Location</th>
+            <th className="px-2 py-1 text-center text-xs font-semibold">Cam Ops</th>
+            <th className="px-2 py-1 text-center text-xs font-semibold">Driver</th>
+            <th className="px-2 py-1 text-center text-xs font-semibold">Assigned Reporter</th>
+            <th className="px-2 py-1 text-center text-xs font-semibold">Status</th>
+            <th className="px-2 py-1 text-center text-xs font-semibold">Actions</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {archivedFiltered.map((ticket, rowIdx) => {
+            const isExpanded = archExpandedIds.includes(ticket.id);
+
+            // date formatting identical to current table
+            const filmingISO = ticket.date?.trim?.();
+            let filmingDisplay = "-";
+            if (filmingISO) {
+              const d = new Date(filmingISO);
+              if (!isNaN(d.getTime())) {
+                const day = String(d.getDate()).padStart(2, "0");
+                const month = d.toLocaleString("en-US", { month: "short" });
+                const year = String(d.getFullYear()).slice(2);
+                const hh = String(d.getHours()).padStart(2, "0");
+                const mm = String(d.getMinutes()).padStart(2, "0");
+                filmingDisplay = `${day}-${month}-${year}, ${hh}:${mm}`;
+              } else {
+                filmingDisplay = filmingISO;
+              }
+            }
+
+            // compact driver summary (same logic you use in current table)
+            const main = ticket.assignedDriver || "";
+            const ret = ticket.assignedDriverFrom || "";
+            const extras = Array.isArray(ticket.additionalDrivers)
+              ? ticket.additionalDrivers.filter(Boolean)
+              : [];
+            const parts = [];
+            if (main) parts.push(main);
+            if (ret && ret !== main) parts.push(`Return: ${ret}`);
+            const extraCount = extras.filter((n) => n && n !== main && n !== ret).length;
+            if (extraCount > 0) parts.push(`+${extraCount}`);
+            const compactDriver = parts.length ? parts.join(" • ") : "-";
+            const driverTitle = [
+              main && `To: ${main}`,
+              ret && ret !== main && `From: ${ret}`,
+              ...extras.filter(Boolean).map((n, i) => `Additional ${i + 1}: ${n}`),
+            ]
+              .filter(Boolean)
+              .join(" | ");
+
+            return (
+              <React.Fragment key={ticket.id}>
+                <tr
+                  className={`${rowIdx % 2 === 0 ? "bg-white" : "bg-gray-50"} border-b`}
+                >
+                  <td className="px-2 py-1 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedArchivedIds.includes(ticket.id)}
+                      onChange={() =>
+                        setSelectedArchivedIds((prev) =>
+                          prev.includes(ticket.id)
+                            ? prev.filter((x) => x !== ticket.id)
+                            : [...prev, ticket.id]
+                        )
+                      }
+                    />
+                  </td>
+
+                  {/* Title (truncate like current table) */}
+                  <td className="px-2 py-1 text-center align-middle">
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="truncate max-w-[160px]">{ticket.title}</div>
+                      {(ticket.camCount > 1 || ticket.expectedCamOps > 1) && (
+                        <Badge variant="secondary" className="text-[10px]">
+                          👤{ticket.expectedCamOps || 1}🎥{ticket.camCount || 1}
+                        </Badge>
+                      )}
+                    </div>
+                  </td>
+
+                  {/* Filming Date & Time */}
+                  <td className="px-2 py-1 text-center align-middle">{filmingDisplay}</td>
+
+                  {/* Departure Time */}
+                  <td className="px-2 py-1 text-center align-middle">
+                    {ticket.departureTime || "-"}
+                  </td>
+
+                  {/* Location */}
+                  <td className="px-2 py-1 text-center align-middle">
+                    <div className="truncate max-w-[140px] mx-auto">
+                      {ticket.location || "-"}
+                    </div>
+                  </td>
+
+                  {/* Cam Ops */}
+                  <td className="px-2 py-1 text-center align-middle">
+                    {Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0
+                      ? ticket.assignedCamOps.join(", ")
+                      : "-"}
+                  </td>
+
+                  {/* Driver */}
+                  <td className="px-2 py-1 text-center align-middle">
+                    <div className="truncate max-w-[160px] mx-auto" title={driverTitle}>
+                      {compactDriver}
+                    </div>
+                  </td>
+
+                  {/* Assigned Reporter */}
+                  <td className="px-2 py-1 text-center align-middle">
+                    {Array.isArray(ticket.assignedReporter) && ticket.assignedReporter.length > 0 ? (
+                      <div className="truncate max-w-[160px] mx-auto">
+                        {ticket.assignedReporter.join(", ")}
+                      </div>
+                    ) : typeof ticket.assignedReporter === "string" &&
+                      ticket.assignedReporter.trim() ? (
+                      <div className="truncate max-w-[160px] mx-auto">
+                        {ticket.assignedReporter}
+                      </div>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+
+                  {/* Status */}
+                  <td className="px-2 py-1 text-center align-middle">
+                    <StatusBadge status={ticket.assignmentStatus || "Unassigned"} />
+                  </td>
+
+                  {/* Actions (Expand only for archives) */}
+                  <td className="px-2 py-1 text-center align-middle">
+                    <button
+                      className="text-blue-600 hover:underline text-xs"
+                      onClick={() =>
+                        setArchExpandedIds((prev) =>
+                          prev.includes(ticket.id)
+                            ? prev.filter((x) => x !== ticket.id)
+                            : [...prev, ticket.id]
+                        )
+                      }
+                    >
+                      {isExpanded ? "Collapse" : "Expand"}
+                    </button>
+                  </td>
+                </tr>
+
+                {/* Expanded Row (archives) */}
+                {isExpanded && (
+                  <tr className="bg-gray-100">
+                    <td colSpan={10} className="p-4 text-sm text-gray-700">
+                      {/* FULL TITLE */}
+                      <div className="mb-3">
+                        <strong className="block text-gray-600">Title</strong>
+                        <div className="text-base font-semibold leading-snug break-words">
+                          {ticket.title || "-"}
+                        </div>
+                      </div>
+
+                      <div className="mb-2 space-y-1">
+                        <div>
+                          <strong>Number of Cameras:</strong>{" "}
+                          {ticket.camCount}
+                        </div>
+                        <div>
+                          <strong>Cam Op Requirement:</strong>{" "}
+                          {ticket.expectedCamOps
+                            ? `${ticket.expectedCamOps} operator${ticket.expectedCamOps > 1 ? "s" : ""} expected`
+                            : ticket.onlyOneCamOp
+                            ? "Only one operator required"
+                            : "Multiple operators expected"}
+                        </div>
+                        <div>
+                          <strong>Assigned Cam Ops:</strong>{" "}
+                          {Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0
+                            ? ticket.assignedCamOps.join(", ")
+                            : "-"}
+                        </div>
+                        {ticket.type === "News" && ticket.category && (
+                          <div>
+                            <strong>News Category:</strong> {ticket.category}
+                          </div>
+                        )}
+                        {ticket.type === "Sports" && ticket.subtype && (
+                          <div>
+                            <strong>Sports Subtype:</strong> {ticket.subtype}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Drivers detail */}
+                      <div className="mt-3">
+                        <strong>Drivers:</strong>
+                        <div className="mt-1 space-y-1">
+                          <div>
+                            <span className="text-gray-600">To (main):</span>{" "}
+                            <span className="font-medium">{ticket.assignedDriver || "-"}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">From (return):</span>{" "}
+                            <span className="font-medium">{ticket.assignedDriverFrom || "-"}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Additional:</span>{" "}
+                            <span className="font-medium">
+                              {Array.isArray(ticket.additionalDrivers) && ticket.additionalDrivers.length > 0
+                                ? ticket.additionalDrivers.filter(Boolean).join(", ")
+                                : "-"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3">
+                        <strong>Assigned By:</strong>{" "}
+                        <span className="text-gray-700 font-medium">
+                          {ticket.assignedBy || "Unknown"}
+                        </span>
+                      </div>
+
+                      <div className="mt-2">
+                        <strong>Notes:</strong>
+                        {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
+                          <ul className="list-disc list-inside ml-2 mt-1">
+                            {ticket.notes.map((note, noteIdx) => (
+                              <li key={noteIdx}>
+                                {note.text}{" "}
+                                <span className="text-gray-500 text-xs">
+                                  — {note.author}, {note.timestamp}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-gray-500 italic">No notes</p>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+})()}
+        </>
+      )}
+    </div>
+  )}
+</div>
+
 
       {/* Recycle Bin */}
       <div className="mt-6">
