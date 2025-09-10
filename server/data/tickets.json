@@ -526,15 +526,20 @@
     "departureTime": "07:30",
     "filmingTime": "08:00",
     "assignedCamOps": [],
-    "assignedDriver": "",
+    "assignedDriver": "Nelson Joseph",
     "vehicle": "",
     "assignmentStatus": "Unassigned",
     "isReady": false,
     "status": "Pending",
-    "assignedReporter": "Journalist: Joshua Sofola",
+    "assignedReporter": [
+      "Joshua Sofola"
+    ],
     "vehicleStatus": "",
     "createdBy": "Admin",
-    "createdAt": "2025-09-10T03:56:54.971Z"
+    "createdAt": "2025-09-10T03:56:54.971Z",
+    "assignedDriverFrom": "Joshua Dodin",
+    "additionalDrivers": [],
+    "assignedBy": "Admin"
   },
   {
     "id": "1757476627596",
@@ -570,7 +575,7 @@
   },
   {
     "id": "1757476639509",
-    "title": "awdwsad",
+    "title": "awdwsad fahjkfahfka hfawhwakfjawksf afwfioahfoawf afskfbn fawhuoahwf anfjwnjf awofhohb",
     "type": "News",
     "category": "",
     "subtype": "",
@@ -590,15 +595,21 @@
     "departureTime": "07:00",
     "filmingTime": "07:30",
     "assignedCamOps": [],
-    "assignedDriver": "",
+    "assignedDriver": "Gilmer Philoe",
     "vehicle": "",
     "assignmentStatus": "Unassigned",
     "isReady": false,
     "status": "Pending",
     "vehicleStatus": "",
-    "assignedReporter": "Journalist Admin",
+    "assignedReporter": [
+      "Journalist Admin",
+      "Clive Camille"
+    ],
     "createdBy": "Admin",
-    "createdAt": "2025-09-10T03:57:19.510Z"
+    "createdAt": "2025-09-10T03:57:19.510Z",
+    "assignedBy": "Admin",
+    "assignedDriverFrom": "Stephanie Remie",
+    "additionalDrivers": []
   },
   {
     "id": "1757476677615",
