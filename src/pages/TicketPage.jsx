@@ -252,6 +252,12 @@ const [archStatus, setArchStatus] = useState("all"); // all | Unassigned | Assig
 const [archType, setArchType] = useState("all");      // all | filming | technical
 const [archExpandedIds, setArchExpandedIds] = useState([]);
 
+// Archives sorting + date filters
+const [archSortAsc, setArchSortAsc] = useState(true);        // true=oldest→newest
+const [archDateFilter, setArchDateFilter] = useState("all"); // all | today | week | last_month | day
+const [archSpecificDay, setArchSpecificDay] = useState("");  // YYYY-MM-DD when archDateFilter === "day"
+
+
 const isAdmin = loggedInUser?.roles?.includes("admin");
 
   const isProducer = loggedInUser?.roles?.includes("producer");
@@ -1840,6 +1846,31 @@ const updatedTicket = {
     <option value="filming">Filming only</option>
     <option value="technical">Technical only</option>
   </select>
+
+  {/* Date filter */}
+  <select
+    value={archDateFilter}
+    onChange={(e) => setArchDateFilter(e.target.value)}
+    className="border rounded px-2 py-1 text-sm"
+    title="Filter by date"
+  >
+    <option value="all">All dates</option>
+    <option value="today">Today</option>
+    <option value="week">This week</option>
+    <option value="last_month">Last month</option>
+    <option value="day">Specific day…</option>
+  </select>
+
+  {/* Specific day picker */}
+  {archDateFilter === "day" && (
+    <input
+      type="date"
+      value={archSpecificDay}
+      onChange={(e) => setArchSpecificDay(e.target.value)}
+      className="border rounded px-2 py-1 text-sm"
+      title="Pick a day"
+    />
+  )}
 </div>
 
             {/* Bulk actions */}
@@ -1904,7 +1935,7 @@ const updatedTicket = {
           {(() => {
   const q = archSearch.trim().toLowerCase();
 
-   const matchesQuery = (t) => {
+    const matchesQuery = (t) => {
     if (!q) return true;
     const check = (val) => String(val || "").toLowerCase().includes(q);
 
@@ -1936,9 +1967,94 @@ const updatedTicket = {
     return true;
   };
 
-  const archivedFiltered = tickets.filter(
-    (t) => t.archived && matchesQuery(t) && isStatusMatch(t) && isTypeMatch(t)
-  );
+  // Date helpers (local time)
+  const parseLocal = (iso) => {
+    if (!iso) return null;
+    const d = new Date(String(iso));
+    return isNaN(d.getTime()) ? null : d;
+  };
+  const sameDay = (a, b) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  const startOfWeekMon = (d) => {
+    const x = new Date(d);
+    const day = x.getDay(); // 0=Sun
+    const diff = day === 0 ? -6 : 1 - day; // Monday start
+    x.setHours(0, 0, 0, 0);
+    x.setDate(x.getDate() + diff);
+    return x;
+  };
+  const endOfWeekSun = (d) => {
+    const s = startOfWeekMon(d);
+    const e = new Date(s);
+    e.setDate(s.getDate() + 6);
+    e.setHours(23, 59, 59, 999);
+    return e;
+  };
+
+  const startOfToday = () => {
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    return t;
+  };
+  const endOfToday = () => {
+    const t = new Date();
+    t.setHours(23, 59, 59, 999);
+    return t;
+  };
+
+  const startOfLastMonth = () => {
+    const now = new Date();
+    const s = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+    return s;
+  };
+  const endOfLastMonth = () => {
+    const now = new Date();
+    const s = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999); // day 0 = last day prev month
+    return s;
+  };
+
+  const isDateMatch = (t) => {
+    const mode = String(archDateFilter || "all").toLowerCase();
+    if (mode === "all") return true;
+
+    const d = parseLocal(t?.date);
+    if (!d) return false; // no date → exclude when filtering by time
+
+    if (mode === "today") {
+      return d >= startOfToday() && d <= endOfToday();
+    }
+    if (mode === "week") {
+      const s = startOfWeekMon(new Date());
+      const e = endOfWeekSun(new Date());
+      return d >= s && d <= e;
+    }
+    if (mode === "last_month") {
+      const s = startOfLastMonth();
+      const e = endOfLastMonth();
+      return d >= s && d <= e;
+    }
+    if (mode === "day") {
+      if (!archSpecificDay) return true; // if no day picked yet, don't hide everything
+      const picked = parseLocal(archSpecificDay + "T00:00");
+      if (!picked) return false;
+      return sameDay(d, picked);
+    }
+    return true;
+  };
+
+  // Filter then sort by date using archSortAsc
+  const archivedFiltered = tickets
+    .filter((t) => t.archived && matchesQuery(t) && isStatusMatch(t) && isTypeMatch(t) && isDateMatch(t))
+    .sort((a, b) => {
+      const da = parseLocal(a?.date);
+      const db = parseLocal(b?.date);
+      const ta = da ? da.getTime() : (archSortAsc ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY);
+      const tb = db ? db.getTime() : (archSortAsc ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY);
+      return archSortAsc ? ta - tb : tb - ta;
+    });
 
   if (archivedFiltered.length === 0) {
     return (
@@ -1956,7 +2072,16 @@ const updatedTicket = {
           <tr>
             <th className="px-2 py-1 text-center text-xs font-semibold">Select</th>
             <th className="px-2 py-1 text-center text-xs font-semibold">Title</th>
-            <th className="px-2 py-1 text-center text-xs font-semibold">Filming Date &amp; Time</th>
+            <th
+  className="px-2 py-1 text-center text-xs font-semibold select-none cursor-pointer"
+  onClick={() => setArchSortAsc((v) => !v)}
+  title="Sort by Filming Date & Time"
+>
+  <div className="inline-flex items-center justify-center gap-2">
+    <span>Filming Date &amp; Time</span>
+    <span aria-hidden="true">{archSortAsc ? "▲" : "▼"}</span>
+  </div>
+</th>
             <th className="px-2 py-1 text-center text-xs font-semibold">Departure Time</th>
             <th className="px-2 py-1 text-center text-xs font-semibold">Location</th>
             <th className="px-2 py-1 text-center text-xs font-semibold">Cam Ops</th>
