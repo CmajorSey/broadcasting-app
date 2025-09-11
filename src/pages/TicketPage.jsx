@@ -222,6 +222,9 @@ const [selectedCurrentIds, setSelectedCurrentIds] = useState([]);
 const [selectedArchivedIds, setSelectedArchivedIds] = useState([]);
 const [selectedDeletedIds, setSelectedDeletedIds] = useState([]);
 
+// Technical table selection
+const [selectedTechIds, setSelectedTechIds] = useState([]);
+
 const [showSelectBoxes, setShowSelectBoxes] = useState(false);
 const [showRecycleModal, setShowRecycleModal] = useState(false);
 const [showRestoreModal, setShowRestoreModal] = useState(false);
@@ -231,13 +234,22 @@ const [editingId, setEditingId] = useState(null);
 const [editData, setEditData] = useState(null);
 const [newNotes, setNewNotes] = useState({});
 
-// Current table expand
+// Current table expand (Filming)
 const [expandedIds, setExpandedIds] = useState([]);
 const [expandAll, setExpandAll] = useState(false);
+
+// Technical table expand
+const [techExpandedIds, setTechExpandedIds] = useState([]);
+const [techExpandAll, setTechExpandAll] = useState(false);
+
+// Technical table search
+const [techSearch, setTechSearch] = useState("");
+
 
 // Archived table UI (search/filter/expand)
 const [archSearch, setArchSearch] = useState("");
 const [archStatus, setArchStatus] = useState("all"); // all | Unassigned | Assigned | In Progress | Completed | Postponed | Cancelled
+const [archType, setArchType] = useState("all");      // all | filming | technical
 const [archExpandedIds, setArchExpandedIds] = useState([]);
 
 const isAdmin = loggedInUser?.roles?.includes("admin");
@@ -585,6 +597,15 @@ const updatedTicket = {
   // ===== Selection / Expansion helpers (ID-based) =====
   const currentTickets = tickets.filter((t) => !t.deleted && !t.archived);
 
+  // Filming vs Technical (active only)
+  const filmingCurrent = currentTickets.filter((t) =>
+    t.type !== "Technical"
+  );
+  const technicalCurrent = currentTickets.filter((t) =>
+    t.type === "Technical"
+  );
+
+
   const toggleSelect = (id) => {
     setSelectedCurrentIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -765,7 +786,7 @@ const updatedTicket = {
 
 
           <tbody>
-            {currentTickets
+                       {filmingCurrent
   .slice()
   .sort((a, b) => {
     // safe getters
@@ -1279,39 +1300,52 @@ const updatedTicket = {
         </div>
       </div>
 
-      <div className="mb-2 space-y-1">
+     <div className="mb-2 space-y-1">
+  {ticket.type === "Technical" ? (
+    <>
+      <div>
+        <strong>Scope of Work:</strong>{" "}
+        {ticket.scopeOfWork || "-"}
+      </div>
+      <div>
+        <strong>Assigned Technicians:</strong>{" "}
+        {Array.isArray(ticket.assignedTechnicians) && ticket.assignedTechnicians.length > 0
+          ? ticket.assignedTechnicians.join(", ")
+          : "-"}
+      </div>
+    </>
+  ) : (
+    <>
+      <div>
+        <strong>Number of Cameras:</strong>{" "}
+        {ticket.camCount}
+      </div>
+      <div>
+        <strong>Cam Op Requirement:</strong>{" "}
+        {ticket.expectedCamOps
+          ? `${ticket.expectedCamOps} operator${ticket.expectedCamOps > 1 ? "s" : ""} expected`
+          : ticket.onlyOneCamOp
+          ? "Only one operator required"
+          : "Multiple operators expected"}
+      </div>
+      <div>
+        <strong>Assigned Cam Ops:</strong>{" "}
+        {Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0
+          ? ticket.assignedCamOps.join(", ")
+          : "-"}
+      </div>
+      {ticket.type === "News" && ticket.category && (
         <div>
-          <strong>Number of Cameras:</strong>{" "}
-          {ticket.camCount}
+          <strong>News Category:</strong> {ticket.category}
         </div>
+      )}
+      {ticket.type === "Sports" && ticket.subtype && (
         <div>
-          <strong>Cam Op Requirement:</strong>{" "}
-          {ticket.expectedCamOps
-            ? `${ticket.expectedCamOps} operator${
-                ticket.expectedCamOps > 1 ? "s" : ""
-              } expected`
-            : ticket.onlyOneCamOp
-            ? "Only one operator required"
-            : "Multiple operators expected"}
+          <strong>Sports Subtype:</strong> {ticket.subtype}
         </div>
-        <div>
-          <strong>Assigned Cam Ops:</strong>{" "}
-          {Array.isArray(ticket.assignedCamOps) &&
-          ticket.assignedCamOps.length > 0
-            ? ticket.assignedCamOps.join(", ")
-            : "-"}
-        </div>
-        {ticket.type === "News" && ticket.category && (
-          <div>
-            <strong>News Category:</strong> {ticket.category}
-          </div>
-        )}
-        {ticket.type === "Sports" && ticket.subtype && (
-  <div>
-    <strong>Sports Subtype:</strong>{" "}
-    {ticket.subtype}
-  </div>
-)}
+      )}
+    </>
+  )}
 
 /* Full drivers section (expanded view) */
 <div className="mt-3">
@@ -1398,6 +1432,338 @@ const updatedTicket = {
         </table>
       </div>
 
+        {/* Technical Work (only visible when there are active Technical tickets) */}
+      {technicalCurrent.length > 0 && (
+        <div className="mt-6">
+          <h2 className="text-lg font-semibold mb-2">Technical Work</h2>
+
+          {/* Controls for Technical table */}
+          <div className="flex flex-wrap items-center mb-2 gap-2">
+            <button
+              onClick={() => {
+                setSelectedTechIds([]);
+                setTechExpandedIds([]);
+                setTechExpandAll(false);
+              }}
+              className="px-3 py-1 border rounded"
+              title="Reset selection & expansion"
+            >
+              Reset
+            </button>
+
+            <button
+              onClick={() => {
+                if (selectedTechIds.length === technicalCurrent.length) {
+                  setSelectedTechIds([]);
+                } else {
+                  setSelectedTechIds(technicalCurrent.map((t) => t.id));
+                }
+              }}
+              className="px-3 py-1 border rounded"
+            >
+              {selectedTechIds.length === technicalCurrent.length
+                ? "Deselect All"
+                : "Select All"}
+            </button>
+
+            <button
+              onClick={() => {
+                if (techExpandAll) {
+                  setTechExpandedIds([]);
+                  setTechExpandAll(false);
+                } else {
+                  setTechExpandedIds(technicalCurrent.map((t) => t.id));
+                  setTechExpandAll(true);
+                }
+              }}
+              className="px-3 py-1 border rounded"
+            >
+              {techExpandAll ? "Collapse All" : "Expand All"}
+            </button>
+
+            <input
+              type="text"
+              value={techSearch}
+              onChange={(e) => setTechSearch(e.target.value)}
+              placeholder="Search (title, location, scope, technicians)…"
+              className="ml-auto border rounded px-2 py-1 text-sm w-72"
+            />
+          </div>
+
+          {/* Bulk actions for Technical */}
+          {selectedTechIds.length > 0 && (
+            <div className="flex gap-2 mb-2">
+              <button
+                onClick={async () => {
+                  try {
+                    const toArchive = technicalCurrent.filter((t) =>
+                      selectedTechIds.includes(t.id)
+                    );
+                    for (const ticket of toArchive) {
+                      await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ archived: true }),
+                      });
+                    }
+                    const res = await fetch(`${API_BASE}/tickets`);
+                    const updated = await res.json();
+                    setTickets(updated);
+                    setSelectedTechIds([]);
+                    setTechExpandedIds([]);
+                    setTechExpandAll(false);
+                  } catch (err) {
+                    console.error("Failed to archive Technical tickets:", err);
+                  }
+                }}
+                className="text-yellow-600 border border-yellow-600 hover:bg-yellow-100 px-3 py-1 rounded-md transition"
+              >
+                Send to Archives
+              </button>
+
+              <button
+                onClick={async () => {
+                  try {
+                    const toRecycle = technicalCurrent.filter((t) =>
+                      selectedTechIds.includes(t.id)
+                    );
+                    for (const ticket of toRecycle) {
+                      await fetch(`${API_BASE}/tickets/${ticket.id}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ deleted: true }),
+                      });
+                    }
+                    const res = await fetch(`${API_BASE}/tickets`);
+                    const updated = await res.json();
+                    setTickets(updated);
+                    setSelectedTechIds([]);
+                    setTechExpandedIds([]);
+                    setTechExpandAll(false);
+                  } catch (err) {
+                    console.error("Failed to recycle Technical tickets:", err);
+                  }
+                }}
+                className="text-red-500 border border-red-500 hover:bg-red-100 px-3 py-1 rounded-md transition"
+              >
+                Send to Recycle Bin
+              </button>
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm border border-gray-300 table-fixed">
+              <thead className="bg-slate-800 text-white">
+                <tr>
+                  <th className="px-2 py-1 text-center text-xs font-semibold">Select</th>
+                  <th className="px-2 py-1 text-center text-xs font-semibold">Title</th>
+                  <th className="px-2 py-1 text-center text-xs font-semibold">Scope of Work</th>
+                  <th className="px-2 py-1 text-center text-xs font-semibold">Technicians</th>
+                  <th className="px-2 py-1 text-center text-xs font-semibold">Departure Time</th>
+                  <th className="px-2 py-1 text-center text-xs font-semibold">Location</th>
+                  <th className="px-2 py-1 text-center text-xs font-semibold">Status</th>
+                  <th className="px-2 py-1 text-center text-xs font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {technicalCurrent
+                  .filter((t) => {
+                    const q = techSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    const text = [
+                      t.title,
+                      t.location,
+                      t.scopeOfWork,
+                      ...(Array.isArray(t.assignedTechnicians) ? t.assignedTechnicians : []),
+                    ]
+                      .join(" ")
+                      .toLowerCase();
+                    return text.includes(q);
+                  })
+                  .sort((a, b) => {
+                    const aIso = String(a?.date || "");
+                    const bIso = String(b?.date || "");
+                    return aIso.localeCompare(bIso);
+                  })
+                  .map((ticket, idx) => {
+                    const isExpanded = techExpandedIds.includes(ticket.id);
+                    const technicians =
+                      Array.isArray(ticket.assignedTechnicians) && ticket.assignedTechnicians.length > 0
+                        ? ticket.assignedTechnicians.join(", ")
+                        : "-";
+
+                    // Compute default “Assigned” if technicians present
+                    const hasTeam =
+                      Array.isArray(ticket.assignedTechnicians) && ticket.assignedTechnicians.length > 0;
+                    const computedDefault = hasTeam ? "Assigned" : "Unassigned";
+                    const effectiveStatus = ticket.assignmentStatus || computedDefault;
+
+                    return (
+                      <React.Fragment key={ticket.id}>
+                        <tr className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} border-b`}>
+                          <td className="p-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedTechIds.includes(ticket.id)}
+                              onChange={() =>
+                                setSelectedTechIds((prev) =>
+                                  prev.includes(ticket.id)
+                                    ? prev.filter((x) => x !== ticket.id)
+                                    : [...prev, ticket.id]
+                                )
+                              }
+                            />
+                          </td>
+
+                          {/* Title + 🛠 badge */}
+                          <td className="px-2 py-1 text-center align-middle">
+                            <div className="truncate max-w-[160px] mx-auto">{ticket.title || "-"}</div>
+                          </td>
+
+                          {/* Scope */}
+                          <td className="px-2 py-1 text-center align-middle">
+                            {ticket.scopeOfWork || "-"}
+                          </td>
+
+                          {/* Technicians */}
+                          <td className="px-2 py-1 text-center align-middle">
+                            <div className="truncate max-w-[180px] mx-auto" title={technicians}>
+                              {technicians}
+                            </div>
+                          </td>
+
+                          {/* Departure (optional) */}
+                          <td className="px-2 py-1 text-center align-middle">
+                            {ticket.departureTime || "-"}
+                          </td>
+
+                          {/* Location */}
+                          <td className="px-2 py-1 text-center align-middle">
+                            <div className="truncate max-w-[140px] mx-auto">
+                              {ticket.location || "-"}
+                            </div>
+                          </td>
+
+                          {/* Status (popover list kept identical) */}
+                          <td className="p-2 text-center whitespace-nowrap">
+                            <StatusBadge status={effectiveStatus} />
+                          </td>
+
+                          {/* Actions */}
+                          <td className="p-2 text-center whitespace-nowrap">
+                            <div className="flex gap-2 justify-center">
+                              <button
+                                className="text-blue-600 hover:underline text-xs"
+                                onClick={() => startEditing(ticket.id)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className="text-yellow-600 hover:underline text-xs"
+                                onClick={() =>
+                                  setTechExpandedIds((prev) =>
+                                    prev.includes(ticket.id)
+                                      ? prev.filter((x) => x !== ticket.id)
+                                      : [...prev, ticket.id]
+                                  )
+                                }
+                              >
+                                {isExpanded ? "Collapse" : "Expand"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* Expanded Row (Technical) */}
+                        {isExpanded && (
+                          <tr className="bg-gray-100">
+                            <td colSpan={8} className="p-4 text-sm text-gray-700">
+                              {/* FULL TITLE */}
+                              <div className="mb-3">
+                                <strong className="block text-gray-600">Title</strong>
+                                <div className="text-base font-semibold leading-snug break-words">
+                                  {ticket.title || "-"}
+                                </div>
+                              </div>
+
+                              <div className="mb-2 space-y-1">
+                                <div>
+                                  <strong>Scope of Work:</strong>{" "}
+                                  {ticket.scopeOfWork || "-"}
+                                </div>
+                                <div>
+                                  <strong>Assigned Technicians:</strong>{" "}
+                                  {technicians}
+                                </div>
+                                <div>
+                                  <strong>Departure Time:</strong>{" "}
+                                  {ticket.departureTime || "-"}
+                                </div>
+                                <div>
+                                  <strong>Location:</strong>{" "}
+                                  {ticket.location || "-"}
+                                </div>
+                              </div>
+
+                              <div className="mt-3">
+                                <strong>Assigned By:</strong>{" "}
+                                <span className="text-gray-700 font-medium">
+                                  {ticket.assignedBy || "Unknown"}
+                                </span>
+                              </div>
+
+                              <div className="mt-2">
+                                <strong>Notes:</strong>
+                                {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
+                                  <ul className="list-disc list-inside ml-2 mt-1">
+                                    {ticket.notes.map((note, noteIdx) => (
+                                      <li key={noteIdx}>
+                                        {note.text}{" "}
+                                        <span className="text-gray-500 text-xs">
+                                          — {note.author}, {note.timestamp}
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="text-gray-500 italic">No notes</p>
+                                )}
+                              </div>
+
+                              {canAddNotes && (
+                                <div className="mt-2">
+                                  <input
+                                    type="text"
+                                    placeholder="Add note"
+                                    value={newNotes[ticket.id] || ""}
+                                    onChange={(e) =>
+                                      setNewNotes((prev) => ({
+                                        ...prev,
+                                        [ticket.id]: e.target.value,
+                                      }))
+                                    }
+                                    className="border rounded p-1 w-2/3 mr-2"
+                                  />
+                                  <button
+                                    onClick={() => handleAddNote(ticket.id)}
+                                    className="text-xs text-blue-600 hover:underline"
+                                  >
+                                    Add Note
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Archived Tickets */}
 <div className="mt-6">
   <button
@@ -1426,43 +1792,55 @@ const updatedTicket = {
           {/* Controls row: Select all, Search, Status filter, Bulk actions */}
           <div className="flex flex-wrap items-center justify-between gap-2 p-2">
             <div className="flex items-center gap-3">
-              <button
-                className="text-sm text-blue-600 underline"
-                onClick={() => {
-                  const archived = tickets.filter((t) => t.archived);
-                  if (selectedArchivedIds.length === archived.length) {
-                    setSelectedArchivedIds([]);
-                  } else {
-                    setSelectedArchivedIds(archived.map((t) => t.id));
-                  }
-                }}
-              >
-                {selectedArchivedIds.length === tickets.filter((t) => t.archived).length
-                  ? "Deselect All"
-                  : "Select All in Archives"}
-              </button>
+  <button
+    className="text-sm text-blue-600 underline"
+    onClick={() => {
+      const archived = tickets.filter((t) => t.archived);
+      if (selectedArchivedIds.length === archived.length) {
+        setSelectedArchivedIds([]);
+      } else {
+        setSelectedArchivedIds(archived.map((t) => t.id));
+      }
+    }}
+  >
+    {selectedArchivedIds.length === tickets.filter((t) => t.archived).length
+      ? "Deselect All"
+      : "Select All in Archives"}
+  </button>
 
-              {/* Search */}
-              <input
-                type="text"
-                value={archSearch}
-                onChange={(e) => setArchSearch(e.target.value)}
-                placeholder="Search (title, location, driver, reporter, cam ops)…"
-                className="border rounded px-2 py-1 text-sm w-64"
-              />
+  {/* Search */}
+  <input
+    type="text"
+    value={archSearch}
+    onChange={(e) => setArchSearch(e.target.value)}
+    placeholder="Search (title, location, driver, reporter, cam ops)…"
+    className="border rounded px-2 py-1 text-sm w-64"
+  />
 
-              {/* Status filter */}
-              <select
-                value={archStatus}
-                onChange={(e) => setArchStatus(e.target.value)}
-                className="border rounded px-2 py-1 text-sm"
-                title="Filter by status"
-              >
-                {["all","Unassigned","Assigned","In Progress","Completed","Postponed","Cancelled"].map(s => (
-                  <option key={s} value={s}>{s === "all" ? "All statuses" : s}</option>
-                ))}
-              </select>
-            </div>
+  {/* Status filter */}
+  <select
+    value={archStatus}
+    onChange={(e) => setArchStatus(e.target.value)}
+    className="border rounded px-2 py-1 text-sm"
+    title="Filter by status"
+  >
+    {["all","Unassigned","Assigned","In Progress","Completed","Postponed","Cancelled"].map(s => (
+      <option key={s} value={s}>{s === "all" ? "All statuses" : s}</option>
+    ))}
+  </select>
+
+  {/* Type filter */}
+  <select
+    value={archType}
+    onChange={(e) => setArchType(e.target.value)}
+    className="border rounded px-2 py-1 text-sm"
+    title="Filter by type"
+  >
+    <option value="all">All types</option>
+    <option value="filming">Filming only</option>
+    <option value="technical">Technical only</option>
+  </select>
+</div>
 
             {/* Bulk actions */}
             {selectedArchivedIds.length > 0 && (
@@ -1526,7 +1904,7 @@ const updatedTicket = {
           {(() => {
   const q = archSearch.trim().toLowerCase();
 
-  const matchesQuery = (t) => {
+   const matchesQuery = (t) => {
     if (!q) return true;
     const check = (val) => String(val || "").toLowerCase().includes(q);
 
@@ -1535,13 +1913,14 @@ const updatedTicket = {
       check(t.location) ||
       check(t.assignedDriver) ||
       check(t.assignedDriverFrom) ||
+      check(t.scopeOfWork) || // Technical field
+      (Array.isArray(t.assignedTechnicians) && t.assignedTechnicians.some(check)) || // Technical field
       (Array.isArray(t.additionalDrivers) && t.additionalDrivers.some(check)) ||
       (Array.isArray(t.assignedReporter) && t.assignedReporter.some(check)) ||
       (Array.isArray(t.assignedCamOps) && t.assignedCamOps.some(check))
     );
   };
 
-  // ✅ Rename to avoid any shadowing: function, not boolean
   const isStatusMatch = (t) => {
     const filter = String(archStatus || "all").toLowerCase();
     if (filter === "all") return true;
@@ -1549,8 +1928,16 @@ const updatedTicket = {
     return current === filter;
   };
 
+  const isTypeMatch = (t) => {
+    const filter = String(archType || "all").toLowerCase();
+    if (filter === "all") return true;
+    if (filter === "technical") return t.type === "Technical";
+    if (filter === "filming") return t.type !== "Technical";
+    return true;
+  };
+
   const archivedFiltered = tickets.filter(
-    (t) => t.archived && matchesQuery(t) && isStatusMatch(t)
+    (t) => t.archived && matchesQuery(t) && isStatusMatch(t) && isTypeMatch(t)
   );
 
   if (archivedFiltered.length === 0) {
@@ -1624,8 +2011,10 @@ const updatedTicket = {
             return (
               <React.Fragment key={ticket.id}>
                 <tr
-                  className={`${rowIdx % 2 === 0 ? "bg-white" : "bg-gray-50"} border-b`}
-                >
+  className={`${rowIdx % 2 === 0 ? "bg-white" : "bg-gray-50"} border-b ${
+    ticket.type === "Technical" ? "bg-slate-50" : ""
+  }`}
+>
                   <td className="px-2 py-1 text-center">
                     <input
                       type="checkbox"
@@ -1731,34 +2120,59 @@ const updatedTicket = {
                         </div>
                       </div>
 
-                      <div className="mb-2 space-y-1">
-                        <div>
-                          <strong>Number of Cameras:</strong>{" "}
-                          {ticket.camCount}
-                        </div>
-                        <div>
-                          <strong>Cam Op Requirement:</strong>{" "}
-                          {ticket.expectedCamOps
-                            ? `${ticket.expectedCamOps} operator${ticket.expectedCamOps > 1 ? "s" : ""} expected`
-                            : ticket.onlyOneCamOp
-                            ? "Only one operator required"
-                            : "Multiple operators expected"}
-                        </div>
-                        <div>
-                          <strong>Assigned Cam Ops:</strong>{" "}
-                          {Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0
-                            ? ticket.assignedCamOps.join(", ")
-                            : "-"}
-                        </div>
-                        {ticket.type === "News" && ticket.category && (
-                          <div>
-                            <strong>News Category:</strong> {ticket.category}
-                          </div>
-                        )}
-                        {ticket.type === "Sports" && ticket.subtype && (
-                          <div>
-                            <strong>Sports Subtype:</strong> {ticket.subtype}
-                          </div>
+                                         <div className="mb-2 space-y-1">
+                        {ticket.type === "Technical" ? (
+                          <>
+                            <div>
+                              <strong>Scope of Work:</strong>{" "}
+                              {ticket.scopeOfWork || "-"}
+                            </div>
+                            <div>
+                              <strong>Assigned Technicians:</strong>{" "}
+                              {Array.isArray(ticket.assignedTechnicians) && ticket.assignedTechnicians.length > 0
+                                ? ticket.assignedTechnicians.join(", ")
+                                : "-"}
+                            </div>
+                            <div>
+                              <strong>Departure Time:</strong>{" "}
+                              {ticket.departureTime || "-"}
+                            </div>
+                            <div>
+                              <strong>Location:</strong>{" "}
+                              {ticket.location || "-"}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div>
+                              <strong>Number of Cameras:</strong>{" "}
+                              {ticket.camCount}
+                            </div>
+                            <div>
+                              <strong>Cam Op Requirement:</strong>{" "}
+                              {ticket.expectedCamOps
+                                ? `${ticket.expectedCamOps} operator${ticket.expectedCamOps > 1 ? "s" : ""} expected`
+                                : ticket.onlyOneCamOp
+                                ? "Only one operator required"
+                                : "Multiple operators expected"}
+                            </div>
+                            <div>
+                              <strong>Assigned Cam Ops:</strong>{" "}
+                              {Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0
+                                ? ticket.assignedCamOps.join(", ")
+                                : "-"}
+                            </div>
+                            {ticket.type === "News" && ticket.category && (
+                              <div>
+                                <strong>News Category:</strong> {ticket.category}
+                              </div>
+                            )}
+                            {ticket.type === "Sports" && ticket.subtype && (
+                              <div>
+                                <strong>Sports Subtype:</strong> {ticket.subtype}
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
 
