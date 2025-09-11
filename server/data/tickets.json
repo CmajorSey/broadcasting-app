@@ -674,5 +674,59 @@
     "vehicleStatus": "",
     "createdBy": "Admin",
     "createdAt": "2025-09-10T03:58:18.999Z"
+  },
+  {
+    "id": "1757482614317",
+    "type": "Technical",
+    "title": "General Elections Test",
+    "date": "2025-09-09T11:00",
+    "location": "South and West of Mahe",
+    "scopeOfWork": "Signal Test",
+    "assignedTechnicians": [
+      "Christopher Gabriel"
+    ],
+    "departureTime": "10:30",
+    "filmingTime": null,
+    "status": "Pending",
+    "assignmentStatus": "Unassigned",
+    "isReady": false,
+    "vehicle": "",
+    "vehicleStatus": "",
+    "notes": [
+      {
+        "text": "LiveU Signal tests for the General Elections 2025",
+        "author": "Admin",
+        "timestamp": "9/10/2025, 9:36:54 AM"
+      }
+    ],
+    "assignedReporter": [],
+    "createdBy": "Admin",
+    "createdAt": "2025-09-10T05:36:54.318Z",
+    "archived": true,
+    "assignedCamOps": []
+  },
+  {
+    "id": "1757562254790",
+    "type": "Technical",
+    "title": "gshf",
+    "date": "2025-09-11T08:40",
+    "location": "Providence",
+    "scopeOfWork": "Signal Test",
+    "assignedTechnicians": [
+      "Christopher Gabriel"
+    ],
+    "departureTime": "08:10",
+    "filmingTime": null,
+    "status": "Pending",
+    "assignmentStatus": "Unassigned",
+    "isReady": false,
+    "vehicle": "",
+    "vehicleStatus": "",
+    "notes": [],
+    "assignedReporter": [],
+    "createdBy": "Admin",
+    "createdAt": "2025-09-11T03:44:14.790Z",
+    "archived": false,
+    "assignedCamOps": []
   }
 ]

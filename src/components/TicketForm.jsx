@@ -234,24 +234,23 @@ function getDefaultShootType(role, type) {
 function getInitialFormData(loggedInUser) {
   const now = new Date();
   const userRoles = loggedInUser?.roles?.map((r) => r.toLowerCase()) || [];
-let detectedRole = "journalist"; // fallback
 
-if (userRoles.includes("producer")) {
-  detectedRole = "producer";
-} else if (userRoles.includes("admin")) {
-  detectedRole = "admin";
-} else if (
-  loggedInUser?.description?.toLowerCase().includes("sport")
-) {
-  detectedRole = "sports_journalist";
-}
-let defaultType = "";
-if (detectedRole === "producer") defaultType = "Production";
-else if (detectedRole === "sports_journalist") defaultType = "Sports";
-else if (detectedRole === "journalist") defaultType = "News";
-else if (detectedRole === "admin") defaultType = "News";
+  let detectedRole = "journalist"; // fallback
+  if (userRoles.includes("producer")) {
+    detectedRole = "producer";
+  } else if (userRoles.includes("admin")) {
+    detectedRole = "admin";
+  } else if ((loggedInUser?.description || "").toLowerCase().includes("sport")) {
+    detectedRole = "sports_journalist";
+  }
 
-const defaultShoot = getDefaultShootType(detectedRole, defaultType);
+  let defaultType = "";
+  if (detectedRole === "producer") defaultType = "Production";
+  else if (detectedRole === "sports_journalist") defaultType = "Sports";
+  else if (detectedRole === "journalist") defaultType = "News";
+  else if (detectedRole === "admin") defaultType = "News";
+
+  const defaultShoot = getDefaultShootType(detectedRole, defaultType);
 
   now.setSeconds(0);
   now.setMilliseconds(0);
@@ -265,31 +264,34 @@ const defaultShoot = getDefaultShootType(detectedRole, defaultType);
   const departureStr = departureTime.toTimeString().slice(0, 5);
 
   return {
+    // Common/default fields
     title: "",
     type: defaultType,
     category: "",
     subtype: "",
     date: isoDate,
     location: "",
+    notes: "",
+
+    // Non-technical defaults
     priority: "Normal",
     camOp: true,
     shootType: defaultShoot,
-    notes: "",
     camCount: 1,
     onlyOneCamOp: true,
-    camAssignments: {
-      cam1: "",
-      cam2: "",
-      cam3: "",
-    },
+    camAssignments: { cam1: "", cam2: "", cam3: "" },
     departureTime: departureStr,
     filmingTime: departureStr,
-     assignedCamOps: [],
+    assignedCamOps: [],
     assignedDriver: "",
     vehicle: "",
     assignmentStatus: "Unassigned",
     isReady: false,
-    status: "Pending", // ✅ added here
+    status: "Pending",
+
+    // Technical-only fields (used when type === "Technical")
+    scopeOfWork: "",
+    assignedTechnicians: [],
   };
 }
 
@@ -300,7 +302,7 @@ function TicketForm({ users = [], loggedInUser, tickets = [], setTickets, vehicl
   const [selectedDate, setSelectedDate] = useState(
     formData.date ? new Date(formData.date) : new Date()
   );
-  const [jobTypes, setJobTypes] = useState(["News", "Sports", "Production"]);
+  const [jobTypes, setJobTypes] = useState(["News", "Sports", "Production", "Technical"]);
   const [newsCategories, setNewsCategories] = useState(["Press Conference", "Interview"]);
   const [sportsCategories, setSportsCategories] = useState(["Football", "Basketball", "Training", "Match"]);
   const [showNewsDropdown, setShowNewsDropdown] = useState(false);
@@ -623,16 +625,79 @@ function TicketForm({ users = [], loggedInUser, tickets = [], setTickets, vehicl
   };
 
   const { toast } = useToast();
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+const handleSubmit = async (e) => {
+  e.preventDefault();
 
+  const name = loggedInUser?.name || "Unknown";
+
+  // Validation rules
+  if (!formData.title?.trim()) {
+    alert("Please enter a title.");
+    return;
+  }
+  if (!formData.date) {
+    alert("Please select a date and time.");
+    return;
+  }
+  if (!formData.location?.trim()) {
+    alert("Please enter a location.");
+    return;
+  }
+
+  let newTicket;
+
+  if (formData.type === "Technical") {
+    // Technical-specific validation
+    if (!formData.scopeOfWork?.trim()) {
+      alert("Please select or enter a Scope of Work.");
+      return;
+    }
+    if (!Array.isArray(formData.assignedTechnicians) || formData.assignedTechnicians.length === 0) {
+      alert("Please assign at least one technician.");
+      return;
+    }
+
+    // Build Technical ticket payload
+    newTicket = {
+      id: Date.now().toString(),
+      type: "Technical",
+      title: formData.title,
+      date: formData.date,
+      location: formData.location,
+      // Technical fields
+      scopeOfWork: formData.scopeOfWork.trim(),
+      assignedTechnicians: formData.assignedTechnicians,
+      departureTime: formData.departureTime || "",
+      filmingTime: null, // 🔒 always null for Technical
+      // Common fields
+      status: "Pending",
+      assignmentStatus: "Unassigned",
+      isReady: false,
+      vehicle: formData.vehicle || "",
+      vehicleStatus: "",
+      // Notes normalized to array
+      notes: formData.notes
+        ? [
+            {
+              text: String(formData.notes).trim(),
+              author: name,
+              timestamp: new Date().toLocaleString(),
+            },
+          ]
+        : [],
+      // Reporter hidden for technical; store blank to avoid confusion
+      assignedReporter: "",
+      createdBy: name,
+      createdAt: new Date().toISOString(),
+    };
+  } else {
+    // Non-Technical ticket payload (original behavior)
     const filmingTimeFromDate = formData.date
       ? formData.date.split("T")[1]?.slice(0, 5)
       : "";
-    const name = loggedInUser?.name || "Unknown";
 
-    const newTicket = {
-      id: Date.now().toString(), // ✅ Generate a unique ID here
+    newTicket = {
+      id: Date.now().toString(),
       ...formData,
       filmingTime: formData.filmingTime || filmingTimeFromDate || "",
       status: "Pending",
@@ -657,35 +722,36 @@ function TicketForm({ users = [], loggedInUser, tickets = [], setTickets, vehicl
       createdBy: name,
       createdAt: new Date().toISOString(),
     };
+  }
 
-    console.log("🚀 handleSubmit triggered");
+  console.log("🚀 handleSubmit triggered");
 
-    try {
-      const res = await fetch(`${API_BASE}/tickets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newTicket),
-      });
+  try {
+    const res = await fetch(`${API_BASE}/tickets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newTicket),
+    });
 
-      if (!res.ok) throw new Error("Failed to submit ticket");
+    if (!res.ok) throw new Error("Failed to submit ticket");
 
-      const savedTicket = await res.json();
+    const savedTicket = await res.json();
 
-      const updatedTickets = [savedTicket, ...tickets];
-      setTickets(updatedTickets);
-      setFormData(getInitialFormData());
-      console.log("✅ Ticket submitted to backend by:", name);
+    const updatedTickets = [savedTicket, ...tickets];
+    setTickets(updatedTickets);
+    setFormData(getInitialFormData(loggedInUser));
+    console.log("✅ Ticket submitted to backend by:", name);
 
-      toast({
-        title: "✅ Request Created",
-        description: "Your request was successfully submitted.",
-        duration: 2000,
-      });
-    } catch (error) {
-      console.error("❌ Error submitting request:", error);
-      alert("Request submission failed. Please try again.");
-    }
-  };
+    toast({
+      title: "✅ Request Created",
+      description: "Your request was successfully submitted.",
+      duration: 2000,
+    });
+  } catch (error) {
+    console.error("❌ Error submitting request:", error);
+    alert("Request submission failed. Please try again.");
+  }
+};
 
   const removeFromList = (item, setList) => {
     setList((prev) => prev.filter((x) => x !== item));
@@ -791,255 +857,323 @@ function TicketForm({ users = [], loggedInUser, tickets = [], setTickets, vehicl
           />
 
           {/* Job Type */}
-          <div className="space-y-2">
-            <label className="block font-semibold mb-1">Request Type</label>
-            <div className="flex items-center gap-2">
-              <select
-                name="type"
-                value={formData.type}
-                onChange={(e) => {
-                  const newType = e.target.value;
-                  const userRoles = loggedInUser?.roles?.map((r) => r.toLowerCase()) || [];
-                  let detectedRole = "journalist";
+<div className="space-y-2">
+  <label className="block font-semibold mb-1">Request Type</label>
+  <div className="flex items-center gap-2">
+    <select
+      name="type"
+      value={formData.type}
+      onChange={(e) => {
+        const newType = e.target.value;
+        const userRoles = loggedInUser?.roles?.map((r) => r.toLowerCase()) || [];
+        let detectedRole = "journalist";
 
-                  if (userRoles.includes("producer")) {
-                    detectedRole = "producer";
-                  } else if (userRoles.includes("admin")) {
-                    detectedRole = "admin";
-                  } else if (
-                    loggedInUser?.description?.toLowerCase().includes("sport")
-                  ) {
-                    detectedRole = "sports_journalist";
-                  } else if (userRoles.includes("journalist")) {
-                    detectedRole = "journalist";
-                  }
+        if (userRoles.includes("producer")) detectedRole = "producer";
+        else if (userRoles.includes("admin")) detectedRole = "admin";
+        else if ((loggedInUser?.description || "").toLowerCase().includes("sport")) detectedRole = "sports_journalist";
+        else if (userRoles.includes("journalist")) detectedRole = "journalist";
 
-                  const newShootType = getDefaultShootType(detectedRole, newType);
-                  const existingDate = formData.date || new Date().toISOString().slice(0, 16);
+        const newShootType = getDefaultShootType(detectedRole, newType);
+        const existingDate = formData.date || new Date().toISOString().slice(0, 16);
 
-                  setFormData({
-                    ...formData,
-                    type: newType,
-                    shootType: newShootType,
-                    category: "",
-                    subtype: "",
-                    date: existingDate, // ensures camOpStatuses get triggered
-                  });
-                }}
-                className="input flex-1"
-              >
-                <option value="">Select Type</option>
-                {jobTypes.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
+        // When switching to Technical, clear/hide irrelevant fields
+        if (newType === "Technical") {
+          setFormData({
+            ...formData,
+            type: newType,
+            // clear non-technical fields
+            shootType: "",
+            category: "",
+            subtype: "",
+            priority: "",
+            assignedCamOps: [],
+            camCount: 1,
+            onlyOneCamOp: true,
+            camAssignments: { cam1: "", cam2: "", cam3: "" },
+            // technical defaults
+            scopeOfWork: "",
+            assignedTechnicians: [],
+            // keep date and departure (departure stays optional)
+            date: existingDate,
+            // filming time not used for technical; we leave it as-is and override to null on submit
+          });
+        } else {
+          // Non-technical: restore defaults for regular flow
+          setFormData({
+            ...formData,
+            type: newType,
+            shootType: newShootType,
+            category: "",
+            subtype: "",
+            // restore priority default when leaving Technical
+            priority: formData.priority || "Normal",
+            date: existingDate, // ensures camOpStatuses get triggered
+          });
+        }
+      }}
+      className="input flex-1"
+    >
+      <option value="">Select Type</option>
+      {jobTypes.map((type) => (
+        <option key={type} value={type}>
+          {type}
+        </option>
+      ))}
+    </select>
+    <button
+      type="button"
+      onClick={() => {
+        const newItem = prompt("Enter new type:");
+        if (newItem && !jobTypes.includes(newItem)) {
+          setJobTypes([...jobTypes, newItem]);
+        }
+      }}
+      className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+    >
+      + Add
+    </button>
+  </div>
+</div>
+
+          {/* Assigned Reporter (hidden in Technical) */}
+{formData.type !== "Technical" && (
+  <div className="space-y-2">
+    <label className="block font-semibold mb-1">Assigned Journalist/Producer</label>
+    <select
+      name="assignedReporter"
+      value={formData.assignedReporter}
+      onChange={(e) => setFormData({ ...formData, assignedReporter: e.target.value })}
+      className="input"
+    >
+      <option value="">-- Select Reporter --</option>
+
+      {/* Logged-in user shown first if relevant */}
+      {(() => {
+        const isJournalist = loggedInUser?.roles?.some((r) => r.toLowerCase() === "journalist");
+        const isSports = (loggedInUser?.description || "").toLowerCase().includes("sport") ||
+                         loggedInUser?.roles?.some((r) => r.toLowerCase() === "sports_journalist");
+        const isProducer = loggedInUser?.roles?.some((r) => r.toLowerCase() === "producer");
+
+        if (isJournalist)
+          return (
+            <option value={`Journalist: ${loggedInUser.name}`}>
+              Journalist: {loggedInUser.name} (You)
+            </option>
+          );
+        if (isSports)
+          return (
+            <option value={`Sports Journalist: ${loggedInUser.name}`}>
+              Sports Journalist: {loggedInUser.name} (You)
+            </option>
+          );
+        if (isProducer)
+          return (
+            <option value={`Producer: ${loggedInUser.name}`}>
+              Producer: {loggedInUser.name} (You)
+            </option>
+          );
+
+        return null;
+      })()}
+
+      <optgroup label="Journalists">
+        {(effectiveUsers || [])
+          .filter((u) => {
+            const roles = (u.roles || []).map((r) => String(r).toLowerCase());
+            const desc = (u.description || "").toLowerCase();
+            return roles.includes("journalist") && !desc.includes("sports") && u.name !== loggedInUser?.name;
+          })
+          .map((u) => (
+            <option key={`journalist-${u.name}`} value={`Journalist: ${u.name}`}>
+              Journalist: {u.name}
+            </option>
+          ))}
+      </optgroup>
+
+      <optgroup label="Sports Journalists">
+        {(effectiveUsers || [])
+          .filter(
+            (u) =>
+              (u.description || "").toLowerCase().includes("sport") ||
+              (u.roles || []).some((r) => String(r).toLowerCase() === "sports_journalist")
+          )
+          .filter((u) => u.name !== loggedInUser?.name)
+          .map((u) => (
+            <option key={`sports-${u.name}`} value={`Sports Journalist: ${u.name}`}>
+              Sports Journalist: {u.name}
+            </option>
+          ))}
+      </optgroup>
+
+      <optgroup label="Producers">
+        {(effectiveUsers || [])
+          .filter((u) => (u.roles || []).some((r) => String(r).toLowerCase() === "producer"))
+          .filter((u) => u.name !== loggedInUser?.name)
+          .map((u) => (
+            <option key={`producer-${u.name}`} value={`Producer: ${u.name}`}>
+              Producer: {u.name}
+            </option>
+          ))}
+      </optgroup>
+    </select>
+  </div>
+)}
+
+{/* Technical-only fields */}
+{formData.type === "Technical" && (
+  <div className="space-y-4">
+    {/* Scope of Work */}
+    <div className="space-y-2">
+      <label className="block font-semibold mb-1">Scope of Work</label>
+      <div className="flex items-center gap-2">
+        <select
+          className="input flex-1"
+          value={formData.scopeOfWork || ""}
+          onChange={(e) => setFormData({ ...formData, scopeOfWork: e.target.value })}
+        >
+          <option value="">Select scope</option>
+          <option value="Recce">Recce</option>
+          <option value="Setup">Setup</option>
+          <option value="Signal Test">Signal Test</option>
+          <option value="Tech Rehearsal">Tech Rehearsal</option>
+        </select>
+        <button
+          type="button"
+          onClick={() => {
+            const val = prompt("Enter a custom scope of work:");
+            if (val && val.trim()) {
+              setFormData({ ...formData, scopeOfWork: val.trim() });
+            }
+          }}
+          className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+        >
+          + Add
+        </button>
+      </div>
+    </div>
+
+    {/* Assigned Technicians */}
+    <div className="space-y-2">
+      <label className="block font-semibold">Assigned Technician(s)</label>
+      {(() => {
+        const techTop = ["Christopher Gabriel", "Gilmer Philoe", "Darino Esther"];
+        const allNames = (effectiveUsers || []).map((u) => u?.name).filter(Boolean);
+        const rest = Array.from(new Set(allNames.filter((n) => !techTop.includes(n)))).sort();
+        const ordered = [...techTop.filter((n) => allNames.includes(n)), ...rest];
+        const techOptions = ordered.map((name) => ({ label: name, value: name }));
+
+        return (
+          <MultiSelectCombobox
+            options={techOptions}
+            selected={formData.assignedTechnicians}
+            onChange={(next) => {
+              const values = (next || []).map((v) => (typeof v === "string" ? v : v?.value)).filter(Boolean);
+              setFormData({ ...formData, assignedTechnicians: values });
+            }}
+          />
+        );
+      })()}
+    </div>
+  </div>
+)}
+
+{/* News Dropdown */}
+{formData.type === "News" && (
+  <div className="space-y-1 relative z-10">
+    <label className="block font-semibold mb-1">News Category</label>
+    <div className="relative inline-block w-full">
+      <div
+        className="input cursor-pointer"
+        onClick={() => setShowNewsDropdown((prev) => !prev)}
+      >{formData.category || "Select News Category"}</div>
+
+      {showNewsDropdown && (
+        <div className="absolute mt-1 w-full bg-white border rounded shadow-md max-h-60 overflow-y-auto z-10">
+          {newsCategories.map((item) => (
+            <div
+              key={item}
+              className="flex justify-between items-center px-4 py-2 hover:bg-gray-100 cursor-pointer group"
+              onClick={() => {
+                setFormData({ ...formData, category: item });
+                setShowNewsDropdown(false);
+              }}
+            >
+              <span>{item}</span>
               <button
                 type="button"
-                onClick={() => {
-                  const newItem = prompt("Enter new type:");
-                  if (newItem && !jobTypes.includes(newItem)) {
-                    setJobTypes([...jobTypes, newItem]);
-                  }
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeFromList(item, setNewsCategories);
                 }}
-                className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-              >
-                + Add
-              </button>
+                className="text-red-500 text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+              >❌</button>
             </div>
-          </div>
-
-          {/* Assigned Reporter Dropdown */}
-          <div className="space-y-2">
-            <label className="block font-semibold mb-1">Assigned Journalist/Producer</label>
-            <select
-              name="assignedReporter"
-              value={formData.assignedReporter}
-              onChange={(e) =>
-                setFormData({ ...formData, assignedReporter: e.target.value })
+          ))}
+          <div
+            className="px-4 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer font-medium"
+            onClick={() => {
+              const newItem = prompt("Enter new news category:");
+              if (newItem && !newsCategories.includes(newItem)) {
+                setNewsCategories([...newsCategories, newItem]);
+                setFormData({ ...formData, category: newItem });
+                setShowNewsDropdown(false);
               }
-              className="input"
+            }}
+          >➕ Add new category</div>
+        </div>
+      )}
+    </div>
+  </div>
+)}
+
+{/* Sports Dropdown */}
+{formData.type === "Sports" && (
+  <div className="space-y-1 relative z-10">
+    <label className="block font-semibold mb-1">Sport Subtype</label>
+    <div className="relative inline-block w-full">
+      <div
+        className="input cursor-pointer"
+        onClick={() => setShowSportsDropdown((prev) => !prev)}
+      >{formData.subtype || "Select Sport Subtype"}</div>
+
+      {showSportsDropdown && (
+        <div className="absolute mt-1 w-full bg-white border rounded shadow-md max-h-60 overflow-y-auto z-10">
+          {sportsCategories.map((item) => (
+            <div
+              key={item}
+              className="flex justify-between items-center px-4 py-2 hover:bg-gray-100 cursor-pointer group"
+              onClick={() => {
+                setFormData({ ...formData, subtype: item });
+                setShowSportsDropdown(false);
+              }}
             >
-              <option value="">-- Select Reporter --</option>
-
-              {/* Logged-in user shown first if relevant */}
-              {(() => {
-                const isJournalist = loggedInUser?.roles?.some((r) => r.toLowerCase() === "journalist");
-                const isSports = loggedInUser?.description?.toLowerCase().includes("sport") ||
-                                loggedInUser?.roles?.some((r) => r.toLowerCase() === "sports_journalist");
-                const isProducer = loggedInUser?.roles?.some((r) => r.toLowerCase() === "producer");
-
-                if (isJournalist)
-                  return (
-                    <option value={`Journalist: ${loggedInUser.name}`}>
-                      Journalist: {loggedInUser.name} (You)
-                    </option>
-                  );
-                if (isSports)
-                  return (
-                    <option value={`Sports Journalist: ${loggedInUser.name}`}>
-                      Sports Journalist: {loggedInUser.name} (You)
-                    </option>
-                  );
-                if (isProducer)
-                  return (
-                    <option value={`Producer: ${loggedInUser.name}`}>
-                      Producer: {loggedInUser.name} (You)
-                    </option>
-                  );
-
-                return null;
-              })()}
-
-              <optgroup label="Journalists">
-                {(effectiveUsers || [])
-                  .filter((u) => {
-                    const roles = (u.roles || []).map((r) => String(r).toLowerCase());
-                    const desc = (u.description || "").toLowerCase();
-                    return (
-                      roles.includes("journalist") &&
-                      !desc.includes("sports") &&
-                      u.name !== loggedInUser?.name
-                    );
-                  })
-                  .map((u) => (
-                    <option key={`journalist-${u.name}`} value={`Journalist: ${u.name}`}>
-                      Journalist: {u.name}
-                    </option>
-                  ))}
-              </optgroup>
-
-              <optgroup label="Sports Journalists">
-                {(effectiveUsers || [])
-                  .filter(
-                    (u) =>
-                      (u.description || "").toLowerCase().includes("sport") ||
-                      (u.roles || []).some((r) => String(r).toLowerCase() === "sports_journalist")
-                  )
-                  .filter((u) => u.name !== loggedInUser?.name)
-                  .map((u) => (
-                    <option
-                      key={`sports-${u.name}`}
-                      value={`Sports Journalist: ${u.name}`}
-                    >
-                      Sports Journalist: {u.name}
-                    </option>
-                  ))}
-              </optgroup>
-
-              <optgroup label="Producers">
-                {(effectiveUsers || [])
-                  .filter((u) =>
-                    (u.roles || []).some((r) => String(r).toLowerCase() === "producer")
-                  )
-                  .filter((u) => u.name !== loggedInUser?.name)
-                  .map((u) => (
-                    <option key={`producer-${u.name}`} value={`Producer: ${u.name}`}>
-                      Producer: {u.name}
-                    </option>
-                  ))}
-              </optgroup>
-            </select>
-          </div>
-
-          {/* News Dropdown */}
-          {formData.type === "News" && (
-            <div className="space-y-1 relative z-10">
-              <label className="block font-semibold mb-1">News Category</label>
-              <div className="relative inline-block w-full">
-                <div
-                  className="input cursor-pointer"
-                  onClick={() => setShowNewsDropdown((prev) => !prev)}
-                >{formData.category || "Select News Category"}</div>
-
-                {showNewsDropdown && (
-                  <div className="absolute mt-1 w-full bg-white border rounded shadow-md max-h-60 overflow-y-auto z-10">
-                    {newsCategories.map((item) => (
-                      <div
-                        key={item}
-                        className="flex justify-between items-center px-4 py-2 hover:bg-gray-100 cursor-pointer group"
-                        onClick={() => {
-                          setFormData({ ...formData, category: item });
-                          setShowNewsDropdown(false);
-                        }}
-                      >
-                        <span>{item}</span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeFromList(item, setNewsCategories);
-                          }}
-                          className="text-red-500 text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                        >❌</button>
-                      </div>
-                    ))}
-                    <div
-                      className="px-4 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer font-medium"
-                      onClick={() => {
-                        const newItem = prompt("Enter new news category:");
-                        if (newItem && !newsCategories.includes(newItem)) {
-                          setNewsCategories([...newsCategories, newItem]);
-                          setFormData({ ...formData, category: newItem });
-                          setShowNewsDropdown(false);
-                        }
-                      }}
-                    >➕ Add new category</div>
-                  </div>
-                )}
-              </div>
+              <span>{item}</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeFromList(item, setSportsCategories);
+                }}
+                className="text-red-500 text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+              >❌</button>
             </div>
-          )}
-
-          {/* Sports Dropdown */}
-          {formData.type === "Sports" && (
-            <div className="space-y-1 relative z-10">
-              <label className="block font-semibold mb-1">Sport Subtype</label>
-              <div className="relative inline-block w-full">
-                <div
-                  className="input cursor-pointer"
-                  onClick={() => setShowSportsDropdown((prev) => !prev)}
-                >{formData.subtype || "Select Sport Subtype"}</div>
-
-                {showSportsDropdown && (
-                  <div className="absolute mt-1 w-full bg-white border rounded shadow-md max-h-60 overflow-y-auto z-10">
-                    {sportsCategories.map((item) => (
-                      <div
-                        key={item}
-                        className="flex justify-between items-center px-4 py-2 hover:bg-gray-100 cursor-pointer group"
-                        onClick={() => {
-                          setFormData({ ...formData, subtype: item });
-                          setShowSportsDropdown(false);
-                        }}
-                      >
-                        <span>{item}</span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeFromList(item, setSportsCategories);
-                          }}
-                          className="text-red-500 text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                        >❌</button>
-                      </div>
-                    ))}
-                    <div
-                      className="px-4 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer font-medium"
-                      onClick={() => {
-                        const newItem = prompt("Enter new sport subtype:");
-                        if (newItem && !sportsCategories.includes(newItem)) {
-                          setSportsCategories([...sportsCategories, newItem]);
-                          setFormData({ ...formData, subtype: newItem });
-                          setShowSportsDropdown(false);
-                        }
-                      }}
-                    >➕ Add new subtype</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          ))}
+          <div
+            className="px-4 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer font-medium"
+            onClick={() => {
+              const newItem = prompt("Enter new sport subtype:");
+              if (newItem && !sportsCategories.includes(newItem)) {
+                setSportsCategories([...sportsCategories, newItem]);
+                setFormData({ ...formData, subtype: newItem });
+                setShowSportsDropdown(false);
+              }
+            }}
+          >➕ Add new subtype</div>
+        </div>
+      )}
+    </div>
+  </div>
+)}
 
           <DatePicker
             selected={selectedDate}
@@ -1090,15 +1224,18 @@ function TicketForm({ users = [], loggedInUser, tickets = [], setTickets, vehicl
             step="300"
           />
 
-          <select
-            name="priority"
-            value={formData.priority}
-            onChange={handleChange}
-            className="input"
-          >
-            <option value="Normal">Normal</option>
-            <option value="Urgent">Urgent</option>
-          </select>
+         {formData.type !== "Technical" && (
+  <select
+    name="priority"
+    value={formData.priority}
+    onChange={handleChange}
+    className="input"
+  >
+    <option value="Normal">Normal</option>
+    <option value="Urgent">Urgent</option>
+  </select>
+)}
+
 
           {/* Camera Ops Section */}
           {["News", "Sports", "Production"].includes(formData.type) && (
@@ -1210,18 +1347,20 @@ function TicketForm({ users = [], loggedInUser, tickets = [], setTickets, vehicl
   )}
           {/* ❌ Removed “Require Driver” block entirely */}
 
-          <select
-            name="shootType"
-            value={formData.shootType}
-            onChange={handleChange}
-            className="input"
-          >
-            <option value="">Shoot Type</option>
-            <option value="Live">Live</option>
-            <option value="EFP">EFP</option>
-            <option value="B-roll">B-roll Only</option>
-            <option value="ENG">ENG</option>
-          </select>
+         {formData.type !== "Technical" && (
+  <select
+    name="shootType"
+    value={formData.shootType}
+    onChange={handleChange}
+    className="input"
+  >
+    <option value="">Shoot Type</option>
+    <option value="Live">Live</option>
+    <option value="EFP">EFP</option>
+    <option value="B-roll">B-roll Only</option>
+    <option value="ENG">ENG</option>
+  </select>
+)}
 
           {can("canAddNotes") && (
             <textarea
