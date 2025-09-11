@@ -728,5 +728,82 @@
     "createdAt": "2025-09-11T03:44:14.790Z",
     "archived": false,
     "assignedCamOps": []
+  },
+  {
+    "id": "1757568601932",
+    "title": "test efp",
+    "type": "Sports",
+    "category": "",
+    "subtype": "Match",
+    "date": "2025-09-11T09:05",
+    "location": "ydtdtu",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "EFP",
+    "camCount": 3,
+    "onlyOneCamOp": false,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "08:35",
+    "filmingTime": "09:05",
+    "assignedCamOps": [
+      "Joshua Dodin",
+      "Julius Payet",
+      "Shereen Florentine"
+    ],
+    "assignedDriver": "",
+    "vehicle": "",
+    "assignmentStatus": "Unassigned",
+    "isReady": false,
+    "status": "Pending",
+    "crewAssignments": [
+      {
+        "role": "Director",
+        "assignees": [
+          "Gilmer Philoe"
+        ]
+      },
+      {
+        "role": "Technical Support",
+        "assignees": [
+          "Darino Esther"
+        ]
+      },
+      {
+        "role": "Audio Engineer",
+        "assignees": [
+          "Christopher Gabriel"
+        ]
+      },
+      {
+        "role": "Graphic Artist",
+        "assignees": [
+          "Irene Jean-Baptiste"
+        ]
+      },
+      {
+        "role": "Producer",
+        "assignees": [
+          "Ronny Solin"
+        ]
+      },
+      {
+        "role": "Drone Operator",
+        "assignees": [
+          "Aaron Jean"
+        ]
+      }
+    ],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "assignedReporter": "Sports Journalist: Kerine Savy",
+    "expectedCamOps": 3,
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2025-09-11T05:30:01.932Z"
   }
 ]

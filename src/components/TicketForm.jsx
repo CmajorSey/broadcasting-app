@@ -289,6 +289,10 @@ function getInitialFormData(loggedInUser) {
     isReady: false,
     status: "Pending",
 
+    // 👉 NEW: EFP/Live crew assignments (expanded view on TicketPage)
+    // Array of { role: string, assignees: string[] }
+    crewAssignments: [],
+
     // Technical-only fields (used when type === "Technical")
     scopeOfWork: "",
     assignedTechnicians: [],
@@ -608,13 +612,27 @@ function TicketForm({ users = [], loggedInUser, tickets = [], setTickets, vehicl
   };
 
   const camOpOptionsDecorated = camOpOptions.map((opt) => ({
-    ...opt,
-    label: decorateLabel(opt.value, opt.label),
-  }));
+  ...opt,
+  label: decorateLabel(opt.value, opt.label),
+}));
 
-  console.log("✅ Cam operators sections:", camOperatorsSections);
-  console.log("✅ CamOp options (decorated with group tags):", camOpOptionsDecorated);
-  console.log("✅ All users data (effective):", effectiveUsers);
+// 👉 NEW: crew combobox options + default templates
+const userOptionsCrew = (effectiveUsers || [])
+  .map((u) => u?.name)
+  .filter(Boolean)
+  .map((name) => ({ label: name, value: name }));
+
+const EFP_LIVE_TEMPLATES = [
+  { role: "Director", assignees: [] },
+  { role: "Technical Support", assignees: [] },
+  { role: "Audio Engineer", assignees: [] },
+  { role: "Graphic Artist", assignees: [] },
+  { role: "Producer", assignees: [] },
+];
+
+console.log("✅ Cam operators sections:", camOperatorsSections);
+console.log("✅ CamOp options (decorated with group tags):", camOpOptionsDecorated);
+console.log("✅ All users data (effective):", effectiveUsers);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -687,14 +705,23 @@ const handleSubmit = async (e) => {
         : [],
       // Reporter hidden for technical; store blank to avoid confusion
       assignedReporter: "",
+      // Crew ignored for Technical
+      crewAssignments: [],
       createdBy: name,
       createdAt: new Date().toISOString(),
     };
   } else {
-    // Non-Technical ticket payload (original behavior)
+    // Non-Technical ticket payload (original behavior + crewAssignments)
     const filmingTimeFromDate = formData.date
       ? formData.date.split("T")[1]?.slice(0, 5)
       : "";
+
+    const isEfpOrLive = formData.shootType === "EFP" || formData.shootType === "Live";
+    const safeCrew = Array.isArray(formData.crewAssignments)
+      ? formData.crewAssignments
+          .filter((r) => r && r.role && Array.isArray(r.assignees))
+          .map((r) => ({ role: String(r.role).trim(), assignees: r.assignees.filter(Boolean) }))
+      : [];
 
     newTicket = {
       id: Date.now().toString(),
@@ -710,6 +737,8 @@ const handleSubmit = async (e) => {
       assignedReporter:
         formData.assignedReporter ||
         `${loggedInUser?.description || "Journalist"} ${name}`,
+      // 👉 Save crew only for EFP/Live; otherwise store empty array
+      crewAssignments: isEfpOrLive ? safeCrew : [],
       notes: formData.notes
         ? [
             {
@@ -876,12 +905,11 @@ const handleSubmit = async (e) => {
         const newShootType = getDefaultShootType(detectedRole, newType);
         const existingDate = formData.date || new Date().toISOString().slice(0, 16);
 
-        // When switching to Technical, clear/hide irrelevant fields
         if (newType === "Technical") {
+          // Clear non-tech + also clear crewAssignments
           setFormData({
             ...formData,
             type: newType,
-            // clear non-technical fields
             shootType: "",
             category: "",
             subtype: "",
@@ -890,24 +918,21 @@ const handleSubmit = async (e) => {
             camCount: 1,
             onlyOneCamOp: true,
             camAssignments: { cam1: "", cam2: "", cam3: "" },
-            // technical defaults
+            crewAssignments: [], // 🔄 reset crew when going Technical
             scopeOfWork: "",
             assignedTechnicians: [],
-            // keep date and departure (departure stays optional)
             date: existingDate,
-            // filming time not used for technical; we leave it as-is and override to null on submit
           });
         } else {
-          // Non-technical: restore defaults for regular flow
+          // Non-technical
           setFormData({
             ...formData,
             type: newType,
             shootType: newShootType,
             category: "",
             subtype: "",
-            // restore priority default when leaving Technical
             priority: formData.priority || "Normal",
-            date: existingDate, // ensures camOpStatuses get triggered
+            date: existingDate,
           });
         }
       }}
@@ -1348,18 +1373,84 @@ const handleSubmit = async (e) => {
           {/* ❌ Removed “Require Driver” block entirely */}
 
          {formData.type !== "Technical" && (
-  <select
-    name="shootType"
-    value={formData.shootType}
-    onChange={handleChange}
-    className="input"
-  >
-    <option value="">Shoot Type</option>
-    <option value="Live">Live</option>
-    <option value="EFP">EFP</option>
-    <option value="B-roll">B-roll Only</option>
-    <option value="ENG">ENG</option>
-  </select>
+  <div className="space-y-4">
+    <select
+      name="shootType"
+      value={formData.shootType}
+      onChange={(e) => {
+        const nextShoot = e.target.value;
+        // Seed templates when switching into EFP/Live (if empty)
+        setFormData((prev) => {
+          const shouldSeed =
+            (nextShoot === "EFP" || nextShoot === "Live") &&
+            (!Array.isArray(prev.crewAssignments) || prev.crewAssignments.length === 0);
+          return {
+            ...prev,
+            shootType: nextShoot,
+            crewAssignments: shouldSeed ? [...EFP_LIVE_TEMPLATES] : (prev.crewAssignments || []),
+          };
+        });
+      }}
+      className="input"
+    >
+      <option value="">Shoot Type</option>
+      <option value="Live">Live</option>
+      <option value="EFP">EFP</option>
+      <option value="B-roll">B-roll Only</option>
+      <option value="ENG">ENG</option>
+    </select>
+
+    {/* 👉 NEW: EFP/Live Crew Assignments (TicketPage will show in expanded view) */}
+    {(formData.shootType === "EFP" || formData.shootType === "Live") && (
+      <div className="rounded-xl border p-4 space-y-4">
+        <div className="font-semibold">Crew Assignments (EFP/Live)</div>
+        <p className="text-sm text-gray-600">
+          These roles will appear in the <span className="font-medium">expanded view</span> of the ticket.
+          You can assign multiple people per role and add custom roles.
+        </p>
+
+        <div className="space-y-3">
+          {(formData.crewAssignments || []).map((row, idx) => (
+            <div key={`${row.role}-${idx}`} className="grid md:grid-cols-2 gap-3">
+              <div className="flex items-center">
+                <label className="mr-3 min-w-32 font-medium">{row.role}</label>
+              </div>
+              <MultiSelectCombobox
+                options={userOptionsCrew}
+                selected={Array.isArray(row.assignees) ? row.assignees : []}
+                onChange={(next) => {
+                  const values = (next || [])
+                    .map((v) => (typeof v === "string" ? v : v?.value))
+                    .filter(Boolean);
+                  setFormData((prev) => {
+                    const arr = Array.isArray(prev.crewAssignments) ? [...prev.crewAssignments] : [];
+                    const i = arr.findIndex((r) => r.role === row.role);
+                    if (i >= 0) arr[i] = { ...arr[i], assignees: values };
+                    return { ...prev, crewAssignments: arr };
+                  });
+                }}
+                placeholder="Assign team members…"
+              />
+            </div>
+          ))}
+
+          {/* Add custom role */}
+          <AddCustomCrewRole
+            onAdd={(roleName) => {
+              const role = String(roleName || "").trim();
+              if (!role) return;
+              setFormData((prev) => {
+                const arr = Array.isArray(prev.crewAssignments) ? [...prev.crewAssignments] : [];
+                const exists = arr.some((r) => r.role.toLowerCase() === role.toLowerCase());
+                if (!exists) arr.push({ role, assignees: [] });
+                return { ...prev, crewAssignments: arr };
+              });
+            }}
+          />
+        </div>
+      </div>
+    )}
+  </div>
 )}
 
           {can("canAddNotes") && (
@@ -1493,5 +1584,33 @@ const handleSubmit = async (e) => {
   );
 }
 
+function AddCustomCrewRole({ onAdd }) {
+  const [roleName, setRoleName] = useState("");
+  return (
+    <div className="grid md:grid-cols-2 gap-3 items-center">
+      <input
+        type="text"
+        value={roleName}
+        onChange={(e) => setRoleName(e.target.value)}
+        placeholder="Add custom role (e.g., VT Operator)"
+        className="input"
+      />
+      <button
+        type="button"
+        className="px-3 py-2 bg-gray-100 rounded-md border hover:bg-gray-200"
+        onClick={() => {
+          const val = roleName.trim();
+          if (!val) return;
+          onAdd(val);
+          setRoleName("");
+        }}
+      >
+        Add Role
+      </button>
+    </div>
+  );
+}
+
 export default TicketForm;
+
 
