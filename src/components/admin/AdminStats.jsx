@@ -221,11 +221,12 @@ export default function AdminStats() {
   // Roster cache & stats (#4)
   const rosterCache = useRef({}); // { weekStartISO: weekArray }
   const [rosterStats, setRosterStats] = useState({
-    offDuty: 0,
-    afternoon: 0,
-    primary: 0,
-    unmatched: 0,
-  });
+  offDuty: 0,
+  afternoon: 0,
+  primary: 0,
+  unmatched: 0,
+  unmatchedDetails: [], // [{ name, count, dates: [YYYY-MM-DD,...] }]
+});
   const [rosterBusy, setRosterBusy] = useState(false);
 
   useEffect(() => {
@@ -755,86 +756,103 @@ if (!(ty.startsWith("news") || ty.startsWith("sport") || ty.startsWith("prod") |
   return { off, afternoonShift, onDuty };
 };
 
-  useEffect(() => {
-    // Build roster-aware counts whenever activeTickets changes
-    let cancelled = false;
-    (async () => {
-      setRosterBusy(true);
-      try {
-        // Collect unique week starts we need
-        const dates = Array.from(
-          new Set(
-            activeTickets
-              .map((t) => toISODate(t?.date || t?.createdAt))
-              .filter(Boolean)
-          )
-        );
-        const weekKeys = Array.from(new Set(dates.map(getWeekStartISO)));
+useEffect(() => {
+  // Build roster-aware counts whenever activeTickets changes
+  let cancelled = false;
+  (async () => {
+    setRosterBusy(true);
+    try {
+      // Collect unique week starts we need
+      const dates = Array.from(
+        new Set(
+          activeTickets
+            .map((t) => toISODate(t?.date || t?.createdAt))
+            .filter(Boolean)
+        )
+      );
+      const weekKeys = Array.from(new Set(dates.map(getWeekStartISO)));
 
-        // Preload all needed weeks
-        await Promise.all(weekKeys.map(fetchRosterForWeek));
+      // Preload all needed weeks
+      await Promise.all(weekKeys.map(fetchRosterForWeek));
 
-        // Compute counts
-        let offDuty = 0;
-        let afternoon = 0;
-        let primary = 0;
-        let unmatched = 0;
+      // Compute counts + unmatched details
+      let offDuty = 0;
+      let afternoon = 0;
+      let primary = 0;
+      let unmatched = 0;
+      const unmatchedMap = new Map(); // name -> { count, dates:Set }
 
-        for (const t of activeTickets) {
-          const dateOnly = toISODate(t?.date || t?.createdAt);
-          if (!dateOnly) continue;
-          const weekKey = getWeekStartISO(dateOnly);
-          const week = rosterCache.current[weekKey] || [];
-          const groups = getGroupsForDate(week, dateOnly);
+      for (const t of activeTickets) {
+        const dateOnly = toISODate(t?.date || t?.createdAt);
+        if (!dateOnly) continue;
+        const weekKey = getWeekStartISO(dateOnly);
+        const week = rosterCache.current[weekKey] || [];
+        const groups = getGroupsForDate(week, dateOnly);
 
-// (Time-of-day currently not used for bucket choice; keep if needed later)
-let hour = 0;
-try {
-  const iso = new Date(t?.date);
-  if (!isNaN(iso)) hour = iso.getHours();
-  if (t?.filmingTime && /^\d{2}:\d{2}/.test(t.filmingTime)) {
-    const h = parseInt(t.filmingTime.split(":")[0], 10);
-    if (Number.isFinite(h)) hour = h;
-  }
-} catch {}
+        // (Time-of-day currently not used for bucket choice; keep if needed later)
+        let hour = 0;
+        try {
+          const iso = new Date(t?.date);
+          if (!isNaN(iso)) hour = iso.getHours();
+          if (t?.filmingTime && /^\d{2}:\d{2}/.test(t.filmingTime)) {
+            const h = parseInt(t.filmingTime.split(":")[0], 10);
+            if (Number.isFinite(h)) hour = h;
+          }
+        } catch {}
 
-// Normalize once, use sets for fast membership checks
-const OFF = new Set((groups.off || []).map(normalizeName));
-const AFT = new Set((groups.afternoonShift || []).map(normalizeName));
-const ON  = new Set((groups.onDuty || []).map(normalizeName));
+        // Normalize once; use sets for fast membership checks
+        const OFF = new Set((groups.off || []).map(normalizeName));
+        const AFT = new Set((groups.afternoonShift || []).map(normalizeName));
+        const ON  = new Set((groups.onDuty || []).map(normalizeName));
 
-const assigned = Array.isArray(t?.assignedCamOps) ? t.assignedCamOps : [];
-for (const rawName of assigned) {
-  const n = normalizeName(rawName);
-  if (!n) continue;
+        const assigned = Array.isArray(t?.assignedCamOps) ? t.assignedCamOps : [];
+        for (const rawName of assigned) {
+          const n = normalizeName(rawName);
+          if (!n) continue;
 
-  if (OFF.has(n)) {
-    // Working while marked Off
-    offDuty += 1;
-  } else if (AFT.has(n)) {
-    // Explicit afternoon shift
-    afternoon += 1;
-  } else if (ON.has(n)) {
-    // Any other on-duty roster group (Primary/Directing, News Director, Backup, Other on Duty, AM, etc.)
-    primary += 1;
-  } else {
-    // Only "unmatched" if not found on the roster at all for that day
-    unmatched += 1;
-  }
-}};
-      
-        if (!cancelled) {
-          setRosterStats({ offDuty, afternoon, primary, unmatched });
+          if (OFF.has(n)) {
+            // Working while marked Off
+            offDuty += 1;
+          } else if (AFT.has(n)) {
+            // Explicit afternoon shift
+            afternoon += 1;
+          } else if (ON.has(n)) {
+            // Any other on-duty roster group (Primary/Directing, News Director, Backup, Other on Duty, AM, etc.)
+            primary += 1;
+          } else {
+            // Only "unmatched" if not found on the roster at all for that day
+            unmatched += 1;
+
+            // Track details: count + dates
+            const prev = unmatchedMap.get(n) || { count: 0, dates: new Set() };
+            prev.count += 1;
+            prev.dates.add(dateOnly);
+            unmatchedMap.set(n, prev);
+          }
         }
-      } finally {
-        if (!cancelled) setRosterBusy(false);
       }
-    })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTickets]); // eslint-disable-line react-hooks/exhaustive-deps
+      // Flatten unmatched details for UI
+      const unmatchedDetails = Array.from(unmatchedMap.entries())
+        .map(([name, info]) => ({
+          name,
+          count: info.count,
+          dates: Array.from(info.dates).sort(), // YYYY-MM-DD
+        }))
+        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+      if (!cancelled) {
+        setRosterStats({ offDuty, afternoon, primary, unmatched, unmatchedDetails });
+      }
+    } finally {
+      if (!cancelled) setRosterBusy(false);
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, [activeTickets]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="p-4 space-y-4">
@@ -1217,9 +1235,31 @@ for (const rawName of assigned) {
             )}
             <p className="mt-2 text-xs text-muted-foreground">
   Counts Cam Ops assigned on tickets and compares them to that day’s roster. Anyone listed in any on-duty roster group
- is treated as matched. “Unmatched” only means the name isn’t present anywhere on that day’s roster.
+  is treated as matched.“Unmatched” only means the name isn’t present anywhere on that day’s roster.
 </p>
 
+{rosterStats.unmatched > 0 && Array.isArray(rosterStats.unmatchedDetails) && rosterStats.unmatchedDetails.length > 0 && (
+  <div className="mt-3">
+    <div className="text-xs font-medium mb-1">Unmatched details:</div>
+    <div className="flex flex-wrap gap-2 max-h-24 overflow-auto pr-1">
+      {rosterStats.unmatchedDetails.slice(0, 12).map((item) => (
+        <span
+          key={item.name}
+          className="inline-flex items-center rounded-full border px-2 py-1 text-xs"
+          title={item.dates && item.dates.length ? `Dates: ${item.dates.join(", ")}` : ""}
+        >
+          <span className="mr-1 inline-block h-2 w-2 rounded-full bg-amber-500" />
+          {item.name} <span className="ml-1 opacity-70">×{item.count}</span>
+        </span>
+      ))}
+    </div>
+    {rosterStats.unmatchedDetails.length > 12 && (
+      <div className="mt-1 text-xs text-muted-foreground">
+        +{rosterStats.unmatchedDetails.length - 12} more
+      </div>
+    )}
+  </div>
+)}
           </CardContent>
         </Card>
       </div>
