@@ -810,5 +810,47 @@
     "vehicleStatus": "",
     "createdBy": "Admin",
     "createdAt": "2025-09-11T05:30:01.932Z"
+  },
+  {
+    "id": "1757659464437",
+    "title": "afawf",
+    "type": "Sports",
+    "category": "",
+    "subtype": "Basketball",
+    "date": "2025-09-12T10:50",
+    "location": "asfvcz",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "10:20",
+    "filmingTime": "10:50",
+    "assignedCamOps": [
+      "Darino Esther"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Emma Laporte"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2025-09-12T06:44:24.437Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin"
   }
 ]
