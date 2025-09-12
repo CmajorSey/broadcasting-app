@@ -437,24 +437,28 @@ export default function AdminStats() {
     dayTypeRows,               // #5: Day-Type breakdown (Weekday/Weekend/Holiday)
     dq,                        // #6: Data quality
   } = useMemo(() => {
-    // ---- Request Type donut (based on ticket.type)
-    const typeCounts = { News: 0, Sports: 0, Production: 0 };
-    for (const t of activeTickets) {
-      const raw = String(t?.type || "");
-      const s = raw.toLowerCase().trim();
-      const type =
-        s.startsWith("sport")
-          ? "Sports"
-          : s.startsWith("prod")
-          ? "Production"
-          : "News";
-      typeCounts[type] += 1;
-    }
-    const sectionPie = [
-      { name: "News", value: typeCounts.News },
-      { name: "Sports", value: typeCounts.Sports },
-      { name: "Production", value: typeCounts.Production },
-    ];
+    // ---- Request Type donut (based on ticket.type) — now includes Technical
+const typeCounts = { News: 0, Sports: 0, Production: 0, Technical: 0 };
+for (const t of activeTickets) {
+  const raw = String(t?.type || "");
+  const s = raw.toLowerCase().trim();
+  const type =
+    s.startsWith("sport")
+      ? "Sports"
+      : s.startsWith("prod")
+      ? "Production"
+      : s.startsWith("tech")
+      ? "Technical"
+      : "News";
+  typeCounts[type] += 1;
+}
+const sectionPie = [
+  { name: "News", value: typeCounts.News },
+  { name: "Sports", value: typeCounts.Sports },
+  { name: "Production", value: typeCounts.Production },
+  { name: "Technical", value: typeCounts.Technical },
+];
+
 
     // ---- Work volume over time (totals + per-status buckets), using normalized keys
     const byDay = {};
@@ -526,24 +530,31 @@ export default function AdminStats() {
     const topSports = topify(sportsMap);
     const topProduction = topify(productionMap);
 
-    // ---- Status by Request Type (stacked)
-    const TYPES = ["News", "Sports", "Production"];
-    const rows = TYPES.map((type) => ({ type }));
-    const idx = { News: 0, Sports: 1, Production: 2 };
-    const statusKeySet = new Set();
+    // ---- Status by Request Type (stacked) — now includes Technical
+const TYPES = ["News", "Sports", "Production", "Technical"];
+const rows = TYPES.map((type) => ({ type }));
+const idx = { News: 0, Sports: 1, Production: 2, Technical: 3 };
+const statusKeySet = new Set();
 
-    for (const t of activeTickets) {
-      const raw = String(t?.type || "");
-      const s = raw.toLowerCase().trim();
-      const type =
-        s.startsWith("sport") ? "Sports" : s.startsWith("prod") ? "Production" : "News";
+for (const t of activeTickets) {
+  const raw = String(t?.type || "");
+  const s = raw.toLowerCase().trim();
+  const type =
+    s.startsWith("sport")
+      ? "Sports"
+      : s.startsWith("prod")
+      ? "Production"
+      : s.startsWith("tech")
+      ? "Technical"
+      : "News";
 
-      const { label } = normalizeStatus(t?.assignmentStatus ?? t?.status);
-      statusKeySet.add(label);
-      const row = rows[idx[type]];
-      row[label] = (row[label] || 0) + 1;
-    }
-    const statusByTypeRows = rows; // keys = Array.from(statusKeySet) (used in chart rendering below)
+  const { label } = normalizeStatus(t?.assignmentStatus ?? t?.status);
+  statusKeySet.add(label);
+  const row = rows[idx[type]];
+  row[label] = (row[label] || 0) + 1;
+}
+const statusByTypeRows = rows; // keys = Array.from(statusKeySet)
+
 
     // ---- Day-Type breakdown (#5) on the *range-filtered* base set (ignores the Day-Type filter to show full mix)
     const dayCounts = { "Weekday": 0, "Weekend": 0, "Public Holiday": 0 };
@@ -570,11 +581,11 @@ export default function AdminStats() {
       const norm = normalizeStatus(raw).label;
       rawStatuses.set(String(raw ?? ""), norm);
 
-      // types
-      const ty = String(t?.type || "").trim().toLowerCase();
-      if (!(ty.startsWith("news") || ty.startsWith("sport") || ty.startsWith("prod"))) {
-        if (ty) badTypes.add(ty);
-      }
+      // types — recognize technical as valid
+const ty = String(t?.type || "").trim().toLowerCase();
+if (!(ty.startsWith("news") || ty.startsWith("sport") || ty.startsWith("prod") || ty.startsWith("tech"))) {
+  if (ty) badTypes.add(ty);
+}
 
       // dates
       const d = new Date(t?.date || t?.createdAt || "");
@@ -789,8 +800,8 @@ export default function AdminStats() {
                 <strong>Unrecognized request types:</strong>{" "}
                 {dq.badTypes.map((t) => `"${t}"`).join(", ")}
                 <div className="text-muted-foreground">
-                  Tip: use one of <em>News</em>, <em>Sports</em>, <em>Production</em> in the ticket form.
-                </div>
+  Tip: use one of <em>News</em>, <em>Sports</em>, <em>Production</em>, <em>Technical</em> in the ticket form.
+</div>
               </div>
             )}
             {dq.invalidDates > 0 && (
@@ -892,20 +903,22 @@ export default function AdminStats() {
               onChange={(e) => setLineStatus(e.target.value)}
               className="border rounded-md px-3 py-2 bg-background"
             >
-              {[
-                "All",
-                "Assigned",
-                "In Progress",
-                "Completed",
-                "Postponed",
-                "Cancelled",
-                "Unassigned",
-                "Pending",
-              ].map((label) => (
-                <option key={label.toLowerCase()} value={label}>
-                  {label}
-                </option>
-              ))}
+             {[
+  "All",
+  "Assigned",
+  "In Progress",
+  "Completed",
+  "Postponed",
+  "Cancelled",
+  "Archived",
+  "Recycled",
+  "Unassigned",
+  "Pending",
+].map((label) => (
+  <option key={label.toLowerCase()} value={label}>
+    {label}
+  </option>
+))}
             </select>
           </div>
 
@@ -950,7 +963,7 @@ export default function AdminStats() {
         {/* Requests by Type (News/Sports/Production) */}
         <Card>
           <CardHeader>
-            <CardTitle>Requests by Type (News / Sports / Production)</CardTitle>
+            <CardTitle>Requests by Type (News / Sports / Production / Technical)</CardTitle>
           </CardHeader>
           <CardContent className="h-64">
             {loading ? (
@@ -972,15 +985,17 @@ export default function AdminStats() {
                     >
                       {sectionPie.map((e, i) => (
                         <Cell
-                          key={`type-${i}`}
-                          fill={
-                            e.name === "News"
-                              ? palette.newsroom
-                              : e.name === "Sports"
-                              ? palette.sports
-                              : palette.production
-                          }
-                        />
+  key={`type-${i}`}
+  fill={
+    e.name === "News"
+      ? palette.newsroom
+      : e.name === "Sports"
+      ? palette.sports
+      : e.name === "Production"
+      ? palette.production
+      : "#0ea5e9" // sky-500 for Technical
+  }
+/>
                       ))}
                     </Pie>
                   </PieChart>
@@ -1042,16 +1057,19 @@ export default function AdminStats() {
               (() => {
                 const keys = dq.statusKeys; // normalized status labels present
                 const colorFor = (label) => {
-                  const s = String(label || "").toLowerCase();
-                  if (s.startsWith("completed")) return palette.statusA;      // blue
-                  if (s.startsWith("cancel")) return palette.statusB;         // red
-                  if (s.startsWith("postpon")) return palette.statusC;        // amber
-                  if (s.startsWith("in progress")) return palette.statusD;    // emerald
-                  if (s.startsWith("assigned")) return "#0ea5e9";             // sky-500
-                  if (s.startsWith("pending")) return palette.slate500;       // slate-500
-                  if (s.startsWith("unassigned")) return palette.slate400;    // slate-400
-                  return palette.statusE;                                     // violet
-                };
+  const s = String(label || "").toLowerCase();
+  if (s.startsWith("completed")) return palette.statusA;      // blue
+  if (s.startsWith("cancel")) return palette.statusB;         // red
+  if (s.startsWith("postpon")) return palette.statusC;        // amber
+  if (s.startsWith("in progress")) return palette.statusD;    // emerald
+  if (s.startsWith("assigned")) return "#0ea5e9";             // sky-500
+  if (s.startsWith("archiv")) return "#64748b";               // slate-500-ish for Archived
+  if (s.startsWith("recycl") || s.startsWith("trash") || s.startsWith("deleted") || s.startsWith("bin"))
+    return "#94a3b8";                                         // lighter slate for Recycled
+  if (s.startsWith("pending")) return palette.slate500;       // slate-500
+  if (s.startsWith("unassigned")) return palette.slate400;    // slate-400
+  return palette.statusE;                                     // violet
+};
 
                 return (
                   <ResponsiveContainer width="100%" height="100%">
