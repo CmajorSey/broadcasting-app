@@ -694,19 +694,66 @@ if (!(ty.startsWith("news") || ty.startsWith("sport") || ty.startsWith("prod") |
   };
 
   const getGroupsForDate = (weekArr, dateOnlyISO) => {
-    const day = (weekArr || []).find((d) => d?.date?.slice(0, 10) === String(dateOnlyISO).slice(0, 10));
-    if (!day) return { off: [], afternoonShift: [], primary: [] };
+  const day = (weekArr || []).find(
+    (d) => d?.date?.slice(0, 10) === String(dateOnlyISO).slice(0, 10)
+  );
+  if (!day) return { off: [], afternoonShift: [], onDuty: [] };
 
-    const camOpsRoot = day.camOps || day.operations?.camOps || day.ops?.camOps || day;
-    const off = extractNames(camOpsRoot?.off ?? camOpsRoot?.offDuty ?? camOpsRoot?.off_cam_ops ?? day.off ?? day.offDuty);
-    const afternoonShift = extractNames(
-      camOpsRoot?.afternoonShift ?? camOpsRoot?.pmShift ?? camOpsRoot?.afternoon ?? day.afternoonShift ?? day.pmShift
-    );
-    const primary = extractNames(
-      camOpsRoot?.primary ?? camOpsRoot?.directingNews ?? camOpsRoot?.directing ?? day.primary ?? day.directingNews ?? day.directing
-    );
-    return { off, afternoonShift, primary };
-  };
+  // Support multiple shapes: day.camOps, day.operations.camOps, or fields directly on day
+  const camOpsRoot = day.camOps || day.operations?.camOps || day.ops?.camOps || day;
+
+  // Explicit Off
+  const off = extractNames(
+    camOpsRoot?.off ??
+      camOpsRoot?.offDuty ??
+      camOpsRoot?.off_cam_ops ??
+      day.off ??
+      day.offDuty
+  );
+
+  // Afternoon / PM
+  const afternoonShift = extractNames(
+    camOpsRoot?.afternoonShift ??
+      camOpsRoot?.pmShift ??
+      camOpsRoot?.afternoon ??
+      day.afternoonShift ??
+      day.pmShift
+  );
+
+  // Primary / Directing / News Director
+  const primary = extractNames(
+    camOpsRoot?.primary ??
+      camOpsRoot?.directingNews ??
+      camOpsRoot?.directing ??
+      day.primary ??
+      day.directingNews ??
+      day.directing
+  );
+  const newsDirector = extractNames(
+    camOpsRoot?.newsDirector ?? day.newsDirector ?? day.news_director
+  );
+
+  // Other on-duty buckets we should treat as matched (non-Off)
+  const backup = extractNames(camOpsRoot?.backup ?? day.backup);
+  const otherOnDuty = extractNames(
+    camOpsRoot?.otherOnDuty ?? camOpsRoot?.other ?? day.otherOnDuty ?? day.other
+  );
+  const amShift = extractNames(camOpsRoot?.amShift ?? day.amShift);
+
+  // Anyone in any on-duty group (non-Off) is considered "matched"
+  const onDuty = Array.from(
+    new Set([
+      ...primary,
+      ...newsDirector,
+      ...backup,
+      ...otherOnDuty,
+      ...amShift,
+      ...afternoonShift, // still tracked separately for chart, but considered matched
+    ])
+  );
+
+  return { off, afternoonShift, onDuty };
+};
 
   useEffect(() => {
     // Build roster-aware counts whenever activeTickets changes
@@ -740,39 +787,42 @@ if (!(ty.startsWith("news") || ty.startsWith("sport") || ty.startsWith("prod") |
           const week = rosterCache.current[weekKey] || [];
           const groups = getGroupsForDate(week, dateOnly);
 
-          // hour logic
-          let hour = 0;
-          try {
-            const iso = new Date(t?.date);
-            if (!isNaN(iso)) hour = iso.getHours();
-            if (t?.filmingTime && /^\d{2}:\d{2}/.test(t.filmingTime)) {
-              const h = parseInt(t.filmingTime.split(":")[0], 10);
-              if (Number.isFinite(h)) hour = h;
-            }
-          } catch {}
+// (Time-of-day currently not used for bucket choice; keep if needed later)
+let hour = 0;
+try {
+  const iso = new Date(t?.date);
+  if (!isNaN(iso)) hour = iso.getHours();
+  if (t?.filmingTime && /^\d{2}:\d{2}/.test(t.filmingTime)) {
+    const h = parseInt(t.filmingTime.split(":")[0], 10);
+    if (Number.isFinite(h)) hour = h;
+  }
+} catch {}
 
-          const assigned = Array.isArray(t?.assignedCamOps) ? t.assignedCamOps : [];
-          for (const rawName of assigned) {
-            const n = normalizeName(rawName);
-            if (!n) continue;
+// Normalize once, use sets for fast membership checks
+const OFF = new Set((groups.off || []).map(normalizeName));
+const AFT = new Set((groups.afternoonShift || []).map(normalizeName));
+const ON  = new Set((groups.onDuty || []).map(normalizeName));
 
-            const inOff = groups.off.map(normalizeName).includes(n);
-            const inAfternoon = groups.afternoonShift.map(normalizeName).includes(n);
-            const inPrimary = groups.primary.map(normalizeName).includes(n);
+const assigned = Array.isArray(t?.assignedCamOps) ? t.assignedCamOps : [];
+for (const rawName of assigned) {
+  const n = normalizeName(rawName);
+  if (!n) continue;
 
-            if (inOff) {
-              offDuty += 1;
-            } else if (inPrimary) {
-              // Primary: we don't split AM/PM in final counts—just count as primary
-              primary += 1;
-            } else if (inAfternoon) {
-              afternoon += 1;
-            } else {
-              unmatched += 1;
-            }
-          }
-        }
-
+  if (OFF.has(n)) {
+    // Working while marked Off
+    offDuty += 1;
+  } else if (AFT.has(n)) {
+    // Explicit afternoon shift
+    afternoon += 1;
+  } else if (ON.has(n)) {
+    // Any other on-duty roster group (Primary/Directing, News Director, Backup, Other on Duty, AM, etc.)
+    primary += 1;
+  } else {
+    // Only "unmatched" if not found on the roster at all for that day
+    unmatched += 1;
+  }
+}};
+      
         if (!cancelled) {
           setRosterStats({ offDuty, afternoon, primary, unmatched });
         }
@@ -1166,8 +1216,10 @@ if (!(ty.startsWith("news") || ty.startsWith("sport") || ty.startsWith("prod") |
               </ResponsiveContainer>
             )}
             <p className="mt-2 text-xs text-muted-foreground">
-              Matches camera operators against the roster for each day. “Unmatched” = name not found in that day’s roster groups.
-            </p>
+  Counts Cam Ops assigned on tickets and compares them to that day’s roster. Anyone listed in any on-duty roster group
+ is treated as matched. “Unmatched” only means the name isn’t present anywhere on that day’s roster.
+</p>
+
           </CardContent>
         </Card>
       </div>
