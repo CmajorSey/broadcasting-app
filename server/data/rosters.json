@@ -465,5 +465,69 @@
       "afternoonShift": [],
       "off": []
     }
+  ],
+  "2025-09-07": [
+    {
+      "date": "2025-09-08",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2025-09-09",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2025-09-10",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2025-09-11",
+      "primary": [
+        "Shereen Florentine"
+      ],
+      "backup": [
+        "Joshua Dodin"
+      ],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": [
+        "Julius Payet"
+      ]
+    },
+    {
+      "date": "2025-09-12",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2025-09-13",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2025-09-07",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    }
   ]
 }
