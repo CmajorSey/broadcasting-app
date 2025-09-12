@@ -1,5 +1,5 @@
 [build]
-  command = "BUILD_DATE=$(date -u +\"%Y-%m-%dT%H:%M:%SZ\") vite build"
+  command = "VITE_BUILD_EPOCH=$(date +%s000) vite build"
   publish = "dist"
 
 [functions."ping"]

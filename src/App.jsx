@@ -238,11 +238,11 @@ function App() {
   // 📦 Changelog Dialog logic
   const [showChangelog, setShowChangelog] = useState(() => {
     const lastSeen = localStorage.getItem("lastSeenChangelog");
-    return lastSeen !== "0.6.5";
+    return lastSeen !== "0.7.0";
   });
 
   const handleCloseChangelog = () => {
-    localStorage.setItem("lastSeenChangelog", "0.6.5");
+    localStorage.setItem("lastSeenChangelog", "0.7.0");
     setShowChangelog(false);
   };
 
