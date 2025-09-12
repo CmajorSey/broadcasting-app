@@ -155,7 +155,7 @@ const PORT = process.env.PORT || 4000;
 
 const ALLOWED_ORIGINS = [
   "http://localhost:5173",
-  "http://192.168.88.54:5173", // ✅ Your LAN frontend
+  "http://192.168.100.61:5173", // ✅ Your LAN frontend
   "https://loboard.netlify.app",
 ];
 

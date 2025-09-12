@@ -622,12 +622,15 @@ const userOptionsCrew = (effectiveUsers || [])
   .filter(Boolean)
   .map((name) => ({ label: name, value: name }));
 
+   {/* EFP Roles */}
 const EFP_LIVE_TEMPLATES = [
   { role: "Director", assignees: [] },
   { role: "Technical Support", assignees: [] },
-  { role: "Audio Engineer", assignees: [] },
+  { role: "A1", assignees: [] },
+  { role: "A2", assignees: [] },
   { role: "Graphic Artist", assignees: [] },
   { role: "Producer", assignees: [] },
+  { role: "Drone Operator", assignees: [] },
 ];
 
 console.log("✅ Cam operators sections:", camOperatorsSections);
