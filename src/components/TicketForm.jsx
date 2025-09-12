@@ -231,6 +231,7 @@ function getDefaultShootType(role, type) {
   return "";
 }
 
+// B) NEW — getInitialFormData (explicit empty assignedReporter)
 function getInitialFormData(loggedInUser) {
   const now = new Date();
   const userRoles = loggedInUser?.roles?.map((r) => r.toLowerCase()) || [];
@@ -288,6 +289,9 @@ function getInitialFormData(loggedInUser) {
     assignmentStatus: "Unassigned",
     isReady: false,
     status: "Pending",
+
+    // 🔑 Allow reporter to be truly optional
+    assignedReporter: "",
 
     // 👉 NEW: EFP/Live crew assignments (expanded view on TicketPage)
     // Array of { role: string, assignees: string[] }
@@ -645,7 +649,8 @@ console.log("✅ All users data (effective):", effectiveUsers);
     }));
   };
 
-  const { toast } = useToast();
+  // B) NEW — handleSubmit (no fallback; keeps reporter empty if not chosen)
+const { toast } = useToast();
 const handleSubmit = async (e) => {
   e.preventDefault();
 
@@ -714,7 +719,7 @@ const handleSubmit = async (e) => {
       createdAt: new Date().toISOString(),
     };
   } else {
-    // Non-Technical ticket payload (original behavior + crewAssignments)
+    // Non-Technical ticket payload (keeps reporter optional)
     const filmingTimeFromDate = formData.date
       ? formData.date.split("T")[1]?.slice(0, 5)
       : "";
@@ -737,9 +742,8 @@ const handleSubmit = async (e) => {
       vehicleStatus: "",
       assignmentStatus: "Unassigned",
       isReady: false,
-      assignedReporter:
-        formData.assignedReporter ||
-        `${loggedInUser?.description || "Journalist"} ${name}`,
+      // 🔑 Do NOT auto-fill reporter; leave empty if user didn’t choose anyone
+      assignedReporter: formData.assignedReporter || "",
       // 👉 Save crew only for EFP/Live; otherwise store empty array
       crewAssignments: isEfpOrLive ? safeCrew : [],
       notes: formData.notes
@@ -784,6 +788,7 @@ const handleSubmit = async (e) => {
     alert("Request submission failed. Please try again.");
   }
 };
+
 
   const removeFromList = (item, setList) => {
     setList((prev) => prev.filter((x) => x !== item));

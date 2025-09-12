@@ -16,6 +16,7 @@ import {
   Cell,
 } from "recharts";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import MultiSelectCombobox from "@/components/MultiSelectCombobox";
 import API_BASE from "@/api";
 
 // ---------- Helpers ----------
@@ -202,44 +203,29 @@ export default function AdminStats() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // also fetch users so we can map reporter names -> roles (journalist, sports_journalist, producer)
+    // also fetch users so we can map reporter names -> roles (journalist, sports_journalist, producer)
   const [users, setUsers] = useState([]);
 
-   // Filters
-  const [rangeMode, setRangeMode] = useState("thisWeek"); // today | thisWeek | thisMonth | past3Months | oneYear | custom | all
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
-  const [lineStatus, setLineStatus] = useState("Completed"); // which status to plot over time
-
-  // Day-Type filter (#5)
-  const [dayType, setDayType] = useState("all"); // all | weekday | weekend | holiday
-
-  // NEW: Archived inclusion (default include so stats remain complete)
-  const [includeArchived, setIncludeArchived] = useState(true);
-
-
-  // Roster cache & stats (#4)
-  const rosterCache = useRef({}); // { weekStartISO: weekArray }
-  const [rosterStats, setRosterStats] = useState({
-  offDuty: 0,
-  afternoon: 0,
-  primary: 0,
-  unmatched: 0,
-  unmatchedDetails: [], // [{ name, count, dates: [YYYY-MM-DD,...] }]
-});
-  const [rosterBusy, setRosterBusy] = useState(false);
-
+  // RESTORED: initial data fetch
   useEffect(() => {
     let cancelled = false;
-    async function fetchAll() {
+    (async () => {
       try {
+        // start/keep the loading state until both endpoints resolve
+        setLoading(true);
+
         const [tRes, uRes] = await Promise.all([
           fetch(`${API_BASE}/tickets`),
           fetch(`${API_BASE}/users`).catch(() => null),
         ]);
+
         const tData = (await tRes.json().catch(() => [])) || [];
         const uDataRaw = uRes ? await uRes.json().catch(() => []) : [];
-        const uData = Array.isArray(uDataRaw) ? uDataRaw : Array.isArray(uDataRaw?.users) ? uDataRaw.users : [];
+        const uData = Array.isArray(uDataRaw)
+          ? uDataRaw
+          : Array.isArray(uDataRaw?.users)
+          ? uDataRaw.users
+          : [];
 
         if (!cancelled) {
           setTickets(Array.isArray(tData) ? tData : []);
@@ -254,67 +240,50 @@ export default function AdminStats() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }
-    fetchAll();
+    })();
+
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // Build a quick lookup: name -> roles[]
-  const nameToRoles = useMemo(() => {
-    const map = new Map();
-    const toLowerRoles = (u) =>
-      (Array.isArray(u?.roles) ? u.roles : [u?.role]).map((r) => String(r || "").toLowerCase());
-    const nameOf = (u) => String(u?.name || "").trim();
+   // Filters
+  const [rangeMode, setRangeMode] = useState("thisWeek"); // today | thisWeek | thisMonth | past3Months | oneYear | custom | all
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [lineStatus, setLineStatus] = useState("Completed"); // which status to plot over time
 
-    (users || []).forEach((u) => {
-      const nm = nameOf(u);
-      if (!nm) return;
-      const rl = toLowerRoles(u);
-      map.set(nm.toLowerCase(), rl);
-    });
-    return map;
+  // Day-Type filter (#5)
+  const [dayType, setDayType] = useState("all"); // all | weekday | weekend | holiday
+
+  // NEW: Archived inclusion (default include so stats remain complete)
+  const [includeArchived, setIncludeArchived] = useState(true);
+
+  // NEW: User Focus / User filter
+  const [selectedUsers, setSelectedUsers] = useState([]); // array of labels (names)
+
+  // Build selectable user options from /users (display name only; values are names)
+  const userOptions = useMemo(() => {
+    const names = (users || [])
+      .map((u) => String(u?.name || "").trim())
+      .filter(Boolean);
+    const uniq = Array.from(new Set(names));
+    return uniq.map((n) => ({ label: n, value: n }));
   }, [users]);
 
-  const reporterRoleOf = (name, ticketType) => {
-    const nmRaw = String(name || "");
-    const nm = nmRaw.trim().toLowerCase();
 
-    // Known name overrides (quick fix for data mismatches in /users)
-    const SPORTS_NAME_OVERRIDES = new Set(["andy henriette", "george francois"]);
-    if (SPORTS_NAME_OVERRIDES.has(nm)) return "sports";
+   // Roster cache & stats (#4)
+  const rosterCache = useRef({}); // { weekStartISO: weekArray }
+  const [rosterStats, setRosterStats] = useState({
+    offDuty: 0,
+    afternoon: 0,
+    primary: 0,
+    unmatched: 0,
+    unmatchedDetails: [], // [{ name, count, dates: [YYYY-MM-DD,...] }]
+  });
+  const [rosterBusy, setRosterBusy] = useState(false);
 
-    // Roles from /users (may be "sports_journalist", "sports journalist", "sports", etc.)
-    const roles = nameToRoles.get(nm) || [];
-
-    // Normalize roles and check with tolerant matching
-    const norm = roles.map((r) =>
-      String(r || "").toLowerCase().replace(/[_-]/g, " ").trim()
-    );
-
-    const hasSports =
-      norm.some(
-        (r) =>
-          /\bsports\b/.test(r) ||
-          /\bsport\b/.test(r) ||
-          /sports journalist/.test(r) ||
-          /sports reporter/.test(r)
-      );
-    const hasProducer = norm.some((r) => /^producer\b/.test(r));
-    const hasJournalist = norm.some((r) => /\bjournalist\b/.test(r) || /\breporter\b/.test(r));
-
-    if (hasSports) return "sports";
-    if (hasProducer) return "production";
-    if (hasJournalist) return "news";
-
-    // Fallback to ticket type if role unknown
-    if (/^sports$/i.test(ticketType || "")) return "sports";
-    if (/^production$/i.test(ticketType || "")) return "production";
-    return "news";
-  };
-
-  // Compute date bounds for range filter
+  // Compute date bounds for range filter (restored)
   const { startDate, endDate } = useMemo(() => {
     const now = new Date();
 
@@ -357,7 +326,7 @@ export default function AdminStats() {
     return { startDate: s, endDate: e };
   }, [rangeMode, customStart, customEnd]);
 
-    // Filter tickets: always exclude deleted; optionally include archived; date within range
+  // Filter tickets: always exclude deleted; optionally include archived; date within range (restored)
   const baseTickets = useMemo(() => {
     const inRange = (d) => {
       if (!d) return false;
@@ -369,7 +338,7 @@ export default function AdminStats() {
     };
 
     // Keep deleted out of stats. Archived are included when includeArchived === true.
-    const base = tickets.filter((t) => {
+    const base = (Array.isArray(tickets) ? tickets : []).filter((t) => {
       if (t?.deleted) return false;
       if (!includeArchived && t?.archived) return false;
       return true;
@@ -385,8 +354,9 @@ export default function AdminStats() {
 
   // Apply Day-Type filter (#5)
   const activeTickets = useMemo(() => {
-    if (dayType === "all") return baseTickets;
-    return baseTickets.filter((t) => {
+    const src = Array.isArray(baseTickets) ? baseTickets : [];
+    if (dayType === "all") return src;
+    return src.filter((t) => {
       const d = t?.date || t?.createdAt;
       const kind = dayTypeOfDate(d);
       if (dayType === "weekday") return kind === "Weekday";
@@ -396,15 +366,62 @@ export default function AdminStats() {
     });
   }, [baseTickets, dayType]);
 
-  // ---- Status options for Work Volume drop-down (built from *active* set) ----
+
+   // NEW: Scope by selected users across all roles (Reporter, Cam-Op, Driver).
+  // If none selected, use activeTickets unchanged.
+  const scopedTickets = useMemo(() => {
+    const sel = new Set(
+      (selectedUsers || []).map((v) =>
+        typeof v === "string" ? v : v?.value
+      )
+    );
+    if (sel.size === 0) return activeTickets;
+
+    const extractReporters = (t) => {
+      const repsRaw = Array.isArray(t?.assignedReporter)
+        ? t.assignedReporter
+        : (typeof t?.assignedReporter === "string" && t.assignedReporter.trim()
+            ? [t.assignedReporter]
+            : []);
+      return repsRaw.map((x) => String(x || "").trim()).filter(Boolean);
+    };
+
+    const extractCamOps = (t) => {
+      const arr = Array.isArray(t?.assignedCamOps) ? t.assignedCamOps : [];
+      return arr.map((x) => String(x || "").trim()).filter(Boolean);
+    };
+
+    const extractDriver = (t) => {
+      const d = t?.assignedDriver;
+      if (!d) return "";
+      if (typeof d === "string") return String(d).trim();
+      return String(d?.name || d?.displayName || "").trim();
+    };
+
+    const ticketHasSelectedUser = (t) => {
+      const people = new Set([
+        ...extractReporters(t),
+        ...extractCamOps(t),
+        extractDriver(t),
+      ].filter(Boolean));
+      for (const p of people) {
+        if (sel.has(p)) return true;
+      }
+      return false;
+    };
+
+    return activeTickets.filter(ticketHasSelectedUser);
+  }, [activeTickets, selectedUsers]);
+
+  // ---- Status options for Work Volume drop-down (built from *scoped* set) ----
   const allStatuses = useMemo(() => {
-    const counts = activeTickets.reduce((acc, t) => {
+    const counts = scopedTickets.reduce((acc, t) => {
       const { label } = normalizeStatus(t?.assignmentStatus ?? t?.status);
       acc[label] = (acc[label] || 0) + 1;
       return acc;
     }, {});
     return Object.keys(counts).sort();
-  }, [activeTickets]);
+  }, [scopedTickets]);
 
   // Build line keys for status selector (canonicalized from assignmentStatus)
   const normalizedStatuses = useMemo(() => {
@@ -425,7 +442,7 @@ export default function AdminStats() {
     return k || "all";
   }, [lineStatus]);
 
-  // ---- Aggregations on active set (respect date & day-type filters) ----
+  // ---- Aggregations on the *scoped* set (respects date, day-type, and user filters) ----
   const {
     sectionPie,                // Request Type donut (News/Sports/Production)
     lineSeries,                // Work volume over time: total + per-status buckets
@@ -435,35 +452,37 @@ export default function AdminStats() {
     topSports,
     topProduction,
     statusByTypeRows,          // stacked bars: Status by Request Type
-    dayTypeRows,               // #5: Day-Type breakdown (Weekday/Weekend/Holiday)
+    dayTypeRows,               // #5: Day-Type breakdown (range-filtered base set, not scoped)
     dq,                        // #6: Data quality
+    userSummaryRows,           // NEW: per-user breakdown for the User Summary card
+    totalRangeCount,           // NEW: total tickets for current range (ignores dayType and user focus)
+    totalSelectedCount,        // NEW: total tickets in the current scoped set
   } = useMemo(() => {
     // ---- Request Type donut (based on ticket.type) — now includes Technical
-const typeCounts = { News: 0, Sports: 0, Production: 0, Technical: 0 };
-for (const t of activeTickets) {
-  const raw = String(t?.type || "");
-  const s = raw.toLowerCase().trim();
-  const type =
-    s.startsWith("sport")
-      ? "Sports"
-      : s.startsWith("prod")
-      ? "Production"
-      : s.startsWith("tech")
-      ? "Technical"
-      : "News";
-  typeCounts[type] += 1;
-}
-const sectionPie = [
-  { name: "News", value: typeCounts.News },
-  { name: "Sports", value: typeCounts.Sports },
-  { name: "Production", value: typeCounts.Production },
-  { name: "Technical", value: typeCounts.Technical },
-];
-
+    const typeCounts = { News: 0, Sports: 0, Production: 0, Technical: 0 };
+    for (const t of scopedTickets) {
+      const raw = String(t?.type || "");
+      const s = raw.toLowerCase().trim();
+      const type =
+        s.startsWith("sport")
+          ? "Sports"
+          : s.startsWith("prod")
+          ? "Production"
+          : s.startsWith("tech")
+          ? "Technical"
+          : "News";
+      typeCounts[type] += 1;
+    }
+    const sectionPie = [
+      { name: "News", value: typeCounts.News },
+      { name: "Sports", value: typeCounts.Sports },
+      { name: "Production", value: typeCounts.Production },
+      { name: "Technical", value: typeCounts.Technical },
+    ];
 
     // ---- Work volume over time (totals + per-status buckets), using normalized keys
     const byDay = {};
-    for (const t of activeTickets) {
+    for (const t of scopedTickets) {
       const iso = toISODate(t?.date || t?.createdAt);
       if (!iso) continue;
       const { key } = normalizeStatus(t?.assignmentStatus ?? t?.status);
@@ -476,14 +495,22 @@ const sectionPie = [
     }
     const lineSeries = Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date));
 
-    // ---- Top lists (sorted desc, top 10) ----
+    // ---- Top lists (sorted desc, top 10) — COUNT BY WORK SECTION (ticket.type) ----
     const camOpMap = new Map();
     const driverMap = new Map();
-    const newsroomMap = new Map();
-    const sportsMap = new Map();
-    const productionMap = new Map();
+    const newsroomMap = new Map();   // reporters on tickets where type = News
+    const sportsMap = new Map();     // reporters on tickets where type = Sports
+    const productionMap = new Map(); // reporters on tickets where type = Production (incl. Technical routed here)
 
-    for (const t of activeTickets) {
+    const workSectionOf = (ticket) => {
+      const raw = String(ticket?.type || "").toLowerCase().trim();
+      if (raw.startsWith("sport")) return "Sports";
+      if (raw.startsWith("prod")) return "Production";
+      if (raw.startsWith("tech")) return "Technical";
+      return "News";
+    };
+
+    for (const t of scopedTickets) {
       // Cam Ops
       if (Array.isArray(t?.assignedCamOps)) {
         for (const n of t.assignedCamOps.filter(Boolean).map(safeStr).filter(Boolean)) {
@@ -496,25 +523,24 @@ const sectionPie = [
       const drvName =
         typeof drv === "string" ? safeStr(drv) :
         (drv && typeof drv === "object" ? safeStr(drv?.name || drv?.displayName) : "");
-      if (drvName) {
-        driverMap.set(drvName, (driverMap.get(drvName) || 0) + 1);
-      }
+      if (drvName) driverMap.set(drvName, (driverMap.get(drvName) || 0) + 1);
 
-      // Reporters
+      // Reporters — NOW GROUPED BY THE TICKET'S WORK SECTION (REQUEST TYPE)
       const reportersRaw = Array.isArray(t?.assignedReporter)
         ? t.assignedReporter
-        : typeof t?.assignedReporter === "string" && t.assignedReporter.trim()
-        ? [t.assignedReporter]
-        : [];
-
-      for (const rep of reportersRaw) {
-        const roleBucket = reporterRoleOf(rep, t?.type);
-        if (roleBucket === "sports") {
-          sportsMap.set(rep, (sportsMap.get(rep) || 0) + 1);
-        } else if (roleBucket === "production") {
-          productionMap.set(rep, (productionMap.get(rep) || 0) + 1);
-        } else {
-          newsroomMap.set(rep, (newsroomMap.get(rep) || 0) + 1);
+        : (typeof t?.assignedReporter === "string" && t.assignedReporter.trim()
+            ? [t.assignedReporter]
+            : []);
+      if (reportersRaw.length > 0) {
+        const section = workSectionOf(t);
+        for (const rep of reportersRaw.map(safeStr).filter(Boolean)) {
+          if (section === "Sports") {
+            sportsMap.set(rep, (sportsMap.get(rep) || 0) + 1);
+          } else if (section === "Production" || section === "Technical") {
+            productionMap.set(rep, (productionMap.get(rep) || 0) + 1);
+          } else {
+            newsroomMap.set(rep, (newsroomMap.get(rep) || 0) + 1);
+          }
         }
       }
     }
@@ -532,32 +558,31 @@ const sectionPie = [
     const topProduction = topify(productionMap);
 
     // ---- Status by Request Type (stacked) — now includes Technical
-const TYPES = ["News", "Sports", "Production", "Technical"];
-const rows = TYPES.map((type) => ({ type }));
-const idx = { News: 0, Sports: 1, Production: 2, Technical: 3 };
-const statusKeySet = new Set();
+    const TYPES = ["News", "Sports", "Production", "Technical"];
+    const rows = TYPES.map((type) => ({ type }));
+    const idx = { News: 0, Sports: 1, Production: 2, Technical: 3 };
+    const statusKeySet = new Set();
 
-for (const t of activeTickets) {
-  const raw = String(t?.type || "");
-  const s = raw.toLowerCase().trim();
-  const type =
-    s.startsWith("sport")
-      ? "Sports"
-      : s.startsWith("prod")
-      ? "Production"
-      : s.startsWith("tech")
-      ? "Technical"
-      : "News";
+    for (const t of scopedTickets) {
+      const raw = String(t?.type || "");
+      const s = raw.toLowerCase().trim();
+      const type =
+        s.startsWith("sport")
+          ? "Sports"
+          : s.startsWith("prod")
+          ? "Production"
+          : s.startsWith("tech")
+          ? "Technical"
+          : "News";
 
-  const { label } = normalizeStatus(t?.assignmentStatus ?? t?.status);
-  statusKeySet.add(label);
-  const row = rows[idx[type]];
-  row[label] = (row[label] || 0) + 1;
-}
-const statusByTypeRows = rows; // keys = Array.from(statusKeySet)
+      const { label } = normalizeStatus(t?.assignmentStatus ?? t?.status);
+      statusKeySet.add(label);
+      const row = rows[idx[type]];
+      row[label] = (row[label] || 0) + 1;
+    }
+    const statusByTypeRows = rows; // keys = Array.from(statusKeySet)
 
-
-    // ---- Day-Type breakdown (#5) on the *range-filtered* base set (ignores the Day-Type filter to show full mix)
+    // ---- Day-Type breakdown (#5) on the *range-filtered* base set (ignores the Day-Type and user filters to show full mix)
     const dayCounts = { "Weekday": 0, "Weekend": 0, "Public Holiday": 0 };
     for (const t of baseTickets) {
       const kind = dayTypeOfDate(t?.date || t?.createdAt);
@@ -583,15 +608,94 @@ const statusByTypeRows = rows; // keys = Array.from(statusKeySet)
       rawStatuses.set(String(raw ?? ""), norm);
 
       // types — recognize technical as valid
-const ty = String(t?.type || "").trim().toLowerCase();
-if (!(ty.startsWith("news") || ty.startsWith("sport") || ty.startsWith("prod") || ty.startsWith("tech"))) {
-  if (ty) badTypes.add(ty);
-}
+      const ty = String(t?.type || "").trim().toLowerCase();
+      if (!(ty.startsWith("news") || ty.startsWith("sport") || ty.startsWith("prod") || ty.startsWith("tech"))) {
+        if (ty) badTypes.add(ty);
+      }
 
       // dates
       const d = new Date(t?.date || t?.createdAt || "");
       if (isNaN(d)) invalidDates += 1;
     }
+
+    // ---- NEW: User Summary rows (per selected user)
+    const selectedSet = new Set(
+      (selectedUsers || []).map((v) => (typeof v === "string" ? v : v?.value))
+    );
+    const perUser = new Map(); // name -> { name, totals... }
+
+    const bump = (obj, key) => { obj[key] = (obj[key] || 0) + 1; };
+
+    if (selectedSet.size > 0) {
+      const typeOf = (t) => {
+        const s = String(t?.type || "").toLowerCase().trim();
+        if (s.startsWith("sport")) return "Sports";
+        if (s.startsWith("prod")) return "Production";
+        if (s.startsWith("tech")) return "Technical";
+        return "News";
+      };
+
+      const getReps = (t) => {
+        const r = Array.isArray(t?.assignedReporter)
+          ? t.assignedReporter
+          : (typeof t?.assignedReporter === "string" && t.assignedReporter.trim()
+              ? [t.assignedReporter]
+              : []);
+        return r.map((x) => String(x || "").trim()).filter(Boolean);
+      };
+      const getCamOps = (t) => {
+        const a = Array.isArray(t?.assignedCamOps) ? t.assignedCamOps : [];
+        return a.map((x) => String(x || "").trim()).filter(Boolean);
+      };
+      const getDriver = (t) => {
+        const d = t?.assignedDriver;
+        if (!d) return "";
+        if (typeof d === "string") return String(d).trim();
+        return String(d?.name || d?.displayName || "").trim();
+      };
+
+      for (const t of scopedTickets) {
+        const reps = getReps(t);
+        const camops = getCamOps(t);
+        const drv = getDriver(t);
+        const participants = new Set([...reps, ...camops, drv].filter(Boolean));
+        const involved = Array.from(participants).filter((n) => selectedSet.has(n));
+        if (involved.length === 0) continue;
+
+        const statusLabel = normalizeStatus(t?.assignmentStatus ?? t?.status).label;
+        const typ = typeOf(t);
+
+        for (const name of involved) {
+          const row = perUser.get(name) || {
+            name,
+            total: 0,
+            Assigned: 0,
+            "In Progress": 0,
+            Completed: 0,
+            Cancelled: 0,
+            Postponed: 0,
+            News: 0,
+            Sports: 0,
+            Production: 0,
+            Technical: 0,
+            AsReporter: 0,
+            AsCamOp: 0,
+            AsDriver: 0,
+          };
+          row.total += 1;
+          bump(row, statusLabel);
+          bump(row, typ);
+          if (reps.includes(name)) row.AsReporter += 1;
+          if (camops.includes(name)) row.AsCamOp += 1;
+          if (drv === name) row.AsDriver += 1;
+          perUser.set(name, row);
+        }
+      }
+    }
+
+    const userSummaryRows = Array.from(perUser.values()).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
 
     const dq = {
       rawStatuses: Array.from(rawStatuses.entries()), // [ [raw, normalized], ... ]
@@ -611,8 +715,11 @@ if (!(ty.startsWith("news") || ty.startsWith("sport") || ty.startsWith("prod") |
       statusByTypeRows,
       dayTypeRows,
       dq,
+      userSummaryRows,
+      totalRangeCount: baseTickets.length,
+      totalSelectedCount: scopedTickets.length,
     };
-  }, [activeTickets, baseTickets, reporterRoleOf]);
+  }, [scopedTickets, baseTickets, selectedUsers]);
 
   // ----- Colors (consistent coding) -----
   const palette = {
@@ -757,7 +864,7 @@ if (!(ty.startsWith("news") || ty.startsWith("sport") || ty.startsWith("prod") |
 };
 
 useEffect(() => {
-  // Build roster-aware counts whenever activeTickets changes
+  // Build roster-aware counts whenever the *scoped* tickets change
   let cancelled = false;
   (async () => {
     setRosterBusy(true);
@@ -765,7 +872,7 @@ useEffect(() => {
       // Collect unique week starts we need
       const dates = Array.from(
         new Set(
-          activeTickets
+          scopedTickets
             .map((t) => toISODate(t?.date || t?.createdAt))
             .filter(Boolean)
         )
@@ -782,7 +889,7 @@ useEffect(() => {
       let unmatched = 0;
       const unmatchedMap = new Map(); // name -> { count, dates:Set }
 
-      for (const t of activeTickets) {
+      for (const t of scopedTickets) {
         const dateOnly = toISODate(t?.date || t?.createdAt);
         if (!dateOnly) continue;
         const weekKey = getWeekStartISO(dateOnly);
@@ -852,7 +959,8 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [activeTickets]); // eslint-disable-line react-hooks/exhaustive-deps
+}, [scopedTickets]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   return (
     <div className="p-4 space-y-4">
@@ -892,16 +1000,31 @@ useEffect(() => {
         </Card>
       )}
 
-         {/* Filters */}
+             {/* Filters */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex items-center justify-between gap-4">
           <CardTitle>Filters</CardTitle>
+
+          {/* Live totals */}
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="inline-flex items-center gap-2 rounded-full border px-2 py-1">
+              <span className="inline-block h-2 w-2 rounded-full bg-slate-400" />
+              Range Total: <strong>{totalRangeCount}</strong>
+            </span>
+            {selectedUsers.length > 0 && (
+              <span className="inline-flex items-center gap-2 rounded-full border px-2 py-1">
+                <span className="inline-block h-2 w-2 rounded-full bg-slate-600" />
+                Selected Users Total: <strong>{totalSelectedCount}</strong>
+              </span>
+            )}
+          </div>
         </CardHeader>
+
         <CardContent
           className={
             rangeMode === "custom"
-              ? "grid grid-cols-1 md:grid-cols-7 gap-3"
-              : "grid grid-cols-1 md:grid-cols-5 gap-3"
+              ? "grid grid-cols-1 md:grid-cols-8 gap-3"
+              : "grid grid-cols-1 md:grid-cols-6 gap-3"
           }
         >
           {/* Time Range */}
@@ -971,26 +1094,26 @@ useEffect(() => {
               onChange={(e) => setLineStatus(e.target.value)}
               className="border rounded-md px-3 py-2 bg-background"
             >
-             {[
-  "All",
-  "Assigned",
-  "In Progress",
-  "Completed",
-  "Postponed",
-  "Cancelled",
-  "Archived",
-  "Recycled",
-  "Unassigned",
-  "Pending",
-].map((label) => (
-  <option key={label.toLowerCase()} value={label}>
-    {label}
-  </option>
-))}
+              {[
+                "All",
+                "Assigned",
+                "In Progress",
+                "Completed",
+                "Postponed",
+                "Cancelled",
+                "Archived",
+                "Recycled",
+                "Unassigned",
+                "Pending",
+              ].map((label) => (
+                <option key={label.toLowerCase()} value={label}>
+                  {label}
+                </option>
+              ))}
             </select>
           </div>
 
-          {/* NEW: Archived Tickets toggle */}
+          {/* Archived Tickets toggle */}
           <div className="flex flex-col">
             <label className="text-sm font-medium mb-1">Archived Tickets</label>
             <div className="flex items-center h-[42px] px-3 border rounded-md bg-background">
@@ -1007,6 +1130,25 @@ useEffect(() => {
             </div>
           </div>
 
+          {/* NEW: User Filter (MultiSelectCombobox) */}
+          <div className="flex flex-col">
+            <label className="text-sm font-medium mb-1">Select Users</label>
+            <MultiSelectCombobox
+              options={userOptions}
+              selected={selectedUsers}
+              onChange={(next) => {
+                const values = (next || []).map((v) =>
+                  typeof v === "string" ? v : v?.value
+                );
+                setSelectedUsers(values);
+              }}
+              placeholder="Type a name…"
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Pick one or more to focus all stats on them.
+            </p>
+          </div>
+
           {/* Reset */}
           <div className="flex items-end">
             <button
@@ -1016,6 +1158,7 @@ useEffect(() => {
                 setRangeMode("thisWeek");
                 setDayType("all");
                 setIncludeArchived(true);
+                setSelectedUsers([]);
               }}
               className="border rounded-md px-3 py-2 w-full"
             >
@@ -1025,6 +1168,91 @@ useEffect(() => {
         </CardContent>
       </Card>
 
+
+           {/* NEW: User Summary (appears only when users are selected) */}
+            {selectedUsers.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>User Summary (Selected)</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            {loading ? (
+              <div className="h-20 flex items-center justify-center text-muted-foreground">Loading…</div>
+            ) : userSummaryRows.length === 0 ? (
+              <div className="h-20 flex items-center justify-center text-muted-foreground">
+                No tickets for the selected users in this range.
+              </div>
+            ) : (
+              <>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left align-bottom">
+                      <th className="py-2 pr-3">User</th>
+                      <th className="py-2 pr-3">Total</th>
+                      <th className="py-2 pr-3">Assigned</th>
+                      <th className="py-2 pr-3">In&nbsp;Progress</th>
+                      <th className="py-2 pr-3">Completed</th>
+                      <th className="py-2 pr-3">Cancelled</th>
+                      <th className="py-2 pr-3">Postponed</th>
+                      <th className="py-2 pr-3">News</th>
+                      <th className="py-2 pr-3">Sports</th>
+                      <th className="py-2 pr-3">Production</th>
+                      <th className="py-2 pr-3">Technical</th>
+                      <th className="py-2 pr-3">As&nbsp;Reporter</th>
+                      <th className="py-2 pr-3">As&nbsp;Cam&nbsp;Op</th>
+                      <th className="py-2 pr-3">As&nbsp;Driver</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* Combined row (sum of individuals; if two selected users share a ticket, it is counted for both by design) */}
+                    <tr className="border-t bg-muted/40">
+                      <td className="py-2 pr-3 font-medium">Combined</td>
+                      <td className="py-2 pr-3">{userSummaryRows.reduce((s, r) => s + (r.total || 0), 0)}</td>
+                      <td className="py-2 pr-3">{userSummaryRows.reduce((s, r) => s + (r.Assigned || 0), 0)}</td>
+                      <td className="py-2 pr-3">{userSummaryRows.reduce((s, r) => s + (r["In Progress"] || 0), 0)}</td>
+                      <td className="py-2 pr-3">{userSummaryRows.reduce((s, r) => s + (r.Completed || 0), 0)}</td>
+                      <td className="py-2 pr-3">{userSummaryRows.reduce((s, r) => s + (r.Cancelled || 0), 0)}</td>
+                      <td className="py-2 pr-3">{userSummaryRows.reduce((s, r) => s + (r.Postponed || 0), 0)}</td>
+                      <td className="py-2 pr-3">{userSummaryRows.reduce((s, r) => s + (r.News || 0), 0)}</td>
+                      <td className="py-2 pr-3">{userSummaryRows.reduce((s, r) => s + (r.Sports || 0), 0)}</td>
+                      <td className="py-2 pr-3">{userSummaryRows.reduce((s, r) => s + (r.Production || 0), 0)}</td>
+                      <td className="py-2 pr-3">{userSummaryRows.reduce((s, r) => s + (r.Technical || 0), 0)}</td>
+                      <td className="py-2 pr-3">{userSummaryRows.reduce((s, r) => s + (r.AsReporter || 0), 0)}</td>
+                      <td className="py-2 pr-3">{userSummaryRows.reduce((s, r) => s + (r.AsCamOp || 0), 0)}</td>
+                      <td className="py-2 pr-3">{userSummaryRows.reduce((s, r) => s + (r.AsDriver || 0), 0)}</td>
+                    </tr>
+
+                    {/* Per-user rows */}
+                    {userSummaryRows.map((r) => (
+                      <tr key={r.name} className="border-t">
+                        <td className="py-2 pr-3">{r.name}</td>
+                        <td className="py-2 pr-3">{r.total || 0}</td>
+                        <td className="py-2 pr-3">{r.Assigned || 0}</td>
+                        <td className="py-2 pr-3">{r["In Progress"] || 0}</td>
+                        <td className="py-2 pr-3">{r.Completed || 0}</td>
+                        <td className="py-2 pr-3">{r.Cancelled || 0}</td>
+                        <td className="py-2 pr-3">{r.Postponed || 0}</td>
+                        <td className="py-2 pr-3">{r.News || 0}</td>
+                        <td className="py-2 pr-3">{r.Sports || 0}</td>
+                        <td className="py-2 pr-3">{r.Production || 0}</td>
+                        <td className="py-2 pr-3">{r.Technical || 0}</td>
+                        <td className="py-2 pr-3">{r.AsReporter || 0}</td>
+                        <td className="py-2 pr-3">{r.AsCamOp || 0}</td>
+                        <td className="py-2 pr-3">{r.AsDriver || 0}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  This view counts tickets where a selected user participated as a <em>Reporter</em>, <em>Cam&nbsp;Op</em>, or <em>Driver</em>.
+                  “Completed” is your “worked off”; “Combined” is the sum across the selected users.
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Upper row: Requests by Type & Top Assigned */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1053,17 +1281,17 @@ useEffect(() => {
                     >
                       {sectionPie.map((e, i) => (
                         <Cell
-  key={`type-${i}`}
-  fill={
-    e.name === "News"
-      ? palette.newsroom
-      : e.name === "Sports"
-      ? palette.sports
-      : e.name === "Production"
-      ? palette.production
-      : "#0ea5e9" // sky-500 for Technical
-  }
-/>
+                          key={`type-${i}`}
+                          fill={
+                            e.name === "News"
+                              ? palette.newsroom
+                              : e.name === "Sports"
+                              ? palette.sports
+                              : e.name === "Production"
+                              ? palette.production
+                              : "#0ea5e9" // sky-500 for Technical
+                          }
+                        />
                       ))}
                     </Pie>
                   </PieChart>
@@ -1079,6 +1307,7 @@ useEffect(() => {
         {/* Top Assigned card with its own insights tab */}
         <TopAssignedCard loading={loading} datasets={topDatasets} palette={palette} />
       </div>
+
 
       {/* Row: Work Volume & Status by Request Type */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1210,7 +1439,7 @@ useEffect(() => {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={[
-                    { label: "Primary", value: rosterStats.primary },
+                    { label: "On Duty", value: rosterStats.primary },
                     { label: "Afternoon Shift", value: rosterStats.afternoon },
                     { label: "Off Duty", value: rosterStats.offDuty },
                     { label: "Unmatched", value: rosterStats.unmatched },
@@ -1222,7 +1451,7 @@ useEffect(() => {
                   <Tooltip />
                   <Bar dataKey="value" name="Assignments">
                     {[
-                      { k: "Primary", c: palette.statusD },
+                      { k: "On Duty", c: palette.statusD },
                       { k: "Afternoon Shift", c: palette.statusC },
                       { k: "Off Duty", c: palette.statusB },
                       { k: "Unmatched", c: palette.statusE },
