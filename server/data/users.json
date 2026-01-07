@@ -285,7 +285,8 @@
     "id": "1752899830266",
     "name": "Irene Jean-Baptiste",
     "roles": [
-      "producer"
+      "producer",
+       "admin"
     ],
     "description": "Graphic Artist/Senior Producer",
     "hiddenRoles": [],
@@ -404,7 +405,8 @@
     "id": "1752900107023",
     "name": "Nelson Joseph",
     "roles": [
-      "driver"
+      "driver",
+       "admin"
     ],
     "description": "Driver",
     "hiddenRoles": [],
