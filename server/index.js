@@ -2076,42 +2076,67 @@ app.get("/", (req, res) => {
 
 // ✅ Start server on LAN
 // ✅ Start HTTPS server on LAN
-// ✅ Serve Vite production build
+// ✅ Serve Vite production build (LOCAL ONLY — Netlify serves frontend in prod)
+
+const IS_RENDER = !!(process.env.RENDER || process.env.ON_RENDER);
 const distPath = path.join(__dirname, "../dist");
-app.use(express.static(distPath));
 
-// Fallback to index.html for frontend routes (React SPA)
-// Make sure API paths (including /suggestions) are never swallowed.
-app.use((req, res, next) => {
-  const knownPrefixes = [
-    "/api",
-    "/auth",               // ✅ whitelist auth API so SPA fallback never captures it
-    "/users",
-    "/tickets",
-    "/vehicles",
-    "/rosters",
-    "/seed-vehicles",
-    "/notification-groups",
-    "/notifications",
-    "/suggestions"         // ✅ ensure suggestions API never gets swallowed by SPA fallback
-  ];
+// ✅ Only serve dist locally (Render uses Netlify for frontend)
+if (!IS_RENDER && fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
 
-  // Always let non-GET (POST/PATCH/DELETE/OPTIONS) pass through to real routes
-  if (req.method !== "GET") return next();
+  // Fallback to index.html for frontend routes (React SPA)
+  // Make sure API paths are never swallowed.
+  app.use((req, res, next) => {
+    const knownPrefixes = [
+      "/api",
 
-  // If the path is one of our API prefixes, pass through
-  if (knownPrefixes.some((prefix) => req.path.startsWith(prefix))) {
-    return next();
-  }
+      // auth/users
+      "/auth",
+      "/users",
+      "/user-prefs",
 
-  // If the request looks like an asset (has a file extension), don't SPA-fallback it
-  if (/\.[a-zA-Z0-9]+$/.test(req.path)) return next();
+      // core data
+      "/tickets",
+      "/vehicles",
+      "/rosters",
 
-  // Otherwise, serve the SPA index for frontend routes
-  res.sendFile(path.join(distPath, "index.html"));
-});
+      // notifications/suggestions
+      "/notification-groups",
+      "/notifications",
+      "/suggestions",
 
+      // ✅ settings + leave APIs
+      "/settings",
+      "/leave-requests",
+      "/leave",
 
+      // dev / admin tools
+      "/seed-vehicles",
+      "/force-import-vehicles",
+      "/force-import-rosters",
+      "/force-import-groups",
+    ];
+
+    // Always let non-GET (POST/PATCH/DELETE/OPTIONS) pass through
+    if (req.method !== "GET") return next();
+
+    // Never SPA-fallback API routes
+    if (knownPrefixes.some((prefix) => req.path.startsWith(prefix))) {
+      return next();
+    }
+
+    // Never SPA-fallback real files (assets, css, js, images)
+    if (/\.[a-zA-Z0-9]+$/.test(req.path)) return next();
+
+    // Otherwise serve React SPA
+    return res.sendFile(path.join(distPath, "index.html"));
+  });
+} else {
+  console.log(
+    "🌐 Render mode detected — static dist/ hosting and SPA fallback disabled (Netlify serves frontend)"
+  );
+}
 console.log("🚨 ROUTE CHECKPOINT 20");
 console.log("🚨 ROUTE CHECKPOINT 21");
 
