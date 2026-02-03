@@ -1,0 +1,370 @@
+// server/routes/leave.js
+import express from "express";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const router = express.Router();
+
+const __filename = fileURLToPath(import.meta.url);
+
+// Data files
+const DATA_DIR =
+  process.env.DATA_DIR ||
+  ((process.env.RENDER || process.env.ON_RENDER)
+    ? "/data"
+    : path.join(path.dirname(__filename), "..", "data"));
+
+const LEAVE_FILE = path.join(DATA_DIR, "leave-requests.json");
+const USERS_FILE = path.join(DATA_DIR, "users.json");
+
+// -------------- Helpers --------------
+function readJSON(filePath, fallback) {
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJSON(filePath, data) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+}
+
+const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+const toInt = (v, fb = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n) : fb;
+};
+
+function findUserIndex(users, userIdOrName) {
+  const key = String(userIdOrName || "").trim();
+
+  // 1) Exact id match (string IDs)
+  const byId = users.findIndex((u) => String(u.id) === key);
+  if (byId !== -1) return byId;
+
+  // 2) Name match (if the caller passed a name)
+  const byName = users.findIndex(
+    (u) => String(u.name || "").trim().toLowerCase() === key.toLowerCase()
+  );
+  if (byName !== -1) return byName;
+
+  // 3) Legacy numeric: treat "2" as the 2nd user in the array (1-based)
+  const n = Number(key);
+  if (Number.isInteger(n) && n > 0 && n <= users.length) {
+    return n - 1;
+  }
+
+  return -1;
+}
+
+/**
+ * Balance normalization helpers:
+ * - getBalances(u): read whatever exists and return { annualLeave, offDays }
+ * - setBalances(u, { annualLeave, offDays }): write BOTH legacy and new fields.
+ */
+function getBalances(u) {
+  const annual =
+    typeof u.annualLeave === "number" ? u.annualLeave :
+    typeof u.leaveBalance === "number" ? u.leaveBalance :
+    21;
+
+  const off =
+    typeof u.offDays === "number" ? u.offDays :
+    typeof u.offDayBalance === "number" ? u.offDayBalance :
+    0;
+
+  return { annualLeave: toInt(annual, 21), offDays: toInt(off, 0) };
+}
+
+function setBalances(u, { annualLeave, offDays }) {
+  const annual = clamp(toInt(annualLeave, 21), 0, 42); // UI maximum
+  const off = Math.max(0, toInt(offDays, 0));
+
+  // Write both shapes for compatibility
+  u.annualLeave = annual;
+  u.leaveBalance = annual;
+
+  u.offDays = off;
+  u.offDayBalance = off;
+
+  return u;
+}
+
+// Date helpers
+const toISO = (d) => {
+  if (!d && d !== 0) return "";
+  const x = new Date(d);
+  return Number.isNaN(x.getTime()) ? "" : x.toISOString().slice(0, 10);
+};
+const weekdayCountInclusive = (startISO, endISO) => {
+  if (!startISO || !endISO) return 0;
+  const s = new Date(startISO);
+  const e = new Date(endISO);
+  if (s > e) return 0;
+  let c = 0;
+  const cur = new Date(s);
+  while (cur <= e) {
+    const dow = cur.getDay(); // 0 Sun .. 6 Sat
+    if (dow !== 0 && dow !== 6) c++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return c;
+};
+
+// --- shared core builders so aliases stay in sync ---
+function buildNewRequest(body) {
+  const nowIso = new Date().toISOString();
+
+  if (!body.userId || !body.userName || !body.section) {
+    return { error: "userId, userName, section required" };
+  }
+  if (!["annual", "offDay"].includes(body.type)) {
+    return { error: "type must be 'annual' or 'offDay'" };
+  }
+  if (!["local", "overseas"].includes(body.localOrOverseas)) {
+    return { error: "localOrOverseas must be 'local' or 'overseas'" };
+  }
+
+  const startISO = toISO(body.startDate);
+  const endISO = toISO(body.endDate);
+
+  // Prefer explicit days, else compute from dates
+  let days = Number(body.days);
+  if (!Number.isFinite(days) || days <= 0) {
+    days = weekdayCountInclusive(startISO, endISO);
+  }
+  if (!Number.isFinite(days) || days <= 0) {
+    return { error: "days must be a positive number (or provide valid startDate/endDate)" };
+  }
+
+  const id = body.id || Date.now().toString();
+
+  return {
+    id,
+    userId: body.userId,
+    userName: body.userName,
+    section: body.section,
+    type: body.type,
+    localOrOverseas: body.localOrOverseas,
+
+    // Persisted trip dates (optional but shown in admin UI if present)
+    startDate: startISO || undefined,
+    endDate: endISO || undefined,
+    resumeOn: toISO(body.resumeOn) || undefined,
+
+    days,
+    reason: body.reason || "",
+    status: "pending",
+    createdAt: nowIso,
+    decidedAt: null,
+    decidedBy: null,
+
+    // Keep compatibility if client sends them
+    requestedDays: Number.isFinite(+body.requestedDays) ? +body.requestedDays : undefined,
+    useOffDays: !!body.useOffDays,
+  };
+}
+
+function approveAndDeduct(lr, patchBody) {
+  const users = readJSON(USERS_FILE, []);
+  const uIdx = findUserIndex(users, lr.userId);
+  if (uIdx === -1) {
+    return { error: "user not found for balance deduction" };
+  }
+  const current = getBalances(users[uIdx]);
+
+  const annToDeduct =
+    Number.isFinite(+patchBody.appliedAnnual) ? Math.max(0, Math.round(+patchBody.appliedAnnual)) :
+    (lr.type === "annual" ? Math.max(0, Math.round(lr.days || 0)) : 0);
+
+  const offToDeduct =
+    Number.isFinite(+patchBody.appliedOff) ? Math.max(0, Math.round(+patchBody.appliedOff)) :
+    (lr.type === "offDay" ? Math.max(0, Math.round(lr.days || 0)) : 0);
+
+  if (annToDeduct > 0 && current.annualLeave < annToDeduct) {
+    return { error: "insufficient annual leave balance" };
+  }
+  if (offToDeduct > 0 && current.offDays < offToDeduct) {
+    return { error: "insufficient off day balance" };
+  }
+
+  current.annualLeave = clamp(current.annualLeave - annToDeduct, 0, 42);
+  current.offDays = Math.max(0, current.offDays - offToDeduct);
+
+  users[uIdx] = setBalances(users[uIdx], current);
+  writeJSON(USERS_FILE, users);
+
+  return { appliedAnnual: annToDeduct, appliedOff: offToDeduct };
+}
+
+// -------------- Leave Requests --------------
+// Core GET handler (status|userId) + legacy name filter (?mine=Name)
+function handleList(req, res) {
+  const { status, userId, mine } = req.query;
+  const all = readJSON(LEAVE_FILE, []);
+  let out = all;
+
+  if (status) out = out.filter((x) => x.status === status);
+  if (userId) out = out.filter((x) => String(x.userId) === String(userId));
+  if (mine) {
+    const q = String(mine).toLowerCase().trim();
+    out = out.filter((x) => String(x.userName || "").toLowerCase().includes(q));
+  }
+  res.json(out);
+}
+
+// Core POST handler
+function handleCreate(req, res) {
+  const body = req.body || {};
+  const built = buildNewRequest(body);
+  if (built?.error) return res.status(400).json({ error: built.error });
+
+  const all = readJSON(LEAVE_FILE, []);
+  all.push(built);
+  writeJSON(LEAVE_FILE, all);
+  res.status(201).json(built);
+}
+
+// Core PATCH handler
+function handlePatch(req, res) {
+  const { id } = req.params;
+  const {
+    status,
+    decidedBy,
+    approverId,
+    approverName,
+    decisionNote,
+    appliedAnnual,
+    appliedOff,
+  } = req.body || {};
+
+  if (!["approved", "denied"].includes(status)) {
+    return res.status(400).json({ error: "status must be 'approved' or 'denied'" });
+  }
+
+  const all = readJSON(LEAVE_FILE, []);
+  const idx = all.findIndex((x) => String(x.id) === String(id));
+  if (idx === -1) return res.status(404).json({ error: "leave request not found" });
+
+  const lr = all[idx];
+  if ((lr.status || "pending") !== "pending") {
+    return res.status(409).json({ error: `cannot change status of ${lr.status} request` });
+  }
+
+  if (status === "approved") {
+    const result = approveAndDeduct(lr, { appliedAnnual, appliedOff });
+    if (result?.error) return res.status(409).json({ error: result.error });
+
+    // persist exact applied split for audit trail
+    lr.appliedAnnual = result.appliedAnnual;
+    lr.appliedOff = result.appliedOff;
+  }
+
+  const nowIso = new Date().toISOString();
+  all[idx] = {
+    ...lr,
+    status,
+    decidedAt: nowIso,
+    decidedBy: decidedBy || approverName || "system",
+    approverId: approverId ?? lr.approverId ?? null,
+    approverName: approverName ?? lr.approverName ?? null,
+    decisionNote: typeof decisionNote === "string" ? decisionNote : lr.decisionNote,
+  };
+
+  writeJSON(LEAVE_FILE, all);
+  res.json(all[idx]);
+}
+
+// ---- Modern endpoints ----
+router.get("/", handleList);
+router.post("/", handleCreate);
+router.patch("/:id", handlePatch);
+
+// ---- Legacy-compatible aliases (/leave/requests etc.) ----
+router.get("/requests", handleList);
+router.post("/requests", handleCreate);
+router.patch("/requests/:id", handlePatch);
+
+// -------------- Balances (Admin/UI) --------------
+router.get("/balances/:userId", (req, res) => {
+  const { userId } = req.params;
+  const users = readJSON(USERS_FILE, []);
+  const idx = findUserIndex(users, userId);
+  if (idx === -1) return res.status(404).json({ error: "user not found" });
+
+  const { annualLeave, offDays } = getBalances(users[idx]);
+  res.json({
+    userId: String(users[idx].id),
+    // new fields
+    annualLeave,
+    offDays,
+    // legacy fields
+    leaveBalance: annualLeave,
+    offDayBalance: offDays,
+  });
+});
+
+router.get("/balances", (req, res) => {
+  try {
+    const users = readJSON(USERS_FILE, []);
+    const out = users
+      .filter((u) => u && u.name !== "Admin")
+      .map((u) => {
+        const { annualLeave, offDays } = getBalances(u);
+        return {
+          userId: String(u.id),
+          name: u.name,
+          annualLeave,
+          offDays,
+          leaveBalance: annualLeave,
+          offDayBalance: offDays,
+        };
+      });
+    res.json(out);
+  } catch {
+    res.status(500).json({ error: "Failed to read users" });
+  }
+});
+
+router.patch("/balances/:userId", (req, res) => {
+  const { userId } = req.params;
+  const body = req.body || {};
+
+  const users = readJSON(USERS_FILE, []);
+  const idx = findUserIndex(users, userId);
+  if (idx === -1) return res.status(404).json({ error: "user not found" });
+
+  const current = getBalances(users[idx]);
+
+  const nextAnnual =
+    body.annualLeave !== undefined ? body.annualLeave :
+    body.leaveBalance !== undefined ? body.leaveBalance :
+    current.annualLeave;
+
+  const nextOff =
+    body.offDays !== undefined ? body.offDays :
+    body.offDayBalance !== undefined ? body.offDayBalance :
+    current.offDays;
+
+  const updated = {
+    annualLeave: clamp(toInt(nextAnnual, current.annualLeave), 0, 42),
+    offDays: Math.max(0, toInt(nextOff, current.offDays)),
+  };
+
+  users[idx] = setBalances(users[idx], updated);
+  writeJSON(USERS_FILE, users);
+
+  res.json({
+    userId: String(users[idx].id),
+    annualLeave: users[idx].annualLeave,
+    offDays: users[idx].offDays,
+    leaveBalance: users[idx].leaveBalance,
+    offDayBalance: users[idx].offDayBalance,
+  });
+});
+
+export default router;
