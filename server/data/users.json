@@ -7,8 +7,8 @@
       "admin"
     ],
     "offDayBalance": 5,
-    "updatedAt": "2025-09-12T12:23:04.327Z",
-    "lastOnline": "2025-09-12T12:23:04.319Z",
+    "updatedAt": "2026-02-03T15:34:21.797Z",
+    "lastOnline": "2026-02-03T15:34:21.472Z",
     "lastLoginAt": "2025-09-11T03:44:24.520Z",
     "lastLogin": "2025-09-11T03:44:24.523Z"
   },
@@ -23,9 +23,9 @@
     "password": "Patsy1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.377Z",
-    "updatedAt": "2025-08-30T06:40:12.028Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.083Z"
   },
   {
     "id": "1752896520996",
@@ -38,9 +38,10 @@
     "password": "Naila1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
-    "updatedAt": "2025-08-30T06:40:13.451Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.111Z",
+    "offDays": 14
   },
   {
     "id": "1752896585613",
@@ -52,10 +53,12 @@
     "hiddenRoles": [],
     "password": "Melissa1",
     "requiresPasswordReset": true,
-    "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
-    "updatedAt": "2025-08-30T06:40:14.481Z"
+    "leaveBalance": 36,
+    "annualLeave": 36,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T13:56:47.096Z",
+    "offDays": 0,
+    "offDayBalance": 0
   },
   {
     "id": "1752899122153",
@@ -68,9 +71,9 @@
     "password": "Jana1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
-    "updatedAt": "2025-08-30T06:40:15.526Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.144Z"
   },
   {
     "id": "1752899122157",
@@ -83,9 +86,9 @@
     "password": "Joshua1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
-    "updatedAt": "2025-08-30T06:40:16.972Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.160Z"
   },
   {
     "id": "1752899122160",
@@ -97,10 +100,12 @@
     "hiddenRoles": [],
     "password": "Emma1",
     "requiresPasswordReset": true,
-    "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
-    "updatedAt": "2025-08-29T18:36:16.482Z"
+    "leaveBalance": 38,
+    "annualLeave": 38,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T14:51:50.436Z",
+    "offDays": 1,
+    "offDayBalance": 1
   },
   {
     "id": "1752899481148",
@@ -117,9 +122,9 @@
     "password": "Clive1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
-    "updatedAt": "2025-08-29T18:36:25.886Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.203Z"
   },
   {
     "id": "1752899481152",
@@ -135,8 +140,9 @@
     "password": "Gilmer1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.197Z"
   },
   {
     "id": "1752899657878",
@@ -150,9 +156,9 @@
     "password": "Kerine1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.423Z",
-    "updatedAt": "2025-08-30T06:40:04.304Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.210Z"
   },
   {
     "id": "1752899657883",
@@ -165,9 +171,9 @@
     "password": "Ronny1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
-    "updatedAt": "2025-08-30T06:40:05.696Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.219Z"
   },
   {
     "id": "1752899657886",
@@ -181,9 +187,9 @@
     "password": "Andy1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
-    "updatedAt": "2025-08-30T06:40:07.204Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.224Z"
   },
   {
     "id": "1752899657889",
@@ -196,8 +202,9 @@
     "password": "George1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.229Z"
   },
   {
     "id": "1752899657893",
@@ -211,9 +218,9 @@
     "password": "Jiad1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:28:47.616Z",
-    "updatedAt": "2025-08-30T06:40:08.155Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.244Z"
   },
   {
     "id": "1752899830250",
@@ -228,9 +235,9 @@
     "password": "Ronny1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
-    "updatedAt": "2025-08-30T06:40:20.718Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.250Z"
   },
   {
     "id": "1752899830254",
@@ -244,9 +251,9 @@
     "password": "Stephanie1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
-    "updatedAt": "2025-08-30T06:40:21.783Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.265Z"
   },
   {
     "id": "1752899830258",
@@ -260,9 +267,9 @@
     "password": "Gael1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
-    "updatedAt": "2025-08-30T06:40:22.885Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.260Z"
   },
   {
     "id": "1752899830261",
@@ -277,25 +284,25 @@
     "password": "Aaron1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
-    "updatedAt": "2025-08-30T06:40:24.227Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.276Z"
   },
   {
     "id": "1752899830266",
     "name": "Irene Jean-Baptiste",
     "roles": [
       "producer",
-       "admin"
+      "admin"
     ],
     "description": "Graphic Artist/Senior Producer",
     "hiddenRoles": [],
     "password": "Irene1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
-    "updatedAt": "2025-08-30T06:40:25.580Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.282Z"
   },
   {
     "id": "1752899830269",
@@ -309,17 +316,18 @@
     "hiddenRoles": [],
     "password": "123456789",
     "requiresPasswordReset": false,
-    "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
-    "offDays": 20,
+    "leaveBalance": 29,
+    "annualLeave": 29,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "offDays": 109,
     "fcmToken": "cZuEcPz4jfZHlZlJOuFhwm:APA91bGTDvUBe1VVEhu8ZlUWdFkTWHYFBzwa2G8bFWhwSDtrrz0INZSSVkUYrcfSXZps3MamCkp9ihXaiuBUXmu6Bx1VlCmqz2FnhWqpcATBbotYW1SNnA4",
     "email": "",
     "forcePasswordChange": false,
     "lastLoginAt": "2025-08-29T18:35:37.692Z",
     "lastLogin": "2025-08-29T18:35:37.695Z",
-    "updatedAt": "2025-09-11T12:51:38.728Z",
-    "lastOnline": "2025-09-11T12:51:38.716Z"
+    "updatedAt": "2026-02-03T13:55:42.060Z",
+    "lastOnline": "2025-09-11T12:51:38.716Z",
+    "offDayBalance": 109
   },
   {
     "id": "1752900071147",
@@ -332,10 +340,10 @@
     "password": "Shereen1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.432Z",
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
     "offDays": null,
-    "updatedAt": "2025-08-30T06:39:54.288Z"
+    "updatedAt": "2026-02-03T08:14:05.299Z"
   },
   {
     "id": "1752900071153",
@@ -349,9 +357,9 @@
     "password": "Julius1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.444Z",
-    "updatedAt": "2025-08-30T06:39:56.764Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.315Z"
   },
   {
     "id": "1752900071157",
@@ -365,9 +373,9 @@
     "password": "Alexander1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.451Z",
-    "updatedAt": "2025-08-30T06:39:58.221Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.320Z"
   },
   {
     "id": "1752900071162",
@@ -381,9 +389,9 @@
     "password": "Darino1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.451Z",
-    "updatedAt": "2025-08-30T06:39:59.812Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.329Z"
   },
   {
     "id": "1752900071166",
@@ -397,24 +405,25 @@
     "password": "Joshua1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.451Z",
-    "updatedAt": "2025-08-30T06:40:01.084Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.339Z"
   },
   {
     "id": "1752900107023",
     "name": "Nelson Joseph",
     "roles": [
       "driver",
-       "admin"
+      "admin"
     ],
     "description": "Driver",
     "hiddenRoles": [],
     "password": "Nelson1",
     "requiresPasswordReset": true,
     "leaveBalance": 42,
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-07-25T15:30:20.451Z"
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
+    "updatedAt": "2026-02-03T08:14:05.352Z"
   },
   {
     "id": "1756442865489",
@@ -427,9 +436,9 @@
     "password": "$2b$10$/smQcK97UYjeCcpsOjYAeuED4UEzLItS0M7l1QerRhRbtA7Hs4tti",
     "forcePasswordChange": false,
     "requiresPasswordReset": true,
-    "updatedAt": "2025-08-30T19:47:21.512Z",
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-08-30T06:35:49.721Z"
+    "updatedAt": "2026-02-03T08:14:05.344Z",
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z"
   },
   {
     "id": "1756461558811",
@@ -446,8 +455,8 @@
     "tempPasswordExpires": "2025-09-01T09:59:18.811Z",
     "passwordUpdatedAt": null,
     "createdAt": "2025-08-29T09:59:18.811Z",
-    "updatedAt": "2025-08-30T06:35:49.732Z",
-    "annualLeave": 21,
-    "lastLeaveUpdate": "2025-08-30T06:35:49.721Z"
+    "updatedAt": "2026-02-03T08:14:05.357Z",
+    "annualLeave": 42,
+    "lastLeaveUpdate": "2026-02-03T08:14:04.889Z"
   }
 ]

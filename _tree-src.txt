@@ -1,0 +1,80 @@
+Folder PATH listing
+Volume serial number is A08F-2A05
+D:\APP DEMO\BROADCASTIN-APP\SRC
+|   api.js
+|   App.css
+|   App.jsx
+|   index.css
+|   main.jsx
+|   
++---assets
+|       react.svg
+|       
++---components
+|   |   AdminGlobalToasts.jsx
+|   |   AdminPanel.jsx
+|   |   AssignmentBadge.jsx
+|   |   AssignResources.jsx
+|   |   ChangelogDialog.jsx
+|   |   Dashboard.jsx
+|   |   DutyBadge.jsx
+|   |   DynamicDropdown.jsx
+|   |   Footer.jsx
+|   |   HomeCarousel.jsx
+|   |   HomeGrid.jsx
+|   |   MultiSelectCombobox.jsx
+|   |   Navbar.jsx
+|   |   ProfileDropdown.jsx
+|   |   StatusBadge.jsx
+|   |   TicketForm.jsx
+|   |   TicketTable.jsx
+|   |   
+|   +---admin
+|   |       AdminSettings.jsx
+|   |       AdminStats.jsx
+|   |       AdminTempPasswordButton.jsx
+|   |       GroupsManager.jsx
+|   |       LeaveManager.jsx
+|   |       NotificationsPanel.jsx
+|   |       UserManagement.jsx
+|   |       
+|   \---ui
+|           alert-dialog.jsx
+|           avatar.jsx
+|           badge.jsx
+|           button.jsx
+|           card.jsx
+|           command.jsx
+|           dialog.jsx
+|           dropdown-menu.jsx
+|           input.jsx
+|           label.jsx
+|           popover.jsx
+|           scroll-area.jsx
+|           switch.jsx
+|           tabs.jsx
+|           textarea.jsx
+|           toast.jsx
+|           toaster.jsx
+|           utils.js
+|           
++---hooks
+|       use-toast.js
+|       
++---lib
+|       firebase.js
+|       utils.js
+|       
+\---pages
+        AdminPage.jsx
+        FleetPage.jsx
+        ForgotPassword.jsx
+        HomePage.jsx
+        LoginPage.jsx
+        MyProfile.jsx
+        OperationsPage.jsx
+        ResetPassword.jsx
+        SetPasswordPage.jsx
+        TicketFormPage.jsx
+        TicketPage.jsx
+        

@@ -132,65 +132,122 @@ function buildNewRequest(body) {
   const startISO = toISO(body.startDate);
   const endISO = toISO(body.endDate);
 
-  // Prefer explicit days, else compute from dates
-  let days = Number(body.days);
-  if (!Number.isFinite(days) || days <= 0) {
-    days = weekdayCountInclusive(startISO, endISO);
-  }
-  if (!Number.isFinite(days) || days <= 0) {
-    return { error: "days must be a positive number (or provide valid startDate/endDate)" };
-  }
+  // --- allocations (submitted from the form) ---
+const num = (v, fb = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fb;
+};
+const half = (n) => Math.round(num(n, 0) * 2) / 2;
 
-  const id = body.id || Date.now().toString();
+// Accept several shapes from client (current + legacy)
+const submittedAnnual =
+  (body?.allocations && body.allocations.annual !== undefined) ? body.allocations.annual :
+  body?.annualAlloc ?? body?.annualLeaveAlloc ?? body?.annualLeaveUsed ?? undefined;
 
-  return {
-    id,
-    userId: body.userId,
-    userName: body.userName,
-    section: body.section,
-    type: body.type,
-    localOrOverseas: body.localOrOverseas,
+const submittedOff =
+  (body?.allocations && body.allocations.off !== undefined) ? body.allocations.off :
+  body?.offAlloc ?? body?.offDaysAlloc ?? body?.offDaysUsed ?? undefined;
 
-    // Persisted trip dates (optional but shown in admin UI if present)
-    startDate: startISO || undefined,
-    endDate: endISO || undefined,
-    resumeOn: toISO(body.resumeOn) || undefined,
+const A = half(submittedAnnual ?? 0);
+const O = half(submittedOff ?? 0);
+const hasSplit = (A > 0) || (O > 0);
 
-    days,
-    reason: body.reason || "",
-    status: "pending",
-    createdAt: nowIso,
-    decidedAt: null,
-    decidedBy: null,
+// Prefer explicit requested total:
+// 1) allocations total (most accurate to "what was submitted")
+// 2) body.totalWeekdays / body.requestedDays from client
+// 3) body.days
+// 4) compute from dates
+let days = hasSplit ? half(A + O) : num(body.days, 0);
+if (!(days > 0)) days = half(num(body.totalWeekdays, 0));
+if (!(days > 0)) days = half(num(body.requestedDays, 0));
+if (!(days > 0)) days = weekdayCountInclusive(startISO, endISO);
 
-    // Keep compatibility if client sends them
-    requestedDays: Number.isFinite(+body.requestedDays) ? +body.requestedDays : undefined,
-    useOffDays: !!body.useOffDays,
-  };
+if (!Number.isFinite(days) || days <= 0) {
+  return { error: "days must be a positive number (or provide valid startDate/endDate)" };
+}
+
+const id = body.id || Date.now().toString();
+
+// Accept resume field from either key
+const resumeISO =
+  toISO(body.resumeWorkOn) ||
+  toISO(body.resumeOn) ||
+  "";
+
+return {
+  id,
+  userId: body.userId,
+  userName: body.userName,
+  section: body.section,
+  type: body.type,
+  localOrOverseas: body.localOrOverseas,
+
+  startDate: startISO || undefined,
+  endDate: endISO || undefined,
+  resumeOn: resumeISO || undefined,
+
+  // ✅ store totals + the split that your UI wants to show
+  days: half(days),
+  allocations: { annual: A, off: O },
+
+  reason: body.reason || "",
+  status: "pending",
+  createdAt: nowIso,
+  decidedAt: null,
+  decidedBy: null,
+
+  // Keep compatibility if client sends them
+  requestedDays:
+    Number.isFinite(+body.totalWeekdays) ? +body.totalWeekdays :
+    Number.isFinite(+body.requestedDays) ? +body.requestedDays :
+    undefined,
+
+  // keep half-day meta if client sends it (you do)
+  halfDayStart: body.halfDayStart || undefined,
+  halfDayEnd: body.halfDayEnd || undefined,
+
+  useOffDays: !!body.useOffDays,
+};
 }
 
 function approveAndDeduct(lr, patchBody) {
+  // ✅ Idempotency guard:
+  // If this leave request was already applied once, DO NOT deduct again.
+  // This protects against refresh/replays/double PATCH calls.
+  if (lr?.applied === true || typeof lr?.appliedAt === "string") {
+    return {
+      appliedAnnual: Number.isFinite(+lr.appliedAnnual) ? +lr.appliedAnnual : 0,
+      appliedOff: Number.isFinite(+lr.appliedOff) ? +lr.appliedOff : 0,
+      alreadyApplied: true,
+    };
+  }
+
   const users = readJSON(USERS_FILE, []);
   const uIdx = findUserIndex(users, lr.userId);
   if (uIdx === -1) {
     return { error: "user not found for balance deduction" };
   }
+
   const current = getBalances(users[uIdx]);
 
+  const num = (v, fb = 0) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fb;
+  };
+  const half = (n) => Math.round(num(n, 0) * 2) / 2;
+
+  const fallbackAnnual = half(lr?.allocations?.annual ?? 0);
+  const fallbackOff = half(lr?.allocations?.off ?? 0);
+
   const annToDeduct =
-    Number.isFinite(+patchBody.appliedAnnual) ? Math.max(0, Math.round(+patchBody.appliedAnnual)) :
-    (lr.type === "annual" ? Math.max(0, Math.round(lr.days || 0)) : 0);
+    Number.isFinite(+patchBody.appliedAnnual) ? half(+patchBody.appliedAnnual) :
+    (fallbackAnnual > 0 ? fallbackAnnual :
+      (lr.type === "annual" ? half(lr.days || 0) : 0));
 
   const offToDeduct =
-    Number.isFinite(+patchBody.appliedOff) ? Math.max(0, Math.round(+patchBody.appliedOff)) :
-    (lr.type === "offDay" ? Math.max(0, Math.round(lr.days || 0)) : 0);
-
-  if (annToDeduct > 0 && current.annualLeave < annToDeduct) {
-    return { error: "insufficient annual leave balance" };
-  }
-  if (offToDeduct > 0 && current.offDays < offToDeduct) {
-    return { error: "insufficient off day balance" };
-  }
+    Number.isFinite(+patchBody.appliedOff) ? half(+patchBody.appliedOff) :
+    (fallbackOff > 0 ? fallbackOff :
+      (lr.type === "offDay" ? half(lr.days || 0) : 0));
 
   current.annualLeave = clamp(current.annualLeave - annToDeduct, 0, 42);
   current.offDays = Math.max(0, current.offDays - offToDeduct);
@@ -198,7 +255,7 @@ function approveAndDeduct(lr, patchBody) {
   users[uIdx] = setBalances(users[uIdx], current);
   writeJSON(USERS_FILE, users);
 
-  return { appliedAnnual: annToDeduct, appliedOff: offToDeduct };
+  return { appliedAnnual: annToDeduct, appliedOff: offToDeduct, alreadyApplied: false };
 }
 
 // -------------- Leave Requests --------------
@@ -251,20 +308,28 @@ function handlePatch(req, res) {
   if (idx === -1) return res.status(404).json({ error: "leave request not found" });
 
   const lr = all[idx];
+
+  // ✅ If already decided, never allow re-deciding (existing behavior)
   if ((lr.status || "pending") !== "pending") {
     return res.status(409).json({ error: `cannot change status of ${lr.status} request` });
   }
+
+  const nowIso = new Date().toISOString();
 
   if (status === "approved") {
     const result = approveAndDeduct(lr, { appliedAnnual, appliedOff });
     if (result?.error) return res.status(409).json({ error: result.error });
 
-    // persist exact applied split for audit trail
+    // ✅ Persist exact applied split + an idempotency stamp
     lr.appliedAnnual = result.appliedAnnual;
     lr.appliedOff = result.appliedOff;
+
+    lr.applied = true;
+    lr.appliedAt = nowIso;
+    lr.appliedBy = decidedBy || approverName || "system";
+    lr.appliedById = approverId ?? null;
   }
 
-  const nowIso = new Date().toISOString();
   all[idx] = {
     ...lr,
     status,
@@ -277,7 +342,7 @@ function handlePatch(req, res) {
 
   writeJSON(LEAVE_FILE, all);
   res.json(all[idx]);
-}
+} 
 
 // ---- Modern endpoints ----
 router.get("/", handleList);

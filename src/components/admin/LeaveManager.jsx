@@ -365,6 +365,52 @@ const fourteenDaysFromNowISO = () => {
   return iso(d);
 };
 
+// ---------- "Currently on leave" helpers ----------
+const isOverlapOrUpcomingWithin = (startISO, endISO, daysAhead = 14) => {
+  if (!startISO || !endISO) return false;
+
+  const today = new Date();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+  const windowEnd = new Date(startOfToday);
+  windowEnd.setDate(windowEnd.getDate() + daysAhead);
+
+  const s = new Date(startISO);
+  const e = new Date(endISO);
+  if (isNaN(s) || isNaN(e)) return false;
+
+  // normalize to date-only
+  const start = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  const end = new Date(e.getFullYear(), e.getMonth(), e.getDate());
+
+  const currently = start <= startOfToday && end >= startOfToday;
+  const upcoming = start >= startOfToday && start <= windowEnd;
+
+  return currently || upcoming;
+};
+
+const shortDate = (isoStr) => {
+  if (!isoStr) return "—";
+  const d = new Date(isoStr);
+  if (isNaN(d)) return isoStr;
+  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
+};
+
+const isOnLeaveToday = (startISO, endISO) => {
+  if (!startISO || !endISO) return false;
+  const today = new Date();
+  const t = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+
+  const s = new Date(startISO);
+  const e = new Date(endISO);
+  if (isNaN(s) || isNaN(e)) return false;
+
+  const start = new Date(s.getFullYear(), s.getMonth(), s.getDate()).getTime();
+  const end = new Date(e.getFullYear(), e.getMonth(), e.getDate()).getTime();
+
+  return start <= t && end >= t;
+};
+
 // =====================================
 // LeaveManager
 // =====================================
@@ -572,33 +618,59 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
 };
 
   const filteredRequests = useMemo(() => {
-    return (requests || [])
-      .filter((r) => (statusFilter === "all" ? true : (r.status || "pending") === statusFilter))
-      .filter((r) => {
-        if (segmentFilter === "all") return true;
-        const u = userById(r.userId);
-        return segmentOfUser(u) === segmentFilter;
-      })
-      .filter((r) => {
-        if (!dateFrom && !dateTo) return true;
-        const createdISO = iso(getReqCreatedAt(r));
-        if (!createdISO) return false;
-        const d = new Date(createdISO);
-        if (isNaN(d)) return false;
-        if (dateFrom && d < new Date(dateFrom)) return false;
-        if (dateTo) {
-          const end = new Date(dateTo);
-          end.setHours(23, 59, 59, 999);
-          if (d > end) return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        const aISO = iso(getReqCreatedAt(a)) || "1970-01-01";
-        const bISO = iso(getReqCreatedAt(b)) || "1970-01-01";
-        return new Date(bISO) - new Date(aISO);
-      });
-  }, [requests, statusFilter, segmentFilter, dateFrom, dateTo, users]);
+  return (requests || [])
+    .filter((r) =>
+      statusFilter === "all" ? true : (r.status || "pending") === statusFilter
+    )
+    .filter((r) => {
+      if (segmentFilter === "all") return true;
+      const u = userById(r.userId);
+      return segmentOfUser(u) === segmentFilter;
+    })
+    .filter((r) => {
+      if (!dateFrom && !dateTo) return true;
+      const createdISO = iso(getReqCreatedAt(r));
+      if (!createdISO) return false;
+      const d = new Date(createdISO);
+      if (isNaN(d)) return false;
+      if (dateFrom && d < new Date(dateFrom)) return false;
+      if (dateTo) {
+        const end = new Date(dateTo);
+        end.setHours(23, 59, 59, 999);
+        if (d > end) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const aISO = iso(getReqCreatedAt(a)) || "1970-01-01";
+      const bISO = iso(getReqCreatedAt(b)) || "1970-01-01";
+      return new Date(bISO) - new Date(aISO);
+    });
+}, [requests, statusFilter, segmentFilter, dateFrom, dateTo, users]);
+
+// ✅ Card data: approved leaves that are active now OR start within next 14 days
+const currentlyOnLeave = useMemo(() => {
+  return (requests || [])
+    .filter((r) => String(r.status || "").toLowerCase() === "approved")
+    .map((r) => {
+      const u = userById(r.userId);
+      const name = r.userName || u?.name || "Unknown";
+
+      const startISO = iso(getReqStart(r));
+      const endISO = iso(getReqEnd(r));
+
+      return {
+        id: r.id || `${name}-${startISO}-${endISO}`,
+        name,
+        segment: segmentOfUser(u),
+        startISO,
+        endISO,
+        isNow: isOnLeaveToday(startISO, endISO),
+      };
+    })
+    .filter((x) => isOverlapOrUpcomingWithin(x.startISO, x.endISO, 14))
+    .sort((a, b) => new Date(a.startISO) - new Date(b.startISO));
+}, [requests, users]);
 
   const openDecision = (req, type) => {
     setActiveReq(req);
@@ -638,98 +710,118 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   };
 
   const applyDecision = async () => {
-    if (!activeReq) return;
-    const req = activeReq;
-    const u = userById(req.userId);
+  if (!activeReq) return;
+  const req = activeReq;
+  const u = userById(req.userId);
 
-    setSavingDecision(true);
+  setSavingDecision(true);
 
-    try {
-      if (decisionType === "deny") {
-        const patch = {
-          status: "denied",
-          decisionNote,
-          approverId: currentAdmin?.id || null,
-          approverName: currentAdmin?.name || "Admin",
-          decidedAt: new Date().toISOString(),
-        };
-        const res = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
-        });
-        if (!res.ok) throw new Error("Failed to deny request");
-        setRequests((prev) => prev.map((r) => (String(r.id) === String(req.id) ? { ...r, ...patch } : r)));
-        toast({ title: "Request denied", description: `Reason noted${decisionNote ? `: ${decisionNote}` : ""}.` });
-      } else {
-        // Use total requested days (if dates missing)
-        const total = Math.max(
-          toInt(req?.totalWeekdays ?? 0, 0),
-          getReqTotalDays(req)
-        );
-        const sum = toInt(adjAnnual, 0) + toInt(adjOff, 0);
-        if (total > 0 && sum !== total) {
-          // allow; admins may split differently; just warn in UI elsewhere
-        }
+  try {
+    if (decisionType === "deny") {
+      const patch = {
+        status: "denied",
+        decisionNote,
+        approverId: currentAdmin?.id || null,
+        approverName: currentAdmin?.name || "Admin",
+        decidedAt: new Date().toISOString(),
+      };
 
-        if (twoWeekRuleViolated(req) && !overrideTwoWeekRule) {
-          setSavingDecision(false);
-          toast({
-            title: "Two-week rule",
-            description:
-              "This request starts in less than 14 days. Toggle 'Override 2-week rule' to proceed, or deny with a note.",
-            variant: "destructive",
-          });
-          return;
-        }
+      const res = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error("Failed to deny request");
 
-        if (!u?.id) throw new Error("User has no ID — cannot update balances.");
+      // Prefer server as source of truth (it may normalize fields)
+      const saved = await res.json();
+      setRequests((prev) =>
+        prev.map((r) => (String(r.id) === String(req.id) ? { ...r, ...saved } : r))
+      );
 
-        const nextAnnual = clamp(toInt(u.annualLeave ?? 0) - toInt(adjAnnual, 0), 0, 42);
-        const nextOff = Math.max(0, toInt(u.offDays ?? 0) - toInt(adjOff, 0));
+      toast({
+        title: "Request denied",
+        description: `Reason noted${decisionNote ? `: ${decisionNote}` : ""}.`,
+      });
 
-        {
-          const res = await fetch(`${API_BASE}/users/${u.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ annualLeave: nextAnnual, offDays: nextOff }),
-          });
-          if (!res.ok) throw new Error("Failed to update user balances");
-          const data = await res.json();
-          const savedUser = data?.user ?? data;
-          const merged = { ...u, ...savedUser };
-          setUsers((prev) => prev.map((x) => (String(x.id) === String(u.id) ? merged : x)));
-        }
-
-        const patch = {
-          status: "approved",
-          decisionNote,
-          approverId: currentAdmin?.id || null,
-          approverName: currentAdmin?.name || "Admin",
-          decidedAt: new Date().toISOString(),
-          appliedAnnual: toInt(adjAnnual, 0),
-          appliedOff: toInt(adjOff, 0),
-        };
-        const res2 = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
-        });
-        if (!res2.ok) throw new Error("Failed to approve request");
-
-        setRequests((prev) => prev.map((r) => (String(r.id) === String(req.id) ? { ...r, ...patch } : r)));
-
-        toast({
-          title: "Request approved",
-          description: `Deducted Annual: ${toInt(adjAnnual, 0)}, Off days: ${toInt(adjOff, 0)}.`,
-        });
-      }
       closeDecision();
-    } catch (e) {
-      setSavingDecision(false);
-      toast({ title: "Action failed", description: e?.message || "Please try again.", variant: "destructive" });
+      return;
     }
-  };
+
+    // ---------- Approve ----------
+    // Use total requested days (if dates missing)
+    const total = Math.max(toInt(req?.totalWeekdays ?? 0, 0), getReqTotalDays(req));
+    const sum = toInt(adjAnnual, 0) + toInt(adjOff, 0);
+    if (total > 0 && sum !== total) {
+      // allowed; admins can split differently — UI may warn elsewhere
+    }
+
+    if (twoWeekRuleViolated(req) && !overrideTwoWeekRule) {
+      setSavingDecision(false);
+      toast({
+        title: "Two-week rule",
+        description:
+          "This request starts in less than 14 days. Toggle 'Override 2-week rule' to proceed, or deny with a note.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!u?.id) throw new Error("User has no ID — cannot approve request.");
+
+    // ✅ IMPORTANT:
+    // Do NOT PATCH /users balances here.
+    // The backend leave approval route already deducts balances (approveAndDeduct).
+    const patch = {
+      status: "approved",
+      decisionNote,
+      approverId: currentAdmin?.id || null,
+      approverName: currentAdmin?.name || "Admin",
+      decidedAt: new Date().toISOString(),
+      appliedAnnual: toInt(adjAnnual, 0),
+      appliedOff: toInt(adjOff, 0),
+    };
+
+    const res2 = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res2.ok) throw new Error("Failed to approve request");
+
+    const savedReq = await res2.json();
+
+    setRequests((prev) =>
+      prev.map((r) => (String(r.id) === String(req.id) ? { ...r, ...savedReq } : r))
+    );
+
+    // ✅ Refresh users from backend so UI matches server-truth balances after deduction
+    // (This avoids showing stale balances until next page refresh)
+    try {
+      const uRes = await fetch(`${API_BASE}/users`);
+      if (uRes.ok) {
+        const usersData = await uRes.json();
+        setUsers(Array.isArray(usersData) ? usersData : usersData?.users || []);
+      }
+    } catch {
+      // Non-fatal; balances will still be correct on next reload
+    }
+
+    toast({
+      title: "Request approved",
+      description: `Applied Annual: ${toInt(adjAnnual, 0)}, Off days: ${toInt(adjOff, 0)}.`,
+    });
+
+    closeDecision();
+  } catch (e) {
+    setSavingDecision(false);
+    toast({
+      title: "Action failed",
+      description: e?.message || "Please try again.",
+      variant: "destructive",
+    });
+  }
+};
 
   // Render utils
   const renderReqRow = (r) => {
@@ -944,9 +1036,51 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         </div>
       </section>
 
+          {/* ===================== Currently on leave (Conditional) ===================== */}
+      {currentlyOnLeave.length > 0 && (
+        <section>
+          <h2 className="text-2xl font-bold mb-3">Currently on leave</h2>
+
+          <div className="border rounded overflow-hidden">
+            <div className="bg-gray-100 px-3 py-2 text-sm text-gray-700">
+              Showing people who are on leave now, or starting within the next 14 days.
+            </div>
+
+            <div className="p-3 space-y-2">
+              {currentlyOnLeave.map((x) => (
+                <div
+                  key={x.id}
+                  className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium truncate">{x.name}</span>
+                      <span className="text-xs text-gray-500">{x.segment}</span>
+                      {x.isNow ? (
+                        <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-800">
+                          On Leave
+                        </span>
+                      ) : (
+                        <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                          Upcoming
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="text-xs text-gray-500 mt-1">
+                      {shortDate(x.startISO)} → {shortDate(x.endISO)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* ===================== Balances (Existing) ===================== */}
       <section>
-        <h2 className="text-2xl font-bold mb-3">Balances (Admin Edit)</h2>
+        <h2 className="text-2xl font-bold mb-3">Balances</h2>
         {Object.entries(segments).map(([segment, segmentUsers]) => (
           <div key={segment} className="mb-6">
             <h3 className="text-xl font-semibold text-gray-800 mb-2">{segment}</h3>
@@ -988,7 +1122,10 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
                                 [draftKey]: { ...prev[draftKey], annualLeave: val },
                               }));
                             }}
-                            onBlur={() => !disabled && persistField(user, "annualLeave", drafts[draftKey]?.annualLeave)}
+                            onBlur={() =>
+                              !disabled &&
+                              persistField(user, "annualLeave", drafts[draftKey]?.annualLeave)
+                            }
                             className="w-24 border px-2 py-1 rounded"
                             disabled={disabled}
                             title={disabled ? "Cannot edit — user is missing an ID" : undefined}
@@ -1006,12 +1143,16 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
                                 [draftKey]: { ...prev[draftKey], offDays: val },
                               }));
                             }}
-                            onBlur={() => !disabled && persistField(user, "offDays", drafts[draftKey]?.offDays)}
+                            onBlur={() =>
+                              !disabled && persistField(user, "offDays", drafts[draftKey]?.offDays)
+                            }
                             className="w-24 border px-2 py-1 rounded"
                             disabled={disabled}
                             title={disabled ? "Cannot edit — user is missing an ID" : undefined}
                           />
-                          {isSaving && <span className="ml-2 text-xs text-gray-500">Saving…</span>}
+                          {isSaving && (
+                            <span className="ml-2 text-xs text-gray-500">Saving…</span>
+                          )}
                         </td>
                       </tr>
                     );
