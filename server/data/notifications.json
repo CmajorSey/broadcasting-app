@@ -1,1 +1,33 @@
-[]
+[
+  {
+    "title": "💡 New User Suggestion",
+    "message": "Emma Laporte sent a suggestion in Newsroom.",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "1752899830266",
+      "1752900107023",
+      "1756461558811",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "Irene Jean-Baptiste",
+      "Nelson Joseph",
+      "Jennifer Arnephy",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2026-02-03T15:03:41.940Z",
+    "kind": "user_suggestion",
+    "displayRecipients": [
+      "Admins"
+    ],
+    "action": {
+      "type": "open_suggestions",
+      "id": "ts:2026-02-03T15:03:41",
+      "url": "/admin?tab=notifications#suggestions"
+    }
+  }
+]

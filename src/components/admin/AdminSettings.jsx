@@ -23,16 +23,12 @@ const DEFAULTS = {
     googleCalendarId: "en.sc.official#holiday@group.v.calendar.google.com",
     icsUrl: "",
   },
-    rules: {
+  rules: {
     after4pmCounts: 0.5,
     saturdayCounts: 1,
     sundayCounts: 1,
-    publicHolidayCounts: 3,
-
-    // NEW: Only grant after-4pm credit if the person was NOT on an afternoon shift
+    publicHolidayCounts: 3, // preserve your current default
     after4pmOnlyForNonAfternoon: true,
-    // NEW: Comma-separated role keys that represent an afternoon shift in your roster
-    // (example: "afternoon,afternoon_shift,pm,evening")
     afternoonShiftRoleKeys: "afternoon,afternoon_shift",
   },
 };
@@ -80,6 +76,9 @@ export default function AdminSettings() {
   const [holiLoading, setHoliLoading] = useState(false);
   const [holiError, setHoliError] = useState("");
 
+  // Save UX
+  const [saving, setSaving] = useState(false);
+
   // NEW: Year filter UI state
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(String(currentYear)); // "YYYY" or "ALL"
@@ -88,7 +87,8 @@ export default function AdminSettings() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/settings`);
+        const res = await fetch(`${API_BASE}/settings`, { credentials: "include" });
+        if (!res.ok) throw new Error(`GET /settings failed (${res.status})`);
         const data = (await res.json()) || {};
         setSettings((prev) => deepMerge(DEFAULTS, deepMerge(prev, data)));
       } catch (err) {
@@ -106,7 +106,7 @@ export default function AdminSettings() {
     setHoliLoading(true);
     setHoliError("");
     try {
-      const res = await fetch(`${API_BASE}/holidays`);
+      const res = await fetch(`${API_BASE}/holidays`, { credentials: "include" });
       if (!res.ok) throw new Error(`GET /holidays failed (${res.status})`);
       const data = await res.json();
       setHolidays(Array.isArray(data) ? data : []);
@@ -124,13 +124,24 @@ export default function AdminSettings() {
   }, []);
 
   const handleSave = async () => {
+    setSaving(true);
     try {
+      // Patch only known keys to avoid clobbering other server-managed settings
+      const payload = {
+        siteName: settings.siteName,
+        holidaySource: settings.holidaySource,
+        rules: settings.rules,
+      };
       const res = await fetch(`${API_BASE}/settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
+        credentials: "include",
+        body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error("Save failed");
+      if (!res.ok) throw new Error(`PATCH /settings failed (${res.status})`);
+      const updated = await res.json();
+      // merge back for resilience
+      setSettings((prev) => deepMerge(prev, updated));
       toast({ title: "✅ Saved", description: "Settings updated successfully." });
     } catch (err) {
       console.error(err);
@@ -139,12 +150,17 @@ export default function AdminSettings() {
         description: "Failed to save settings.",
         variant: "destructive",
       });
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleRefreshHolidays = async () => {
     try {
-      const res = await fetch(`${API_BASE}/holidays/refresh`, { method: "POST" });
+      const res = await fetch(`${API_BASE}/holidays/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
         console.warn("POST /holidays/refresh error:", res.status, txt);
@@ -416,13 +432,13 @@ export default function AdminSettings() {
         </CardContent>
       </Card>
 
-        {/* HR Rules */}
+      {/* HR Rules */}
       <Card>
         <CardHeader>
           <CardTitle>HR Rules</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
-          {/* NEW: After-4pm applies only to non-afternoon shifts */}
+          {/* After-4pm applies only to non-afternoon shifts */}
           <div className="flex items-center justify-between">
             <div>
               <Label className="block">After 4PM is extra (non-afternoon shifts only)</Label>
@@ -445,7 +461,7 @@ export default function AdminSettings() {
             />
           </div>
 
-          {/* NEW: Which roles count as afternoon shift */}
+          {/* Which roles count as afternoon shift */}
           <div>
             <Label>Afternoon shift role keys (comma-separated)</Label>
             <Input
@@ -549,7 +565,9 @@ export default function AdminSettings() {
         </CardContent>
 
         <CardFooter>
-          <Button onClick={handleSave}>Save Settings</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save Settings"}
+          </Button>
         </CardFooter>
       </Card>
     </div>

@@ -2081,6 +2081,9 @@ app.get("/", (req, res) => {
 const IS_RENDER = !!(process.env.RENDER || process.env.ON_RENDER);
 const distPath = path.join(__dirname, "../dist");
 
+// ✅ Your Netlify frontend (where /assets live)
+const FRONTEND_URL = process.env.FRONTEND_URL || "https://loboard.netlify.app";
+
 // ✅ Only serve dist locally (Render uses Netlify for frontend)
 if (!IS_RENDER && fs.existsSync(distPath)) {
   app.use(express.static(distPath));
@@ -2094,6 +2097,8 @@ if (!IS_RENDER && fs.existsSync(distPath)) {
       // auth/users
       "/auth",
       "/users",
+      "/users-brief",
+      "/users/options",
       "/user-prefs",
 
       // core data
@@ -2106,7 +2111,7 @@ if (!IS_RENDER && fs.existsSync(distPath)) {
       "/notifications",
       "/suggestions",
 
-      // ✅ settings + leave APIs
+      // settings + leave APIs
       "/settings",
       "/leave-requests",
       "/leave",
@@ -2116,6 +2121,7 @@ if (!IS_RENDER && fs.existsSync(distPath)) {
       "/force-import-vehicles",
       "/force-import-rosters",
       "/force-import-groups",
+      "/send-push",
     ];
 
     // Always let non-GET (POST/PATCH/DELETE/OPTIONS) pass through
@@ -2136,6 +2142,71 @@ if (!IS_RENDER && fs.existsSync(distPath)) {
   console.log(
     "🌐 Render mode detected — static dist/ hosting and SPA fallback disabled (Netlify serves frontend)"
   );
+
+  /**
+   * ✅ IMPORTANT:
+   * If someone opens the Render backend URL in a browser (e.g. /leave-requests),
+   * the browser will try to load Vite assets from Render (/assets/*.css, *.js),
+   * which causes 404 + MIME type errors.
+   *
+   * Fix: Redirect "frontend-like" GET requests to Netlify instead.
+   * This keeps APIs working and prevents accidental backend-as-frontend usage.
+   */
+  app.use((req, res, next) => {
+    const knownPrefixes = [
+      "/api",
+
+      // auth/users
+      "/auth",
+      "/users",
+      "/users-brief",
+      "/users/options",
+      "/user-prefs",
+
+      // core data
+      "/tickets",
+      "/vehicles",
+      "/rosters",
+
+      // notifications/suggestions
+      "/notification-groups",
+      "/notifications",
+      "/suggestions",
+
+      // settings + leave APIs
+      "/settings",
+      "/leave-requests",
+      "/leave",
+
+      // dev / admin tools
+      "/seed-vehicles",
+      "/force-import-vehicles",
+      "/force-import-rosters",
+      "/force-import-groups",
+      "/send-push",
+    ];
+
+    // Let API + non-GET pass through normally
+    if (req.method !== "GET") return next();
+    if (knownPrefixes.some((prefix) => req.path.startsWith(prefix))) return next();
+
+    // If the browser is asking for HTML pages, redirect to the frontend host
+    const accept = String(req.headers.accept || "");
+    const wantsHtml = accept.includes("text/html") || accept.includes("*/*");
+
+    if (wantsHtml) {
+      const target = `${FRONTEND_URL}${req.originalUrl || req.url || "/"}`;
+      return res.redirect(302, target);
+    }
+
+    // Otherwise, return a clear 404 (prevents MIME type confusion for assets)
+    return res.status(404).json({
+      error: "Not Found",
+      message: "This is the backend API. Frontend is served by Netlify.",
+      frontend: FRONTEND_URL,
+      path: req.path,
+    });
+  });
 }
 console.log("🚨 ROUTE CHECKPOINT 20");
 console.log("🚨 ROUTE CHECKPOINT 21");
