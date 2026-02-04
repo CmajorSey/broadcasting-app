@@ -625,7 +625,7 @@
       "off": 2
     },
     "reason": "",
-    "status": "approved",
+    "status": "cancelled",
     "createdAt": "2026-02-04T04:46:54.880Z",
     "decidedAt": "2026-02-04T04:47:31.807Z",
     "decidedBy": "Admin",
@@ -642,9 +642,13 @@
     "approverId": null,
     "approverName": "Admin",
     "decisionNote": "",
-    "lastEditedAt": "2026-02-04T05:50:51.937Z",
+    "lastEditedAt": "2026-02-04T08:31:36.681Z",
     "lastEditedById": null,
     "lastEditedByName": "Admin",
-    "editNote": ""
+    "editNote": "",
+    "cancelledAt": "2026-02-04T08:31:36.681Z",
+    "cancelledReturnDate": "2026-02-09",
+    "refundedAnnual": 3,
+    "refundedOff": 0
   }
 ]
