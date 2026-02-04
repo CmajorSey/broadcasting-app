@@ -7,18 +7,34 @@ import { fileURLToPath } from "url";
 const router = express.Router();
 
 const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Data files
+// ----------------- Data files -----------------
+const IS_RENDER = !!(process.env.RENDER || process.env.ON_RENDER);
+
 const DATA_DIR =
   process.env.DATA_DIR ||
-  ((process.env.RENDER || process.env.ON_RENDER)
-    ? "/data"
-    : path.join(path.dirname(__filename), "..", "data"));
+  (IS_RENDER ? "/data" : path.join(__dirname, "..", "data"));
 
 const LEAVE_FILE = path.join(DATA_DIR, "leave-requests.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 
 // -------------- Helpers --------------
+function ensureFile(filePath, defaultValue) {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify(defaultValue, null, 2),
+        "utf-8"
+      );
+    }
+  } catch {
+    // If this fails, readJSON will still fallback safely.
+  }
+}
+
 function readJSON(filePath, fallback) {
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
@@ -32,6 +48,9 @@ function writeJSON(filePath, data) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
 }
+
+ensureFile(LEAVE_FILE, []);
+ensureFile(USERS_FILE, []);
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const toInt = (v, fb = 0) => {
@@ -68,14 +87,18 @@ function findUserIndex(users, userIdOrName) {
  */
 function getBalances(u) {
   const annual =
-    typeof u.annualLeave === "number" ? u.annualLeave :
-    typeof u.leaveBalance === "number" ? u.leaveBalance :
-    21;
+    typeof u.annualLeave === "number"
+      ? u.annualLeave
+      : typeof u.leaveBalance === "number"
+        ? u.leaveBalance
+        : 21;
 
   const off =
-    typeof u.offDays === "number" ? u.offDays :
-    typeof u.offDayBalance === "number" ? u.offDayBalance :
-    0;
+    typeof u.offDays === "number"
+      ? u.offDays
+      : typeof u.offDayBalance === "number"
+        ? u.offDayBalance
+        : 0;
 
   return { annualLeave: toInt(annual, 21), offDays: toInt(off, 0) };
 }
@@ -94,17 +117,19 @@ function setBalances(u, { annualLeave, offDays }) {
   return u;
 }
 
-// Date helpers
+// ----------------- Date helpers -----------------
 const toISO = (d) => {
   if (!d && d !== 0) return "";
   const x = new Date(d);
   return Number.isNaN(x.getTime()) ? "" : x.toISOString().slice(0, 10);
 };
+
 const weekdayCountInclusive = (startISO, endISO) => {
   if (!startISO || !endISO) return 0;
   const s = new Date(startISO);
   const e = new Date(endISO);
   if (s > e) return 0;
+
   let c = 0;
   const cur = new Date(s);
   while (cur <= e) {
@@ -133,87 +158,90 @@ function buildNewRequest(body) {
   const endISO = toISO(body.endDate);
 
   // --- allocations (submitted from the form) ---
-const num = (v, fb = 0) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fb;
-};
-const half = (n) => Math.round(num(n, 0) * 2) / 2;
+  const num = (v, fb = 0) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : fb;
+  };
+  const half = (n) => Math.round(num(n, 0) * 2) / 2;
 
-// Accept several shapes from client (current + legacy)
-const submittedAnnual =
-  (body?.allocations && body.allocations.annual !== undefined) ? body.allocations.annual :
-  body?.annualAlloc ?? body?.annualLeaveAlloc ?? body?.annualLeaveUsed ?? undefined;
+  // Accept several shapes from client (current + legacy)
+  const submittedAnnual =
+    body?.allocations && body.allocations.annual !== undefined
+      ? body.allocations.annual
+      : body?.annualAlloc ?? body?.annualLeaveAlloc ?? body?.annualLeaveUsed ?? undefined;
 
-const submittedOff =
-  (body?.allocations && body.allocations.off !== undefined) ? body.allocations.off :
-  body?.offAlloc ?? body?.offDaysAlloc ?? body?.offDaysUsed ?? undefined;
+  const submittedOff =
+    body?.allocations && body.allocations.off !== undefined
+      ? body.allocations.off
+      : body?.offAlloc ?? body?.offDaysAlloc ?? body?.offDaysUsed ?? undefined;
 
-const A = half(submittedAnnual ?? 0);
-const O = half(submittedOff ?? 0);
-const hasSplit = (A > 0) || (O > 0);
+  const A = half(submittedAnnual ?? 0);
+  const O = half(submittedOff ?? 0);
+  const hasSplit = A > 0 || O > 0;
 
-// Prefer explicit requested total:
-// 1) allocations total (most accurate to "what was submitted")
-// 2) body.totalWeekdays / body.requestedDays from client
-// 3) body.days
-// 4) compute from dates
-let days = hasSplit ? half(A + O) : num(body.days, 0);
-if (!(days > 0)) days = half(num(body.totalWeekdays, 0));
-if (!(days > 0)) days = half(num(body.requestedDays, 0));
-if (!(days > 0)) days = weekdayCountInclusive(startISO, endISO);
+  // Prefer explicit requested total:
+  // 1) allocations total (most accurate)
+  // 2) body.totalWeekdays / body.requestedDays from client
+  // 3) body.days
+  // 4) compute from dates
+  let days = hasSplit ? half(A + O) : num(body.days, 0);
+  if (!(days > 0)) days = half(num(body.totalWeekdays, 0));
+  if (!(days > 0)) days = half(num(body.requestedDays, 0));
+  if (!(days > 0)) days = weekdayCountInclusive(startISO, endISO);
 
-if (!Number.isFinite(days) || days <= 0) {
-  return { error: "days must be a positive number (or provide valid startDate/endDate)" };
-}
+  if (!Number.isFinite(days) || days <= 0) {
+    return {
+      error:
+        "days must be a positive number (or provide valid startDate/endDate)",
+    };
+  }
 
-const id = body.id || Date.now().toString();
+  const id = body.id || Date.now().toString();
 
-// Accept resume field from either key
-const resumeISO =
-  toISO(body.resumeWorkOn) ||
-  toISO(body.resumeOn) ||
-  "";
+  // Accept resume field from either key
+  const resumeISO = toISO(body.resumeWorkOn) || toISO(body.resumeOn) || "";
 
-return {
-  id,
-  userId: body.userId,
-  userName: body.userName,
-  section: body.section,
-  type: body.type,
-  localOrOverseas: body.localOrOverseas,
+  return {
+    id,
+    userId: body.userId,
+    userName: body.userName,
+    section: body.section,
+    type: body.type,
+    localOrOverseas: body.localOrOverseas,
 
-  startDate: startISO || undefined,
-  endDate: endISO || undefined,
-  resumeOn: resumeISO || undefined,
+    startDate: startISO || undefined,
+    endDate: endISO || undefined,
+    resumeOn: resumeISO || undefined,
 
-  // ✅ store totals + the split that your UI wants to show
-  days: half(days),
-  allocations: { annual: A, off: O },
+    // ✅ store totals + the split that your UI wants to show
+    days: half(days),
+    allocations: { annual: A, off: O },
 
-  reason: body.reason || "",
-  status: "pending",
-  createdAt: nowIso,
-  decidedAt: null,
-  decidedBy: null,
+    reason: body.reason || "",
+    status: "pending",
+    createdAt: nowIso,
+    decidedAt: null,
+    decidedBy: null,
 
-  // Keep compatibility if client sends them
-  requestedDays:
-    Number.isFinite(+body.totalWeekdays) ? +body.totalWeekdays :
-    Number.isFinite(+body.requestedDays) ? +body.requestedDays :
-    undefined,
+    // Keep compatibility if client sends them
+    requestedDays:
+      Number.isFinite(+body.totalWeekdays)
+        ? +body.totalWeekdays
+        : Number.isFinite(+body.requestedDays)
+          ? +body.requestedDays
+          : undefined,
 
-  // keep half-day meta if client sends it (you do)
-  halfDayStart: body.halfDayStart || undefined,
-  halfDayEnd: body.halfDayEnd || undefined,
+    // keep half-day meta if client sends it (you do)
+    halfDayStart: body.halfDayStart || undefined,
+    halfDayEnd: body.halfDayEnd || undefined,
 
-  useOffDays: !!body.useOffDays,
-};
+    useOffDays: !!body.useOffDays,
+  };
 }
 
 function approveAndDeduct(lr, patchBody) {
   // ✅ Idempotency guard:
   // If this leave request was already applied once, DO NOT deduct again.
-  // This protects against refresh/replays/double PATCH calls.
   if (lr?.applied === true || typeof lr?.appliedAt === "string") {
     return {
       appliedAnnual: Number.isFinite(+lr.appliedAnnual) ? +lr.appliedAnnual : 0,
@@ -240,14 +268,22 @@ function approveAndDeduct(lr, patchBody) {
   const fallbackOff = half(lr?.allocations?.off ?? 0);
 
   const annToDeduct =
-    Number.isFinite(+patchBody.appliedAnnual) ? half(+patchBody.appliedAnnual) :
-    (fallbackAnnual > 0 ? fallbackAnnual :
-      (lr.type === "annual" ? half(lr.days || 0) : 0));
+    Number.isFinite(+patchBody.appliedAnnual)
+      ? half(+patchBody.appliedAnnual)
+      : fallbackAnnual > 0
+        ? fallbackAnnual
+        : lr.type === "annual"
+          ? half(lr.days || 0)
+          : 0;
 
   const offToDeduct =
-    Number.isFinite(+patchBody.appliedOff) ? half(+patchBody.appliedOff) :
-    (fallbackOff > 0 ? fallbackOff :
-      (lr.type === "offDay" ? half(lr.days || 0) : 0));
+    Number.isFinite(+patchBody.appliedOff)
+      ? half(+patchBody.appliedOff)
+      : fallbackOff > 0
+        ? fallbackOff
+        : lr.type === "offDay"
+          ? half(lr.days || 0)
+          : 0;
 
   current.annualLeave = clamp(current.annualLeave - annToDeduct, 0, 42);
   current.offDays = Math.max(0, current.offDays - offToDeduct);
@@ -255,7 +291,11 @@ function approveAndDeduct(lr, patchBody) {
   users[uIdx] = setBalances(users[uIdx], current);
   writeJSON(USERS_FILE, users);
 
-  return { appliedAnnual: annToDeduct, appliedOff: offToDeduct, alreadyApplied: false };
+  return {
+    appliedAnnual: annToDeduct,
+    appliedOff: offToDeduct,
+    alreadyApplied: false,
+  };
 }
 
 // -------------- Leave Requests --------------
@@ -269,7 +309,9 @@ function handleList(req, res) {
   if (userId) out = out.filter((x) => String(x.userId) === String(userId));
   if (mine) {
     const q = String(mine).toLowerCase().trim();
-    out = out.filter((x) => String(x.userName || "").toLowerCase().includes(q));
+    out = out.filter((x) =>
+      String(x.userName || "").toLowerCase().includes(q)
+    );
   }
   res.json(out);
 }
@@ -289,6 +331,104 @@ function handleCreate(req, res) {
 // Core PATCH handler
 function handlePatch(req, res) {
   const { id } = req.params;
+  const body = req.body || {};
+
+  const all = readJSON(LEAVE_FILE, []);
+  const idx = all.findIndex((x) => String(x.id) === String(id));
+  if (idx === -1) return res.status(404).json({ error: "leave request not found" });
+
+  const lr = all[idx];
+  const nowIso = new Date().toISOString();
+
+  // ======================================================
+  // ✅ MODIFY / CANCEL APPROVED LEAVE
+  // ======================================================
+  if (body.action === "modify") {
+    if (lr.status !== "approved") {
+      return res.status(409).json({ error: "only approved leave can be modified" });
+    }
+
+    const users = readJSON(USERS_FILE, []);
+    const uIdx = findUserIndex(users, lr.userId);
+    if (uIdx === -1) {
+      return res.status(404).json({ error: "user not found" });
+    }
+
+    const current = getBalances(users[uIdx]);
+
+    // ---- REVERSE original applied amounts (idempotent safe) ----
+    const origA = toInt(lr.appliedAnnual ?? 0, 0);
+    const origO = toInt(lr.appliedOff ?? 0, 0);
+
+    current.annualLeave = clamp(current.annualLeave + origA, 0, 42);
+    current.offDays = Math.max(0, current.offDays + origO);
+
+    // ==================================================
+    // EDIT MODE
+    // ==================================================
+    if (body.mode === "edit") {
+      const newA = toInt(body.newAppliedAnnual ?? 0, 0);
+      const newO = toInt(body.newAppliedOff ?? 0, 0);
+
+      current.annualLeave = clamp(current.annualLeave - newA, 0, 42);
+      current.offDays = Math.max(0, current.offDays - newO);
+
+      users[uIdx] = setBalances(users[uIdx], current);
+      writeJSON(USERS_FILE, users);
+
+      all[idx] = {
+        ...lr,
+        startDate: body.newStartDate ?? lr.startDate,
+        endDate: body.newEndDate ?? lr.endDate,
+        days: body.newTotalDays ?? lr.days,
+        appliedAnnual: newA,
+        appliedOff: newO,
+        lastEditedAt: nowIso,
+        lastEditedById: body.editedById ?? null,
+        lastEditedByName: body.editedByName ?? "Admin",
+        editNote: body.editNote || "",
+      };
+
+      writeJSON(LEAVE_FILE, all);
+      return res.json(all[idx]);
+    }
+
+    // ==================================================
+    // CANCEL MODE
+    // ==================================================
+    if (body.mode === "cancel") {
+      const refundA = toInt(body.refundAnnual ?? 0, 0);
+      const refundO = toInt(body.refundOff ?? 0, 0);
+
+      current.annualLeave = clamp(current.annualLeave + refundA, 0, 42);
+      current.offDays = Math.max(0, current.offDays + refundO);
+
+      users[uIdx] = setBalances(users[uIdx], current);
+      writeJSON(USERS_FILE, users);
+
+      all[idx] = {
+        ...lr,
+        status: "cancelled",
+        cancelledAt: nowIso,
+        cancelledReturnDate: body.cancelReturnDate ?? null,
+        refundedAnnual: refundA,
+        refundedOff: refundO,
+        lastEditedAt: nowIso,
+        lastEditedById: body.editedById ?? null,
+        lastEditedByName: body.editedByName ?? "Admin",
+        editNote: body.editNote || "",
+      };
+
+      writeJSON(LEAVE_FILE, all);
+      return res.json(all[idx]);
+    }
+
+    return res.status(400).json({ error: "invalid modify mode" });
+  }
+
+  // ======================================================
+  // ORIGINAL APPROVE / DENY FLOW (UNCHANGED)
+  // ======================================================
   const {
     status,
     decidedBy,
@@ -297,33 +437,22 @@ function handlePatch(req, res) {
     decisionNote,
     appliedAnnual,
     appliedOff,
-  } = req.body || {};
+  } = body;
 
   if (!["approved", "denied"].includes(status)) {
     return res.status(400).json({ error: "status must be 'approved' or 'denied'" });
   }
 
-  const all = readJSON(LEAVE_FILE, []);
-  const idx = all.findIndex((x) => String(x.id) === String(id));
-  if (idx === -1) return res.status(404).json({ error: "leave request not found" });
-
-  const lr = all[idx];
-
-  // ✅ If already decided, never allow re-deciding (existing behavior)
   if ((lr.status || "pending") !== "pending") {
     return res.status(409).json({ error: `cannot change status of ${lr.status} request` });
   }
-
-  const nowIso = new Date().toISOString();
 
   if (status === "approved") {
     const result = approveAndDeduct(lr, { appliedAnnual, appliedOff });
     if (result?.error) return res.status(409).json({ error: result.error });
 
-    // ✅ Persist exact applied split + an idempotency stamp
     lr.appliedAnnual = result.appliedAnnual;
     lr.appliedOff = result.appliedOff;
-
     lr.applied = true;
     lr.appliedAt = nowIso;
     lr.appliedBy = decidedBy || approverName || "system";
@@ -342,7 +471,7 @@ function handlePatch(req, res) {
 
   writeJSON(LEAVE_FILE, all);
   res.json(all[idx]);
-} 
+}
 
 // ---- Modern endpoints ----
 router.get("/", handleList);
@@ -406,14 +535,18 @@ router.patch("/balances/:userId", (req, res) => {
   const current = getBalances(users[idx]);
 
   const nextAnnual =
-    body.annualLeave !== undefined ? body.annualLeave :
-    body.leaveBalance !== undefined ? body.leaveBalance :
-    current.annualLeave;
+    body.annualLeave !== undefined
+      ? body.annualLeave
+      : body.leaveBalance !== undefined
+        ? body.leaveBalance
+        : current.annualLeave;
 
   const nextOff =
-    body.offDays !== undefined ? body.offDays :
-    body.offDayBalance !== undefined ? body.offDayBalance :
-    current.offDays;
+    body.offDays !== undefined
+      ? body.offDays
+      : body.offDayBalance !== undefined
+        ? body.offDayBalance
+        : current.offDays;
 
   const updated = {
     annualLeave: clamp(toInt(nextAnnual, current.annualLeave), 0, 42),

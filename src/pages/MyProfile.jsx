@@ -620,403 +620,490 @@ const submitLeaveRequest = async () => {
         </CardContent>
       </Card>
 
-      {/* --- Leave Request (MANUAL ALLOC FIRST) --- */}
-<Card>
-  <CardHeader className="flex flex-row items-start justify-between gap-4">
-    <div>
-      <CardTitle>Leave Request</CardTitle>
-      <p className="text-xs text-muted-foreground mt-1">
-        It is recommended to apply for leave at least <strong>two weeks in advance</strong> to support planning and coverage.
-      </p>
+     {/* --- Leave Request (MANUAL ALLOC FIRST) --- */}
+{(() => {
+  // ✅ Date formatting helpers (safe + timezone-stable for YYYY-MM-DD)
+  const formatLeaveDate = (iso) => {
+    if (!iso || typeof iso !== "string") return "—";
+    const parts = iso.split("-");
+    if (parts.length !== 3) return iso;
+    const [y, m, d] = parts.map((x) => Number(x));
+    if (!y || !m || !d) return iso;
 
-      {(startDate && !endDate) && (
-        <p className="text-xs text-amber-600 mt-2">
-          Select an <strong>End Date</strong> to calculate weekdays and validate allocations.
-        </p>
-      )}
-      {(!startDate && endDate) && (
-        <p className="text-xs text-amber-600 mt-2">
-          Select a <strong>Start Date</strong> to calculate weekdays and validate allocations.
-        </p>
-      )}
-    </div>
+    const dt = new Date(y, m - 1, d); // local-safe (no UTC drift)
+    const formatted = new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "2-digit",
+    }).format(dt);
 
-    {/* Right-side compact pills (no inputs) */}
-    <div className="flex flex-col items-end gap-1 text-xs">
-      {(startDate && endDate) ? (
-        <>
-          <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
-            {startDate} → {endDate}
-          </div>
-          {resumeOn && (
+    // "04 Feb 26" -> "04/Feb/26"
+    return formatted.replace(/ /g, "/");
+  };
+
+  const formatRange = (start, end) => {
+    if (!start || !end) return "Dates not selected";
+    return `${formatLeaveDate(start)} → ${formatLeaveDate(end)}`;
+  };
+
+  const formatResume = (iso) => {
+    if (!iso) return null;
+    return `Resume: ${formatLeaveDate(iso)}`;
+  };
+
+  const halfDayLabel = (pos, val) => {
+    if (!val || val === "none") return null;
+    const side = pos === "start" ? "Start" : "End";
+    const when = val === "am" ? "AM" : "PM";
+    return `${side} half-day (${when})`;
+  };
+
+  const halfStartText = halfDayLabel("start", halfDayStart);
+  const halfEndText = halfDayLabel("end", halfDayEnd);
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-4">
+        <div>
+          <CardTitle>Leave Request</CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            It is recommended to apply for leave at least{" "}
+            <strong>two weeks in advance</strong> to support planning and
+            coverage.
+          </p>
+
+          {startDate && !endDate && (
+            <p className="text-xs text-amber-600 mt-2">
+              Select an <strong>End Date</strong> to calculate weekdays and
+              validate allocations.
+            </p>
+          )}
+          {!startDate && endDate && (
+            <p className="text-xs text-amber-600 mt-2">
+              Select a <strong>Start Date</strong> to calculate weekdays and
+              validate allocations.
+            </p>
+          )}
+        </div>
+
+        {/* Right-side compact pills (no inputs) */}
+        <div className="flex flex-col items-end gap-1 text-xs">
+          {startDate && endDate ? (
+            <>
+              <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
+                {formatRange(startDate, endDate)}
+              </div>
+
+              {/* ✅ Half-day indicators */}
+              {(halfStartText || halfEndText) && (
+                <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
+                  {halfStartText ? halfStartText : null}
+                  {halfStartText && halfEndText ? " • " : null}
+                  {halfEndText ? halfEndText : null}
+                </div>
+              )}
+
+              {resumeOn && (
+                <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
+                  {formatResume(resumeOn)}
+                </div>
+              )}
+            </>
+          ) : (
             <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
-              Resume: {resumeOn}
+              Dates not selected
             </div>
           )}
-        </>
-      ) : (
-        <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
-          Dates not selected
         </div>
-      )}
-    </div>
-  </CardHeader>
+      </CardHeader>
 
-  <CardContent className="space-y-4">
-    {/* 1) Dates & trip type first — with half-day selectors */}
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <div>
-        <Label>Start Date</Label>
-        <Input
-          type="date"
-          value={startDate}
-          onChange={(e) => {
-            setStartDate(e.target.value);
-            // Reset half-day if date cleared
-            if (!e.target.value) setHalfDayStart("none");
-          }}
-        />
+      <CardContent className="space-y-4">
+        {/* 1) Dates & trip type first — with half-day selectors */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <Label>Start Date</Label>
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                // Reset half-day if date cleared
+                if (!e.target.value) setHalfDayStart("none");
+              }}
+            />
 
-        {/* Half-day on start (only makes sense if date picked) */}
-        {startDate && (
-          <div className="mt-2">
-            <Label className="text-xs block mb-1">Start Day</Label>
+            {/* Half-day on start (only makes sense if date picked) */}
+            {startDate && (
+              <div className="mt-2">
+                <Label className="text-xs block mb-1">Start Day</Label>
+                <select
+                  className="w-full border rounded px-2 py-1 text-sm"
+                  value={halfDayStart}
+                  onChange={(e) => setHalfDayStart(e.target.value)}
+                >
+                  <option value="none">Full day</option>
+                  <option value="am">Half day (AM)</option>
+                  <option value="pm">Half day (PM)</option>
+                </select>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <Label>End Date</Label>
+            <Input
+              type="date"
+              value={endDate}
+              min={startDate || undefined}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                if (!e.target.value) setHalfDayEnd("none");
+              }}
+            />
+
+            {/* Half-day on end (only makes sense if date picked) */}
+            {endDate && (
+              <div className="mt-2">
+                <Label className="text-xs block mb-1">End Day</Label>
+                <select
+                  className="w-full border rounded px-2 py-1 text-sm"
+                  value={halfDayEnd}
+                  onChange={(e) => setHalfDayEnd(e.target.value)}
+                >
+                  <option value="none">Full day</option>
+                  <option value="am">Half day (AM)</option>
+                  <option value="pm">Half day (PM)</option>
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* Trip type */}
+          <div className="sm:col-span-1">
+            <Label>Local / Overseas</Label>
             <select
-              className="w-full border rounded px-2 py-1 text-sm"
-              value={halfDayStart}
-              onChange={(e) => setHalfDayStart(e.target.value)}
+              className="w-full border rounded px-3 py-2"
+              value={localOrOverseas}
+              onChange={(e) => setLocalOrOverseas(e.target.value)}
             >
-              <option value="none">Full day</option>
-              <option value="am">Half day (AM)</option>
-              <option value="pm">Half day (PM)</option>
+              <option value="local">Local</option>
+              <option value="overseas">Overseas</option>
             </select>
           </div>
-        )}
-      </div>
+        </div>
 
-      <div>
-        <Label>End Date</Label>
-        <Input
-          type="date"
-          value={endDate}
-          min={startDate || undefined}
-          onChange={(e) => {
-            setEndDate(e.target.value);
-            if (!e.target.value) setHalfDayEnd("none");
-          }}
-        />
-
-        {/* Half-day on end (only makes sense if date picked) */}
-        {endDate && (
-          <div className="mt-2">
-            <Label className="text-xs block mb-1">End Day</Label>
-            <select
-              className="w-full border rounded px-2 py-1 text-sm"
-              value={halfDayEnd}
-              onChange={(e) => setHalfDayEnd(e.target.value)}
-            >
-              <option value="none">Full day</option>
-              <option value="am">Half day (AM)</option>
-              <option value="pm">Half day (PM)</option>
-            </select>
-          </div>
-        )}
-      </div>
-
-      {/* Trip type */}
-      <div className="sm:col-span-1">
-        <Label>Local / Overseas</Label>
-        <select
-          className="w-full border rounded px-3 py-2"
-          value={localOrOverseas}
-          onChange={(e) => setLocalOrOverseas(e.target.value)}
-        >
-          <option value="local">Local</option>
-          <option value="overseas">Overseas</option>
-        </select>
-      </div>
-    </div>
-
-    {/* 2) Number of days requested (dates win if valid; else figures; supports half-days) */}
-    <div className="rounded border p-3 text-sm">
-      <span className="font-medium">Number of days requested:</span>{" "}
-      <span>
-        {(startDate && endDate)
-          ? (totalWeekdays > 0
-              ? `${requestedDays} ${requestedDays === 1 ? "day" : "days"}`
-              : "— invalid range —")
-          : `${requestedDays} ${requestedDays === 1 ? "day" : "days"}`}
-      </span>
-
-      {(startDate && endDate && totalWeekdays > 0 &&
-        (Math.round((Number(annualAlloc) + Number(offAlloc)) * 2) / 2) !== requestedDays) && (
-        <span className="text-xs ml-2 text-amber-600">
-          (allocations must equal {requestedDays})
-        </span>
-      )}
-    </div>
-
-    {/* 3) Auto Allocate */}
-    <div className="flex flex-wrap gap-2">
-      <Button
-        type="button"
-        variant="secondary"
-        onClick={() => {
-          const balAnnual = Number(getAnnualBalance(user)) || 0;
-          const balOff = Number(getOffBalance(user)) || 0;
-
-          const target = Number(requestedDays) || 0;
-
-          const annual = Math.min(balAnnual, target);
-          const remaining = Math.max(0, target - annual);
-          const off = Math.min(balOff, remaining);
-
-          setAnnualAlloc(Math.round(annual * 2) / 2);
-          setOffAlloc(Math.round(off * 2) / 2);
-        }}
-        disabled={submitting || !(Number(requestedDays) > 0)}
-      >
-        Auto Allocate
-      </Button>
-
-      <p className="text-xs text-muted-foreground flex items-center">
-        Fills <strong className="mx-1">Annual</strong> first, then{" "}
-        <strong className="mx-1">Off Days</strong>.
-      </p>
-    </div>
-
-    {/* 4) Allocations underneath */}
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <div>
-        <Label>
-          Annual Leave to use{" "}
-          <span className="text-muted-foreground">(you have {getAnnualBalance(user)})</span>
-        </Label>
-        <Input
-          type="number"
-          min={0}
-          step={0.5}
-          max={getAnnualBalance(user)}
-          value={annualAlloc}
-          onChange={(e) => {
-            let val = Number(e.target.value);
-            if (!Number.isFinite(val) || val < 0) val = 0;
-            val = Math.round(val * 2) / 2;
-            setAnnualAlloc(val);
-          }}
-        />
-        {Math.max(0, annualAlloc - getAnnualBalance(user)) > 0 && (
-          <p className="text-xs text-red-600 mt-1">
-            You selected {annualAlloc} but only have {getAnnualBalance(user)} Annual. Reduce by{" "}
-            {annualAlloc - getAnnualBalance(user)} or move days to Off.
-          </p>
-        )}
-      </div>
-
-      <div>
-        <Label>
-          Off Days to use{" "}
-          <span className="text-muted-foreground">(you have {getOffBalance(user)})</span>
-        </Label>
-        <Input
-          type="number"
-          min={0}
-          step={0.5}
-          max={getOffBalance(user)}
-          value={offAlloc}
-          onChange={(e) => {
-            let val = Number(e.target.value);
-            if (!Number.isFinite(val) || val < 0) val = 0;
-            val = Math.round(val * 2) / 2;
-            setOffAlloc(val);
-          }}
-        />
-        {Math.max(0, offAlloc - getOffBalance(user)) > 0 && (
-          <p className="text-xs text-red-600 mt-1">
-            You selected {offAlloc} but only have {getOffBalance(user)} Off Days. Reduce by{" "}
-            {offAlloc - getOffBalance(user)} or move days to Annual.
-          </p>
-        )}
-      </div>
-    </div>
-
-    {/* 5) Reason */}
-    <div>
-      <Label>Reason (optional)</Label>
-      <Textarea
-        placeholder="Brief reason for your request…"
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-      />
-    </div>
-
-    {/* 6) Balances preview (provisional) */}
-    <div className="rounded border p-3 text-sm grid grid-cols-1 sm:grid-cols-2 gap-2">
-      <div>
-        <span className="font-medium">Annual:</span>{" "}
-        <span>{getAnnualBalance(user)}</span>
-        <span className="text-blue-600 ml-2">
-          → {Math.max(0, getAnnualBalance(user) - Number(annualAlloc))}
-        </span>{" "}
-        <span className="text-muted-foreground">(provisional)</span>
-      </div>
-      <div>
-        <span className="font-medium">Off Days:</span>{" "}
-        <span>{getOffBalance(user)}</span>
-        <span className="text-blue-600 ml-2">
-          → {Math.max(0, getOffBalance(user) - Number(offAlloc))}
-        </span>{" "}
-        <span className="text-muted-foreground">(provisional)</span>
-      </div>
-    </div>
-
-    {/* 7) Actions */}
-    <div className="flex gap-2">
-      <Button
-        onClick={submitLeaveRequest}
-        disabled={
-          submitting ||
-          ((startDate && endDate)
-            ? (
-                totalWeekdays <= 0 ||
-                (Math.round((Number(annualAlloc) + Number(offAlloc)) * 2) / 2) !== requestedDays
+        {/* 2) Number of days requested (dates win if valid; else figures; supports half-days) */}
+        <div className="rounded border p-3 text-sm">
+          <span className="font-medium">Number of days requested:</span>{" "}
+          <span>
+            {startDate && endDate ? (
+              totalWeekdays > 0 ? (
+                `${requestedDays} ${requestedDays === 1 ? "day" : "days"}`
+              ) : (
+                "— invalid range —"
               )
-            : (requestedDays <= 0)
-          ) ||
-          (annualAlloc > getAnnualBalance(user)) ||
-          (offAlloc > getOffBalance(user))
-        }
-      >
-        {submitting ? "Submitting…" : "Submit Request"}
-      </Button>
+            ) : (
+              `${requestedDays} ${requestedDays === 1 ? "day" : "days"}`
+            )}
+          </span>
 
-      <Button
-        variant="outline"
-        onClick={() => {
-          setLocalOrOverseas("local");
-          setStartDate("");
-          setEndDate("");
-          setTotalWeekdays(0);
-          setHalfDayStart("none");
-          setHalfDayEnd("none");
-          setAnnualAlloc(0);
-          setOffAlloc(0);
-          setResumeOn("");
-          setReason("");
-        }}
-        disabled={submitting}
-      >
-        Reset
-      </Button>
-    </div>
+          {startDate &&
+            endDate &&
+            totalWeekdays > 0 &&
+            Math.round((Number(annualAlloc) + Number(offAlloc)) * 2) / 2 !==
+              requestedDays && (
+              <span className="text-xs ml-2 text-amber-600">
+                (allocations must equal {requestedDays})
+              </span>
+            )}
+        </div>
 
-    {/* 8) My recent requests list */}
-<div className="mt-4 border rounded">
-  <div className="px-3 py-2 text-sm font-medium bg-muted/40">My Requests</div>
+        {/* 3) Auto Allocate */}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              const balAnnual = Number(getAnnualBalance(user)) || 0;
+              const balOff = Number(getOffBalance(user)) || 0;
 
-  {reqLoading ? (
-    <div className="p-3 text-sm text-gray-600">Loading…</div>
-  ) : myRequests.length === 0 ? (
-    <div className="p-3 text-sm text-gray-600">No requests yet.</div>
-  ) : (
-    <table className="w-full text-sm">
-      <thead className="bg-gray-100">
-        <tr>
-          <th className="text-left p-2 border-r">Submitted</th>
-          <th className="text-left p-2 border-r">Dates</th>
-          <th className="text-left p-2 border-r">Days</th>
-          <th className="text-left p-2 border-r">Alloc (A / O)</th>
-          <th className="text-left p-2 border-r">Local/Overseas</th>
-          <th className="text-left p-2 border-r">Reason</th>
-          <th className="text-left p-2">Status</th>
-        </tr>
-      </thead>
+              const target = Number(requestedDays) || 0;
 
-      <tbody>
-        {myRequests.map((r) => {
-          // 🔐 Allocation MUST reflect what USER SUBMITTED (snapshot from form)
-          const submittedAnnual =
-            r?.allocations?.annual ??
-            r?.annualAlloc ??
-            0;
+              const annual = Math.min(balAnnual, target);
+              const remaining = Math.max(0, target - annual);
+              const off = Math.min(balOff, remaining);
 
-          const submittedOff =
-            r?.allocations?.off ??
-            r?.offAlloc ??
-            0;
+              setAnnualAlloc(Math.round(annual * 2) / 2);
+              setOffAlloc(Math.round(off * 2) / 2);
+            }}
+            disabled={submitting || !(Number(requestedDays) > 0)}
+          >
+            Auto Allocate
+          </Button>
 
-          const showAlloc =
-            Number(submittedAnnual) > 0 || Number(submittedOff) > 0;
+          <p className="text-xs text-muted-foreground flex items-center">
+            Fills <strong className="mx-1">Annual</strong> first, then{" "}
+            <strong className="mx-1">Off Days</strong>.
+          </p>
+        </div>
 
-          const isDecided = r.status === "approved" || r.status === "denied";
+        {/* 4) Allocations underneath */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <Label>
+              Annual Leave to use{" "}
+              <span className="text-muted-foreground">
+                (you have {getAnnualBalance(user)})
+              </span>
+            </Label>
+            <Input
+              type="number"
+              min={0}
+              step={0.5}
+              max={getAnnualBalance(user)}
+              value={annualAlloc}
+              onChange={(e) => {
+                let val = Number(e.target.value);
+                if (!Number.isFinite(val) || val < 0) val = 0;
+                val = Math.round(val * 2) / 2;
+                setAnnualAlloc(val);
+              }}
+            />
+            {Math.max(0, annualAlloc - getAnnualBalance(user)) > 0 && (
+              <p className="text-xs text-red-600 mt-1">
+                You selected {annualAlloc} but only have{" "}
+                {getAnnualBalance(user)} Annual. Reduce by{" "}
+                {annualAlloc - getAnnualBalance(user)} or move days to Off.
+              </p>
+            )}
+          </div>
 
-          return (
-            <tr key={r.id} className="border-t align-top">
-              <td className="p-2 border-r">
-                {r.createdAt ? new Date(r.createdAt).toLocaleString() : "—"}
-              </td>
+          <div>
+            <Label>
+              Off Days to use{" "}
+              <span className="text-muted-foreground">
+                (you have {getOffBalance(user)})
+              </span>
+            </Label>
+            <Input
+              type="number"
+              min={0}
+              step={0.5}
+              max={getOffBalance(user)}
+              value={offAlloc}
+              onChange={(e) => {
+                let val = Number(e.target.value);
+                if (!Number.isFinite(val) || val < 0) val = 0;
+                val = Math.round(val * 2) / 2;
+                setOffAlloc(val);
+              }}
+            />
+            {Math.max(0, offAlloc - getOffBalance(user)) > 0 && (
+              <p className="text-xs text-red-600 mt-1">
+                You selected {offAlloc} but only have {getOffBalance(user)} Off
+                Days. Reduce by {offAlloc - getOffBalance(user)} or move days to
+                Annual.
+              </p>
+            )}
+          </div>
+        </div>
 
-              <td className="p-2 border-r">
-                {r.startDate || "—"} → {r.endDate || "—"}
-              </td>
+        {/* 5) Reason */}
+        <div>
+          <Label>Reason (optional)</Label>
+          <Textarea
+            placeholder="Brief reason for your request…"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </div>
 
-              <td className="p-2 border-r">
-                {r.totalWeekdays ?? r.days ?? "—"}
-              </td>
+        {/* 6) Balances preview (provisional) */}
+        <div className="rounded border p-3 text-sm grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <span className="font-medium">Annual:</span>{" "}
+            <span>{getAnnualBalance(user)}</span>
+            <span className="text-blue-600 ml-2">
+              → {Math.max(0, getAnnualBalance(user) - Number(annualAlloc))}
+            </span>{" "}
+            <span className="text-muted-foreground">(provisional)</span>
+          </div>
+          <div>
+            <span className="font-medium">Off Days:</span>{" "}
+            <span>{getOffBalance(user)}</span>
+            <span className="text-blue-600 ml-2">
+              → {Math.max(0, getOffBalance(user) - Number(offAlloc))}
+            </span>{" "}
+            <span className="text-muted-foreground">(provisional)</span>
+          </div>
+        </div>
 
-              <td className="p-2 border-r">
-                {showAlloc
-                  ? `${submittedAnnual} / ${submittedOff}`
-                  : "— / —"}
-              </td>
+        {/* 7) Actions */}
+        <div className="flex gap-2">
+          <Button
+            onClick={submitLeaveRequest}
+            disabled={
+              submitting ||
+              (startDate && endDate
+                ? totalWeekdays <= 0 ||
+                  Math.round((Number(annualAlloc) + Number(offAlloc)) * 2) / 2 !==
+                    requestedDays
+                : requestedDays <= 0) ||
+              annualAlloc > getAnnualBalance(user) ||
+              offAlloc > getOffBalance(user)
+            }
+          >
+            {submitting ? "Submitting…" : "Submit Request"}
+          </Button>
 
-              <td className="p-2 border-r capitalize">
-                {r.localOrOverseas || "—"}
-              </td>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setLocalOrOverseas("local");
+              setStartDate("");
+              setEndDate("");
+              setTotalWeekdays(0);
+              setHalfDayStart("none");
+              setHalfDayEnd("none");
+              setAnnualAlloc(0);
+              setOffAlloc(0);
+              setResumeOn("");
+              setReason("");
+            }}
+            disabled={submitting}
+          >
+            Reset
+          </Button>
+        </div>
 
-              <td className="p-2 border-r whitespace-pre-wrap">
-                {r.reason || "—"}
-              </td>
+        {/* 8) My recent requests list */}
+        <div className="mt-4 border rounded">
+          <div className="px-3 py-2 text-sm font-medium bg-muted/40">
+            My Requests
+          </div>
 
-              <td className="p-2">
-  <div className="flex items-center gap-2">
-    <span className="capitalize font-medium">
-      {r.status || "pending"}
-    </span>
+          {reqLoading ? (
+            <div className="p-3 text-sm text-gray-600">Loading…</div>
+          ) : myRequests.length === 0 ? (
+            <div className="p-3 text-sm text-gray-600">No requests yet.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="text-left p-2 border-r">Submitted</th>
+                  <th className="text-left p-2 border-r">Dates</th>
+                  <th className="text-left p-2 border-r">Days</th>
+                  <th className="text-left p-2 border-r">Alloc (A / O)</th>
+                  <th className="text-left p-2 border-r">Local/Overseas</th>
+                  <th className="text-left p-2 border-r">Reason</th>
+                  <th className="text-left p-2">Status</th>
+                </tr>
+              </thead>
 
-    {/* (+) toggle only if admin left a message */}
-    {isDecided && r.decisionNote && (
-      <button
-        type="button"
-        className="text-xs font-bold text-muted-foreground hover:text-foreground"
-        onClick={() =>
-          setExpandedRequestId((prev) =>
-            prev === r.id ? null : r.id
-          )
-        }
-        aria-label="Toggle admin message"
-      >
-        {expandedRequestId === r.id ? "−" : "+"}
-      </button>
-    )}
-  </div>
+              <tbody>
+                {myRequests.map((r) => {
+                  // 🔐 Allocation MUST reflect what USER SUBMITTED (snapshot from form)
+                  const submittedAnnual =
+                    r?.allocations?.annual ?? r?.annualAlloc ?? 0;
 
-  {/* Expanded admin message */}
-  {expandedRequestId === r.id && r.decisionNote && (
-    <div className="mt-2 text-xs text-muted-foreground border-l-2 pl-2 whitespace-pre-wrap">
-      {r.decisionNote}
-    </div>
-  )}
-</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  )}
-</div>
-  </CardContent>
-</Card>
+                  const submittedOff = r?.allocations?.off ?? r?.offAlloc ?? 0;
+
+                  const showAlloc =
+                    Number(submittedAnnual) > 0 || Number(submittedOff) > 0;
+
+                  const isDecided = r.status === "approved" || r.status === "denied";
+
+                  // ✅ prefer requestedDays if present (supports halves)
+                  const showDays =
+                    r?.requestedDays ??
+                    r?.daysRequested ??
+                    r?.totalWeekdays ??
+                    r?.days ??
+                    "—";
+
+                  // ✅ half-day notes (if backend stores them)
+                  const halfStart =
+                    r?.halfDayStart && r.halfDayStart !== "none"
+                      ? `Start half-day (${r.halfDayStart.toUpperCase()})`
+                      : null;
+
+                  const halfEnd =
+                    r?.halfDayEnd && r.halfDayEnd !== "none"
+                      ? `End half-day (${r.halfDayEnd.toUpperCase()})`
+                      : null;
+
+                  return (
+                    <tr key={r.id} className="border-t align-top">
+                      <td className="p-2 border-r">
+                        {r.createdAt ? new Date(r.createdAt).toLocaleString() : "—"}
+                      </td>
+
+                      <td className="p-2 border-r">
+                        {formatLeaveDate(r.startDate)} → {formatLeaveDate(r.endDate)}
+                        {(halfStart || halfEnd) && (
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {halfStart ? halfStart : null}
+                            {halfStart && halfEnd ? " • " : null}
+                            {halfEnd ? halfEnd : null}
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="p-2 border-r">{showDays}</td>
+
+                      <td className="p-2 border-r">
+                        {showAlloc ? `${submittedAnnual} / ${submittedOff}` : "— / —"}
+                      </td>
+
+                      <td className="p-2 border-r capitalize">
+                        {r.localOrOverseas || "—"}
+                      </td>
+
+                      <td className="p-2 border-r whitespace-pre-wrap">
+                        {r.reason || "—"}
+                      </td>
+
+                      <td className="p-2">
+                        <div className="flex items-center gap-2">
+                          <span className="capitalize font-medium">
+                            {r.status || "pending"}
+                          </span>
+
+                          {/* (+) toggle only if admin left a message */}
+                          {isDecided && r.decisionNote && (
+                            <button
+                              type="button"
+                              className="text-xs font-bold text-muted-foreground hover:text-foreground"
+                              onClick={() =>
+                                setExpandedRequestId((prev) =>
+                                  prev === r.id ? null : r.id
+                                )
+                              }
+                              aria-label="Toggle admin message"
+                            >
+                              {expandedRequestId === r.id ? "−" : "+"}
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Expanded admin message */}
+                        {expandedRequestId === r.id && r.decisionNote && (
+                          <div className="mt-2 text-xs text-muted-foreground border-l-2 pl-2 whitespace-pre-wrap">
+                            {r.decisionNote}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+})()}
 
       {/* Suggestion Box */}
       <Card>
