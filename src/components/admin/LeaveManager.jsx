@@ -1,6 +1,7 @@
 // src/components/admin/LeaveManager.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import API_BASE from "@/api";
+import { nextWorkdayISO } from "@/utils/leaveDates";
 import { useToast } from "@/hooks/use-toast";
 
 // shadcn/ui
@@ -28,6 +29,124 @@ const toInt = (v, fb = 0) => {
   return Number.isFinite(n) ? Math.round(n) : fb;
 };
 
+// ---------- Leave helpers ----------
+const toISODate = (d) => {
+  try {
+    const dt = d instanceof Date ? d : new Date(d);
+    if (Number.isNaN(dt.getTime())) return null;
+    return dt.toISOString().slice(0, 10);
+  } catch {
+    return null;
+  }
+};
+
+const isSameUser = (leaveItem, user) => {
+  if (!leaveItem || !user) return false;
+
+  const userId = typeof user === "object" ? user.id : null;
+  const userName =
+    typeof user === "object"
+      ? user.name || user.fullName || user.username
+      : String(user);
+
+  // try several common fields safely
+  const leaveUserId = leaveItem.userId || leaveItem.user?.id || null;
+  const leaveName =
+    leaveItem.userName ||
+    leaveItem.name ||
+    leaveItem.user?.name ||
+    leaveItem.requestedBy ||
+    null;
+
+  if (userId && leaveUserId && String(userId) === String(leaveUserId)) return true;
+  if (userName && leaveName && String(userName).trim() === String(leaveName).trim())
+    return true;
+
+  return false;
+};
+
+const isApproved = (leaveItem) => {
+  const s = String(leaveItem?.status || leaveItem?.state || "").toLowerCase();
+  // treat empty as approved only if your system does that — default to strict
+  return s === "approved";
+};
+
+const isOnLeaveToday = (user, leaveRequests, isoToday = toISODate(new Date())) => {
+  if (!Array.isArray(leaveRequests) || !isoToday) return false;
+
+  return leaveRequests.some((lr) => {
+    if (!lr) return false;
+    if (!isSameUser(lr, user)) return false;
+    if (!isApproved(lr)) return false;
+
+    // 1) explicit dates array (most reliable)
+    if (Array.isArray(lr.dates) && lr.dates.length) {
+      return lr.dates.includes(isoToday);
+    }
+
+    // 2) start/end range (inclusive)
+    const start = lr.startDate || lr.start || lr.from;
+    const end = lr.endDate || lr.end || lr.to;
+
+    const s = toISODate(start);
+    const e = toISODate(end);
+
+    if (!s && !e) return false;
+    if (s && !e) return isoToday === s;
+    if (!s && e) return isoToday === e;
+
+    return isoToday >= s && isoToday <= e;
+  });
+};
+
+/**
+ * Returns true if a leave request overlaps "today" OR starts within N days ahead.
+ * Used for "currently on leave / upcoming soon" type banners.
+ */
+const isOverlapOrUpcomingWithin = (
+  leaveItem,
+  isoToday = toISODate(new Date()),
+  withinDays = 7
+) => {
+  if (!leaveItem || !isoToday) return false;
+  if (!isApproved(leaveItem)) return false;
+
+  // Build set/range from either dates[] or start/end
+  const addDays = (iso, n) => {
+    const dt = new Date(`${iso}T00:00:00.000Z`);
+    if (Number.isNaN(dt.getTime())) return null;
+    dt.setUTCDate(dt.getUTCDate() + n);
+    return dt.toISOString().slice(0, 10);
+  };
+
+  const endWindow = addDays(isoToday, Math.max(0, Number(withinDays) || 0));
+  if (!endWindow) return false;
+
+  // dates[] style
+  if (Array.isArray(leaveItem.dates) && leaveItem.dates.length) {
+    // overlap today or any date between today..endWindow
+    return leaveItem.dates.some((d) => d >= isoToday && d <= endWindow);
+  }
+
+  // range style
+  const start = toISODate(leaveItem.startDate || leaveItem.start || leaveItem.from);
+  const end = toISODate(leaveItem.endDate || leaveItem.end || leaveItem.to);
+
+  if (!start && !end) return false;
+
+  // normalize
+  const s = start || end; // if one missing, treat as single-day
+  const e = end || start;
+
+  // overlap today?
+  const overlapsToday = isoToday >= s && isoToday <= e;
+
+  // upcoming within window? (starts between today..endWindow)
+  const startsSoon = s >= isoToday && s <= endWindow;
+
+  return overlapsToday || startsSoon;
+};
+
 // ---------- Segment helpers ----------
 const groupedBySegment = (users) => {
   const segments = {
@@ -38,27 +157,48 @@ const groupedBySegment = (users) => {
     Admins: [],
   };
 
-  users.forEach((user) => {
-    if (user.name === "Admin") return;
+  (users || []).forEach((u) => {
+    if (!u) return;
+    const name = (u.name || "").trim();
 
-    const desc = String(user.description || "").toLowerCase();
+    // exclude the generic Admin account entirely
+    if (name.toLowerCase() === "admin") return;
 
-    // ✅ Admin segment is name-based (HR + producers) + Nelson (Fleet lead)
-    const nameMatch = ["Clive Camille", "Jennifer Arnephy", "Gilmer Philoe", "Nelson Joseph"].includes(
-      user.name
-    );
-
-    if (nameMatch) {
-      segments.Admins.push(user);
-    } else if (/cam ?op|camera ?operator|operations|driver|fleet/i.test(desc)) {
-      segments.Operations.push(user);
-    } else if (desc.includes("sports journalist")) {
-      segments["Sports Section"].push(user);
-    } else if (desc.includes("journalist")) {
-      segments.Newsroom.push(user);
-    } else if (desc.includes("producer")) {
-      segments.Production.push(user);
+    // force the 3 named users into Admins
+    const adminSet = new Set([
+      "Clive Camille",
+      "Jennifer Arnephy",
+      "Gilmer Philoe",
+    ]);
+    if (adminSet.has(name)) {
+      segments.Admins.push(u);
+      return;
     }
+
+    const desc = String(u.description || "").toLowerCase();
+
+    if (desc.includes("cam op") || desc.includes("camop")) {
+      segments.Operations.push(u);
+      return;
+    }
+
+    if (desc.includes("sports journalist") || desc.includes("sports")) {
+      segments["Sports Section"].push(u);
+      return;
+    }
+
+    if (desc.includes("journalist") || desc.includes("news")) {
+      segments.Newsroom.push(u);
+      return;
+    }
+
+    if (desc.includes("producer") || desc.includes("production")) {
+      segments.Production.push(u);
+      return;
+    }
+
+    // default bucket if unknown: Operations (keeps them visible instead of disappearing)
+    segments.Operations.push(u);
   });
 
   return segments;
@@ -67,44 +207,57 @@ const groupedBySegment = (users) => {
 // ---------- Robust date + field helpers ----------
 const toISODateString = (date) => date.toISOString().slice(0, 10);
 
-/** Accepts Date / ISO / DD/MM/YYYY / epoch etc. Returns ISO "YYYY-MM-DD" or "" */
+/** Accepts Date / ISO / DD/MM/YYYY / epoch etc. Returns ISO "YYYY-MM-DD" or "" (timezone-safe) */
 const iso = (v) => {
-  if (!v && v !== 0) return "";
+  if (v === undefined || v === null || v === "") return "";
 
-  if (v instanceof Date && !isNaN(v)) return toISODateString(v);
-
-  if (typeof v === "string" && /^\d{4}-\d{1,2}-\d{1,2}$/.test(v)) {
-    const [yyyy, mm, dd] = v.split("-").map(Number);
-    const d = new Date(yyyy, mm - 1, dd);
-    return isNaN(d) ? "" : toISODateString(d);
-  }
-
-  if (typeof v === "string" && /^\d{4}\/\d{1,2}\/\d{1,2}$/.test(v)) {
-    const [yyyy, mm, dd] = v.split("/").map(Number);
-    const d = new Date(yyyy, mm - 1, dd);
-    return isNaN(d) ? "" : toISODateString(d);
-  }
-
+  // ✅ If it's already an ISO date-time string, never allow UTC drift.
+  // Just take the calendar date portion.
   if (typeof v === "string") {
-    const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    const s = v.trim();
+
+    // "YYYY-MM-DDTHH:mm:ss..." OR "YYYY-MM-DD HH:mm:ss"
+    if (/^\d{4}-\d{2}-\d{2}[T ]/.test(s)) return s.slice(0, 10);
+
+    // plain "YYYY-MM-DD"
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) {
+      const [yyyy, mm, dd] = s.split("-").map(Number);
+      const d = new Date(yyyy, mm - 1, dd);
+      return isNaN(d) ? "" : toISOLocal(d);
+    }
+
+    // "YYYY/MM/DD"
+    if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(s)) {
+      const [yyyy, mm, dd] = s.split("/").map(Number);
+      const d = new Date(yyyy, mm - 1, dd);
+      return isNaN(d) ? "" : toISOLocal(d);
+    }
+
+    // "DD/MM/YYYY"
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if (m) {
       const dd = Number(m[1]);
       const mm = Number(m[2]);
       const yyyy = Number(m[3]);
       const d = new Date(yyyy, mm - 1, dd);
-      return isNaN(d) ? "" : toISODateString(d);
+      return isNaN(d) ? "" : toISOLocal(d);
     }
   }
 
+  // Date object -> local calendar date (no UTC conversion)
+  if (v instanceof Date && !isNaN(v)) return toISOLocal(v);
+
+  // epoch seconds/ms
   if (typeof v === "number" || (typeof v === "string" && /^\d+$/.test(v))) {
     const num = Number(v);
     const epochMs = num > 1e12 ? num : num * 1000;
     const d = new Date(epochMs);
-    return isNaN(d) ? "" : toISODateString(d);
+    return isNaN(d) ? "" : toISOLocal(d);
   }
 
+  // fallback parse
   const d = new Date(v);
-  return isNaN(d) ? "" : toISODateString(d);
+  return isNaN(d) ? "" : toISOLocal(d);
 };
 
 const getPath = (obj, path) => {
@@ -341,56 +494,88 @@ const fourteenDaysFromNowISO = () => {
   return iso(d);
 };
 
-// ---------- "Currently on leave" helpers ----------
-const isOverlapOrUpcomingWithin = (startISO, endISO, daysAhead = 14) => {
-  if (!startISO || !endISO) return false;
+// UI date formatting helper: "DD/Mon/YYYY"
+const shortDate = (value) => {
+  const s = iso(value);
+  if (!s) return "—";
 
-  const today = new Date();
-  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const dt = parseISOToLocal(s);
+  if (!dt) return "—";
 
-  const windowEnd = new Date(startOfToday);
-  windowEnd.setDate(windowEnd.getDate() + daysAhead);
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const dd = String(dt.getDate()).padStart(2, "0");
+  const mon = months[dt.getMonth()];
+  const yyyy = dt.getFullYear();
 
-  const s = new Date(startISO);
-  const e = new Date(endISO);
-  if (isNaN(s) || isNaN(e)) return false;
-
-  const start = new Date(s.getFullYear(), s.getMonth(), s.getDate());
-  const end = new Date(e.getFullYear(), e.getMonth(), e.getDate());
-
-  const currently = start <= startOfToday && end >= startOfToday;
-  const upcoming = start >= startOfToday && start <= windowEnd;
-
-  return currently || upcoming;
+  return `${dd}/${mon}/${yyyy}`;
 };
 
-const shortDate = (isoStr) => {
-  if (!isoStr) return "—";
-  const d = new Date(isoStr);
-  if (isNaN(d)) return isoStr;
-  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
+// ---------- "Currently on leave" helpers (weekend + public holiday aware) ----------
+// Requires `publicHolidays` in scope as ["YYYY-MM-DD", ...] (or derive from /holidays)
+// If you store objects {date,name}, map them before: publicHolidays = holidays.map(h=>h.date)
+
+const pad2 = (n) => String(n).padStart(2, "0");
+
+const toISOLocal = (d) =>
+  `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+// Parse "YYYY-MM-DD" in LOCAL time (prevents UTC drift)
+const parseISOToLocal = (iso) => {
+  if (!iso || typeof iso !== "string") return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d);
+  return Number.isNaN(dt.getTime()) ? null : dt;
 };
 
-const isOnLeaveToday = (startISO, endISO) => {
-  if (!startISO || !endISO) return false;
-  const today = new Date();
-  const t = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+// ✅ Determine return-to-work date universally:
+// prefer stored resumeOn, else compute from endDate using holidays + weekends
+const getReturnISO = (leaveReq, publicHolidays = []) => {
+  const resume =
+    iso(getReqResumeOn(leaveReq)) ||
+    iso(leaveReq?.resumeOn) ||
+    iso(leaveReq?.resumeWorkOn) ||
+    "";
 
-  const s = new Date(startISO);
-  const e = new Date(endISO);
-  if (isNaN(s) || isNaN(e)) return false;
+  if (resume) return resume;
 
-  const start = new Date(s.getFullYear(), s.getMonth(), s.getDate()).getTime();
-  const end = new Date(e.getFullYear(), e.getMonth(), e.getDate()).getTime();
+  const endISO = iso(getReqEnd(leaveReq)) || iso(leaveReq?.endDate) || "";
+  if (!endISO) return "";
 
-  return start <= t && end >= t;
+  return nextWorkdayISO(endISO, publicHolidays);
 };
+
 
 // =====================================
 // LeaveManager
 // =====================================
 export default function LeaveManager({ users, setUsers, currentAdmin }) {
   const { toast } = useToast();
+
+    // ✅ Public holidays (YYYY-MM-DD) used for universal "return to work" + calculations
+  const [publicHolidays, setPublicHolidays] = useState([]);
+  const [holidaysLoaded, setHolidaysLoaded] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/holidays`);
+        const data = await res.json();
+
+        // backend returns [{date,name}, ...]
+        const dates = Array.isArray(data)
+          ? data.map((h) => h?.date).filter(Boolean)
+          : [];
+
+        setPublicHolidays(dates);
+      } catch (e) {
+        console.warn("Failed to load holidays:", e);
+        setPublicHolidays([]);
+      } finally {
+        setHolidaysLoaded(true);
+      }
+    })();
+  }, []);
 
   // Balances (existing)
   const [drafts, setDrafts] = useState({});
@@ -629,26 +814,83 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
       });
   }, [requests, statusFilter, segmentFilter, dateFrom, dateTo, users]);
 
-  const currentlyOnLeave = useMemo(() => {
-    return (requests || [])
-      .filter((r) => String(r.status || "").toLowerCase() === "approved")
-      .map((r) => {
-        const u = userById(r.userId);
-        const name = r.userName || u?.name || "Unknown";
-        const startISO = iso(getReqStart(r));
-        const endISO = iso(getReqEnd(r));
-        return {
-          id: r.id || `${name}-${startISO}-${endISO}`,
-          name,
-          segment: segmentOfUser(u),
-          startISO,
-          endISO,
-          isNow: isOnLeaveToday(startISO, endISO),
-        };
-      })
-      .filter((x) => isOverlapOrUpcomingWithin(x.startISO, x.endISO, 14))
-      .sort((a, b) => new Date(a.startISO) - new Date(b.startISO));
-  }, [requests, users]);
+  // =====================
+  // Leave banner data
+  // =====================
+  const { onLeaveNow, upcomingLeave } = useMemo(() => {
+    const todayISO = iso(new Date());
+
+    const buildItem = (r) => {
+      const u = userById(r.userId);
+      const name = r.userName || u?.name || "Unknown";
+
+      const startISO = iso(getReqStart(r));
+      const endISO = iso(getReqEnd(r));
+
+      // ✅ Holiday/weekend-aware return date (prefer stored resumeOn if present)
+      const returnISO = getReturnISO(r, publicHolidays);
+
+      return {
+        id: r.id || `${name}-${startISO}-${endISO}`,
+        name,
+        segment: segmentOfUser(u),
+        startISO,
+        endISO,
+        returnISO,
+      };
+    };
+
+    const overlapsToday = (r) => {
+      if (!r || String(r.status || "").toLowerCase() !== "approved") return false;
+      if (!todayISO) return false;
+
+      // 1) explicit dates array
+      if (Array.isArray(r.dates) && r.dates.length) {
+        return r.dates.includes(todayISO);
+      }
+
+      // 2) start/end range (inclusive)
+      const s = iso(getReqStart(r));
+      const e = iso(getReqEnd(r));
+
+      if (!s && !e) return false;
+      if (s && !e) return todayISO === s;
+      if (!s && e) return todayISO === e;
+
+      return todayISO >= s && todayISO <= e;
+    };
+
+    const startsInFuture = (r) => {
+      if (!r || String(r.status || "").toLowerCase() !== "approved") return false;
+      if (!todayISO) return false;
+
+      // dates[] style: any date strictly after today means "upcoming"
+      if (Array.isArray(r.dates) && r.dates.length) {
+        return r.dates.some((d) => d > todayISO);
+      }
+
+      // range style: start after today
+      const s = iso(getReqStart(r)) || iso(getReqEnd(r)); // fallback single-day
+      if (!s) return false;
+      return s > todayISO;
+    };
+
+    const approved = (requests || []).filter(
+      (r) => String(r?.status || "").toLowerCase() === "approved"
+    );
+
+    const onLeaveNowList = approved
+      .filter(overlapsToday)
+      .map(buildItem)
+      .sort((a, b) => new Date(a.startISO || "2100-01-01") - new Date(b.startISO || "2100-01-01"));
+
+    const upcomingList = approved
+      .filter(startsInFuture)
+      .map(buildItem)
+      .sort((a, b) => new Date(a.startISO || "2100-01-01") - new Date(b.startISO || "2100-01-01"));
+
+    return { onLeaveNow: onLeaveNowList, upcomingLeave: upcomingList };
+  }, [requests, users, publicHolidays]);
 
   const openDecision = (req, type) => {
     setActiveReq(req);
@@ -1139,7 +1381,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
 
     const startISO = iso(getReqStart(r));
     const endISO = iso(getReqEnd(r));
-    const resumeISO = iso(getReqResumeOn(r));
+    const resumeISO = getReturnISO(r, publicHolidays);
     const createdISO = iso(getReqCreatedAt(r));
 
     const total = toHalf(Math.max(toInt(r?.totalWeekdays ?? 0, 0), getReqTotalDays(r)), 0);
@@ -1370,36 +1612,78 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         </div>
       </section>
 
-      {/* ===================== Currently on leave (Conditional) ===================== */}
-      {currentlyOnLeave.length > 0 && (
+           {/* ===================== On Leave + Upcoming (Conditional) ===================== */}
+      {(onLeaveNow.length > 0 || upcomingLeave.length > 0) && (
         <section>
-          <h2 className="text-2xl font-bold mb-3">Currently on leave</h2>
+          <h2 className="text-2xl font-bold mb-3">On Leave & Upcoming</h2>
 
           <div className="border rounded overflow-hidden">
             <div className="bg-gray-100 px-3 py-2 text-sm text-gray-700">
-              Showing people who are on leave now, or starting within the next 14 days.
+            
             </div>
 
-            <div className="p-3 space-y-2">
-              {currentlyOnLeave.map((x) => (
-                <div key={x.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium truncate">{x.name}</span>
-                      <span className="text-xs text-gray-500">{x.segment}</span>
-                      {x.isNow ? (
-                        <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-800">On Leave</span>
-                      ) : (
-                        <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-800">Upcoming</span>
-                      )}
-                    </div>
-
-                    <div className="text-xs text-gray-500 mt-1">
-                      {shortDate(x.startISO)} → {shortDate(x.endISO)}
-                    </div>
+            <div className="p-3 space-y-5">
+              {/* On Leave Now */}
+              {onLeaveNow.length > 0 && (
+                <div>
+                  <div className="text-sm font-semibold mb-2">Currently on leave</div>
+                  <div className="space-y-2">
+                    {onLeaveNow.map((x) => (
+                      <div
+                        key={x.id}
+                        className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium truncate">{x.name}</span>
+                            <span className="text-xs text-gray-500">{x.segment}</span>
+                            <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-800">
+                              On Leave
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {shortDate(x.startISO)} → {shortDate(x.endISO)}{" "}
+                            <span className="ml-2 text-gray-600">
+                              (Returns: <span className="font-medium">{shortDate(x.returnISO)}</span>)
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
+
+              {/* Upcoming Leave */}
+              {upcomingLeave.length > 0 && (
+                <div>
+                  <div className="text-sm font-semibold mb-2">Upcoming leave</div>
+                  <div className="space-y-2">
+                    {upcomingLeave.map((x) => (
+                      <div
+                        key={x.id}
+                        className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium truncate">{x.name}</span>
+                            <span className="text-xs text-gray-500">{x.segment}</span>
+                            <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                              Upcoming
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {shortDate(x.startISO)} → {shortDate(x.endISO)}{" "}
+                            <span className="ml-2 text-gray-600">
+                              (Returns: <span className="font-medium">{shortDate(x.returnISO)}</span>)
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </section>

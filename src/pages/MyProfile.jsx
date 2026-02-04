@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import API_BASE from "@/api";
+import { nextWorkdayISO } from "@/utils/leaveDates";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,34 @@ const [myRequests, setMyRequests] = useState([]);
 const [reqLoading, setReqLoading] = useState(false);
 const [expandedRequestId, setExpandedRequestId] = useState(null);
 
+// --- Public Holidays (fetched from backend) ---
+const [publicHolidays, setPublicHolidays] = useState([]); // ["YYYY-MM-DD"]
+
+useEffect(() => {
+  let mounted = true;
+
+  fetch(`${API_BASE}/holidays`)
+    .then((res) => res.json())
+    .then((data) => {
+      if (!mounted) return;
+      if (Array.isArray(data)) {
+        // Normalize to YYYY-MM-DD strings only
+        setPublicHolidays(
+          data
+            .map((h) => h?.date)
+            .filter((d) => typeof d === "string")
+        );
+      }
+    })
+    .catch((err) => {
+      console.error("Failed to load public holidays:", err);
+      setPublicHolidays([]);
+    });
+
+  return () => {
+    mounted = false;
+  };
+}, []);
 
 // Single source of truth for requested length:
 // - If valid dates => weekdays minus 0.5 for each valid half-day boundary
@@ -91,50 +120,83 @@ const getAnnualBalance = (u) =>
 const getOffBalance = (u) =>
   Number(u?.offDays ?? u?.balances?.offDays ?? u?.offDayBalance ?? 0);
 
-// helper: weekday counter (inclusive)
-function countWeekdaysInclusive(startISO, endISO) {
+// helper: weekday counter (inclusive) — excludes weekends + public holidays
+function countWeekdaysInclusive(startISO, endISO, holidays = []) {
   if (!startISO || !endISO) return 0;
+
   const s = new Date(startISO);
   const e = new Date(endISO);
   if (isNaN(s) || isNaN(e)) return 0;
   if (s > e) return 0;
-  let c = 0;
+
+  // Fast lookup set for YYYY-MM-DD
+  const holidaySet = new Set(
+    Array.isArray(holidays) ? holidays : []
+  );
+
+  let count = 0;
+
   const d = new Date(s);
   d.setHours(0, 0, 0, 0);
+
   const e0 = new Date(e);
   e0.setHours(0, 0, 0, 0);
+
   while (d <= e0) {
-    const day = d.getDay(); // 0 Sun, 6 Sat
-    if (day !== 0 && day !== 6) c++;
+    const day = d.getDay(); // 0 = Sun, 6 = Sat
+
+    if (day !== 0 && day !== 6) {
+      const iso =
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+      // Only count if NOT a public holiday
+      if (!holidaySet.has(iso)) {
+        count++;
+      }
+    }
+
     d.setDate(d.getDate() + 1);
   }
-  return c;
+
+  return count;
 }
 
 // helper: first workday after a given date
-function nextWorkday(dateISO) {
-  if (!dateISO) return "";
-  const d = new Date(dateISO);
-  if (isNaN(d)) return "";
-  d.setDate(d.getDate() + 1);
-  let day = d.getDay();
-  while (day === 0 || day === 6) {
-    d.setDate(d.getDate() + 1);
-    day = d.getDay();
+// (UNIVERSAL: weekend + public holiday aware)
+const nextWorkday = (dateISO) => nextWorkdayISO(dateISO, publicHolidays);
+
+// helper: public holidays inside selected range (weekdays only)
+const holidaysInRange = useMemo(() => {
+  if (!startDate || !endDate || !Array.isArray(publicHolidays)) return [];
+
+  const s = new Date(startDate);
+  const e = new Date(endDate);
+  if (isNaN(s) || isNaN(e) || s > e) return [];
+
+  const out = [];
+
+  for (const iso of publicHolidays) {
+    const d = new Date(iso);
+    if (isNaN(d)) continue;
+    if (d < s || d > e) continue;
+
+    const day = d.getDay();
+    if (day === 0 || day === 6) continue; // weekend already excluded
+
+    out.push(iso);
   }
-  // format YYYY-MM-DD
-  const y = d.getFullYear();
-  const m = `${d.getMonth() + 1}`.padStart(2, "0");
-  const dd = `${d.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${dd}`;
-}
+
+  return out;
+}, [startDate, endDate, publicHolidays]);
 
 // ✅ Only recompute totals & resume date when dates change; DO NOT touch allocations.
 useEffect(() => {
-  const T = countWeekdaysInclusive(startDate, endDate);
+  const T = countWeekdaysInclusive(startDate, endDate, publicHolidays);
   setTotalWeekdays(T);
-  setResumeOn(endDate ? nextWorkday(endDate) : "");
-}, [startDate, endDate]);
+
+  // ✅ Resume must skip weekends AND public holidays
+  setResumeOn(endDate ? nextWorkdayISO(endDate, publicHolidays) : "");
+}, [startDate, endDate, publicHolidays]);
 
 // ✅ Load user + notifications (one-time)
 useEffect(() => {
@@ -449,7 +511,7 @@ const submitLeaveRequest = async () => {
     // dates/meta
     startDate: haveDates ? startDate : null,
     endDate:   haveDates ? endDate   : null,
-    resumeWorkOn: haveDates ? (resumeOn || nextWorkday(endDate)) : null,
+    resumeWorkOn: haveDates ? (resumeOn || nextWorkdayISO(endDate, publicHolidays)) : null,
     localOrOverseas,
     reason: reason.trim(),
 
@@ -703,11 +765,17 @@ const submitLeaveRequest = async () => {
                 </div>
               )}
 
-              {resumeOn && (
-                <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
-                  {formatResume(resumeOn)}
-                </div>
-              )}
+              {holidaysInRange.length > 0 && (
+  <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
+    Public holidays excluded: {holidaysInRange.length}
+  </div>
+)}
+
+{resumeOn && (
+  <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
+    {formatResume(resumeOn)}
+  </div>
+)}
             </>
           ) : (
             <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
@@ -796,16 +864,23 @@ const submitLeaveRequest = async () => {
         <div className="rounded border p-3 text-sm">
           <span className="font-medium">Number of days requested:</span>{" "}
           <span>
-            {startDate && endDate ? (
-              totalWeekdays > 0 ? (
-                `${requestedDays} ${requestedDays === 1 ? "day" : "days"}`
-              ) : (
-                "— invalid range —"
-              )
-            ) : (
-              `${requestedDays} ${requestedDays === 1 ? "day" : "days"}`
-            )}
-          </span>
+  {startDate && endDate ? (
+    totalWeekdays > 0 ? (
+      `${requestedDays} ${requestedDays === 1 ? "day" : "days"}`
+    ) : (
+      "— invalid range —"
+    )
+  ) : (
+    `${requestedDays} ${requestedDays === 1 ? "day" : "days"}`
+  )}
+</span>
+
+{holidaysInRange.length > 0 && (
+  <div className="text-xs text-muted-foreground mt-1">
+    ℹ️ {holidaysInRange.length} public holiday
+    {holidaysInRange.length > 1 ? "s are" : " is"} excluded from this range.
+  </div>
+)}
 
           {startDate &&
             endDate &&
