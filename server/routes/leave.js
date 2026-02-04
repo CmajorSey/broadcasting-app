@@ -18,6 +18,7 @@ const DATA_DIR =
 
 const LEAVE_FILE = path.join(DATA_DIR, "leave-requests.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
+const HOLIDAYS_FILE = path.join(DATA_DIR, "holidays.json");
 
 // -------------- Helpers --------------
 function ensureFile(filePath, defaultValue) {
@@ -51,6 +52,7 @@ function writeJSON(filePath, data) {
 
 ensureFile(LEAVE_FILE, []);
 ensureFile(USERS_FILE, []);
+ensureFile(HOLIDAYS_FILE, []);
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const toInt = (v, fb = 0) => {
@@ -117,28 +119,102 @@ function setBalances(u, { annualLeave, offDays }) {
   return u;
 }
 
-// ----------------- Date helpers -----------------
-const toISO = (d) => {
-  if (!d && d !== 0) return "";
-  const x = new Date(d);
-  return Number.isNaN(x.getTime()) ? "" : x.toISOString().slice(0, 10);
+// ----------------- Date helpers (weekend + holiday safe) -----------------
+
+const pad2 = (n) => String(n).padStart(2, "0");
+
+// Parse "YYYY-MM-DD" into a LOCAL date (prevents UTC drift issues)
+function parseISOToLocal(iso) {
+  if (!iso || typeof iso !== "string") return null;
+  const parts = iso.split("-");
+  if (parts.length !== 3) return null;
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  const d = Number(parts[2]);
+  if (!y || !m || !d) return null;
+  const dt = new Date(y, m - 1, d);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function toISOLocalDate(d) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+// Accept Date | ISO | timestamp and normalize to "YYYY-MM-DD"
+const toISO = (v) => {
+  if (!v && v !== 0) return "";
+  if (typeof v === "string") {
+    // prefer strict ISO date if given
+    const dt = parseISOToLocal(v);
+    if (dt) return toISOLocalDate(dt);
+  }
+  const x = new Date(v);
+  if (Number.isNaN(x.getTime())) return "";
+  // convert to local date ISO
+  return toISOLocalDate(new Date(x.getFullYear(), x.getMonth(), x.getDate()));
 };
 
-const weekdayCountInclusive = (startISO, endISO) => {
+function isWeekendISO(iso) {
+  const dt = parseISOToLocal(iso);
+  if (!dt) return false;
+  const dow = dt.getDay(); // 0 Sun .. 6 Sat (local)
+  return dow === 0 || dow === 6;
+}
+
+function loadHolidaySet() {
+  const list = readJSON(HOLIDAYS_FILE, []);
+  const set = new Set();
+  if (Array.isArray(list)) {
+    for (const h of list) {
+      const iso = typeof h === "string" ? h : h?.date;
+      const norm = toISO(iso);
+      if (norm) set.add(norm);
+    }
+  }
+  return set;
+}
+
+// Count weekdays inclusive, excluding public holidays (weekends excluded already)
+const weekdayCountInclusive = (startISO, endISO, holidaySet = new Set()) => {
   if (!startISO || !endISO) return 0;
-  const s = new Date(startISO);
-  const e = new Date(endISO);
+
+  const s = parseISOToLocal(startISO);
+  const e = parseISOToLocal(endISO);
+  if (!s || !e) return 0;
   if (s > e) return 0;
 
   let c = 0;
-  const cur = new Date(s);
+  const cur = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+
   while (cur <= e) {
-    const dow = cur.getDay(); // 0 Sun .. 6 Sat
-    if (dow !== 0 && dow !== 6) c++;
+    const iso = toISOLocalDate(cur);
+    const dow = cur.getDay();
+    const weekend = dow === 0 || dow === 6;
+    const holiday = holidaySet.has(iso);
+
+    if (!weekend && !holiday) c++;
     cur.setDate(cur.getDate() + 1);
   }
   return c;
 };
+
+// Next workday AFTER end date, skipping weekends + public holidays
+function nextWorkdayAfter(endISO, holidaySet = new Set()) {
+  const e = parseISOToLocal(endISO);
+  if (!e) return "";
+  const cur = new Date(e.getFullYear(), e.getMonth(), e.getDate());
+  cur.setDate(cur.getDate() + 1);
+
+  while (true) {
+    const iso = toISOLocalDate(cur);
+    const weekend = isWeekendISO(iso);
+    const holiday = holidaySet.has(iso);
+
+    if (!weekend && !holiday) return iso;
+    cur.setDate(cur.getDate() + 1);
+  }
+}
 
 // --- shared core builders so aliases stay in sync ---
 function buildNewRequest(body) {
@@ -199,7 +275,15 @@ function buildNewRequest(body) {
   const id = body.id || Date.now().toString();
 
   // Accept resume field from either key
-  const resumeISO = toISO(body.resumeWorkOn) || toISO(body.resumeOn) || "";
+  const holidaySet = loadHolidaySet();
+
+  // Accept resume field from either key; if missing, compute it from end date
+  let resumeISO = toISO(body.resumeWorkOn) || toISO(body.resumeOn) || "";
+
+  // ✅ Universal: resumeOn must skip weekends + public holidays
+  if (!resumeISO && endISO) {
+    resumeISO = nextWorkdayAfter(endISO, holidaySet);
+  }
 
   return {
     id,
@@ -376,13 +460,24 @@ function handlePatch(req, res) {
       users[uIdx] = setBalances(users[uIdx], current);
       writeJSON(USERS_FILE, users);
 
+         const holidaySet = loadHolidaySet();
+
+      const nextStart = toISO(body.newStartDate ?? lr.startDate);
+      const nextEnd = toISO(body.newEndDate ?? lr.endDate);
+
+      // ✅ Always recompute resumeOn from the (possibly changed) end date
+      const nextResume = nextEnd ? nextWorkdayAfter(nextEnd, holidaySet) : (lr.resumeOn ?? undefined);
+
       all[idx] = {
         ...lr,
-        startDate: body.newStartDate ?? lr.startDate,
-        endDate: body.newEndDate ?? lr.endDate,
+        startDate: nextStart || lr.startDate,
+        endDate: nextEnd || lr.endDate,
+        resumeOn: nextResume || lr.resumeOn,
+
         days: body.newTotalDays ?? lr.days,
         appliedAnnual: newA,
         appliedOff: newO,
+
         lastEditedAt: nowIso,
         lastEditedById: body.editedById ?? null,
         lastEditedByName: body.editedByName ?? "Admin",
@@ -406,13 +501,21 @@ function handlePatch(req, res) {
       users[uIdx] = setBalances(users[uIdx], current);
       writeJSON(USERS_FILE, users);
 
+           const holidaySet = loadHolidaySet();
+
+      // If admin didn't provide a return date, compute it from the leave end date
+      const computedReturn =
+        lr?.endDate ? nextWorkdayAfter(toISO(lr.endDate), holidaySet) : null;
+
       all[idx] = {
         ...lr,
         status: "cancelled",
         cancelledAt: nowIso,
-        cancelledReturnDate: body.cancelReturnDate ?? null,
+        cancelledReturnDate: body.cancelReturnDate ?? computedReturn,
+
         refundedAnnual: refundA,
         refundedOff: refundO,
+
         lastEditedAt: nowIso,
         lastEditedById: body.editedById ?? null,
         lastEditedByName: body.editedByName ?? "Admin",
