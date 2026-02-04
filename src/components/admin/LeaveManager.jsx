@@ -19,10 +19,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 
+// icons
+import { Pencil, X } from "lucide-react";
+
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+
+// ints (for balances, legacy fields)
 const toInt = (v, fb = 0) => {
   const n = Number(v);
   return Number.isFinite(n) ? Math.round(n) : fb;
+};
+
+// ✅ half-day safe numeric helper (allows 0.5, 4.5, etc.)
+const toHalf = (v, fb = 0) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fb;
+  return Math.round(n * 2) / 2;
 };
 
 // ---------- Segment helpers ----------
@@ -48,7 +60,6 @@ const groupedBySegment = (users) => {
     if (nameMatch) {
       segments.Admins.push(user);
     } else if (/cam ?op|camera ?operator|operations|driver|fleet/i.test(desc)) {
-      // Drivers + Fleet roles belong under Operations (unless explicitly in Admins above)
       segments.Operations.push(user);
     } else if (desc.includes("sports journalist")) {
       segments["Sports Section"].push(user);
@@ -65,34 +76,24 @@ const groupedBySegment = (users) => {
 // ---------- Robust date + field helpers ----------
 const toISODateString = (date) => date.toISOString().slice(0, 10);
 
-/** Accepts:
- * - JS Date
- * - ISO "YYYY-MM-DD" or "YYYY-M-D"
- * - "YYYY/MM/DD"
- * - "DD/MM/YYYY" or "D/M/YYYY"
- * - epoch seconds/millis (number or numeric string)
- * Returns ISO "YYYY-MM-DD" or "" if invalid.
- */
+/** Accepts Date / ISO / DD/MM/YYYY / epoch etc. Returns ISO "YYYY-MM-DD" or "" */
 const iso = (v) => {
   if (!v && v !== 0) return "";
 
   if (v instanceof Date && !isNaN(v)) return toISODateString(v);
 
-  // ISO YYYY-MM-DD / YYYY-M-D
   if (typeof v === "string" && /^\d{4}-\d{1,2}-\d{1,2}$/.test(v)) {
     const [yyyy, mm, dd] = v.split("-").map(Number);
     const d = new Date(yyyy, mm - 1, dd);
     return isNaN(d) ? "" : toISODateString(d);
   }
 
-  // YYYY/MM/DD
   if (typeof v === "string" && /^\d{4}\/\d{1,2}\/\d{1,2}$/.test(v)) {
     const [yyyy, mm, dd] = v.split("/").map(Number);
     const d = new Date(yyyy, mm - 1, dd);
     return isNaN(d) ? "" : toISODateString(d);
   }
 
-  // DD/MM/YYYY
   if (typeof v === "string") {
     const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if (m) {
@@ -104,35 +105,28 @@ const iso = (v) => {
     }
   }
 
-  // Epoch seconds or millis (string or number)
   if (typeof v === "number" || (typeof v === "string" && /^\d+$/.test(v))) {
     const num = Number(v);
-    const epochMs = num > 1e12 ? num : num * 1000; // heuristic
+    const epochMs = num > 1e12 ? num : num * 1000;
     const d = new Date(epochMs);
     return isNaN(d) ? "" : toISODateString(d);
   }
 
-  // Fallback
   const d = new Date(v);
   return isNaN(d) ? "" : toISODateString(d);
 };
 
-/** Safe nested getter for "a.b.c" */
 const getPath = (obj, path) => {
   if (!obj || !path) return undefined;
   const parts = path.split(".");
   let cur = obj;
   for (const p of parts) {
-    if (cur && Object.prototype.hasOwnProperty.call(cur, p)) {
-      cur = cur[p];
-    } else {
-      return undefined;
-    }
+    if (cur && Object.prototype.hasOwnProperty.call(cur, p)) cur = cur[p];
+    else return undefined;
   }
   return cur;
 };
 
-/** Deep scan utility with loop protection */
 const deepFind = (obj, predicate, maxDepth = 4) => {
   const seen = new WeakSet();
   const stack = [{ val: obj, path: "", depth: 0 }];
@@ -146,16 +140,13 @@ const deepFind = (obj, predicate, maxDepth = 4) => {
         const child = val[key];
         const childPath = path ? `${path}.${key}` : key;
         if (predicate(key, child, childPath)) return { value: child, path: childPath };
-        if (child && typeof child === "object") {
-          stack.push({ val: child, path: childPath, depth: depth + 1 });
-        }
+        if (child && typeof child === "object") stack.push({ val: child, path: childPath, depth: depth + 1 });
       }
     }
   }
   return null;
 };
 
-/** pick first non-empty value among many aliases (supports dot paths) */
 const pick = (obj, aliases) => {
   for (const key of aliases) {
     const v = key.includes(".") ? getPath(obj, key) : obj?.[key];
@@ -164,12 +155,8 @@ const pick = (obj, aliases) => {
   return undefined;
 };
 
-// Fallbacks: deep scan
 const deepDate = (r, keyRegexes) => {
-  const match = deepFind(
-    r,
-    (k, v) => keyRegexes.some((rgx) => rgx.test(k)) && !!iso(v)
-  );
+  const match = deepFind(r, (k, v) => keyRegexes.some((rgx) => rgx.test(k)) && !!iso(v));
   return match?.value;
 };
 
@@ -192,13 +179,11 @@ const deepAlloc = (r, which) => {
     r,
     (k, v) =>
       rx.test(k) &&
-      (typeof v === "number" ||
-        (typeof v === "string" && /^\d+$/.test(v)))
+      (typeof v === "number" || (typeof v === "string" && /^\d+(\.5)?$/.test(v)))
   );
   return match?.value;
 };
 
-// Convenience getters: aliases + deep scan fallbacks
 const getReqStart = (r) =>
   pick(r, [
     "startDate",
@@ -276,14 +261,9 @@ const getReqType = (r) =>
     deepType(r) ??
     "local");
 
-// NEW: total days helper (your API uses `days`)
 const getReqTotalDays = (r) =>
-  toInt(
-    pick(r, ["totalDays", "days", "weekdayCount", "totalWeekdays", "duration"]) ?? 0,
-    0
-  );
+  toInt(pick(r, ["totalDays", "days", "weekdayCount", "totalWeekdays", "duration"]) ?? 0, 0);
 
-// Allocation inference using `type` + `days` when explicit split absent
 const getReqAnnualAlloc = (r) => {
   const explicit =
     pick(r, [
@@ -299,17 +279,14 @@ const getReqAnnualAlloc = (r) => {
       "deductions.annual",
       "requested.annual",
       "payload.allocations.annual",
+      "appliedAnnual",
     ]) ?? deepAlloc(r, "annual");
 
-  if (explicit !== undefined && explicit !== null && explicit !== "") {
-    return toInt(explicit, 0);
-  }
+  if (explicit !== undefined && explicit !== null && explicit !== "") return toHalf(explicit, 0);
 
-  // Infer: type === "annual" => all days go to annual
   const t = String(getReqType(r) || "").toLowerCase();
-  const days = getReqTotalDays(r);
+  const days = toHalf(getReqTotalDays(r), 0);
   if (t.includes("annual")) return days;
-
   return 0;
 };
 
@@ -327,30 +304,32 @@ const getReqOffAlloc = (r) => {
       "deductions.off",
       "requested.off",
       "payload.allocations.off",
+      "appliedOff",
     ]) ?? deepAlloc(r, "off");
 
-  if (explicit !== undefined && explicit !== null && explicit !== "") {
-    return toInt(explicit, 0);
-  }
+  if (explicit !== undefined && explicit !== null && explicit !== "") return toHalf(explicit, 0);
 
-  // Infer: type includes "off" => all days go to off
   const t = String(getReqType(r) || "").toLowerCase();
-  const days = getReqTotalDays(r);
+  const days = toHalf(getReqTotalDays(r), 0);
   if (t.includes("off")) return days;
-
   return 0;
 };
 
+// ✅ timezone-safe weekday counter using local date parts (avoids ISO UTC shifting)
 const weekdaysBetween = (startV, endV) => {
   const startISO = iso(startV);
   const endISO = iso(endV);
   if (!startISO || !endISO) return 0;
-  const start = new Date(startISO);
-  const end = new Date(endISO);
+
+  const [sy, sm, sd] = startISO.split("-").map(Number);
+  const [ey, em, ed] = endISO.split("-").map(Number);
+
+  const start = new Date(sy, sm - 1, sd);
+  const end = new Date(ey, em - 1, ed);
   if (isNaN(start) || isNaN(end) || end < start) return 0;
+
   let count = 0;
-  const cur = new Date(start);
-  cur.setHours(0, 0, 0, 0);
+  const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   while (cur <= end) {
     const dow = cur.getDay(); // 0 Sun ... 6 Sat
     if (dow >= 1 && dow <= 5) count++;
@@ -359,8 +338,18 @@ const weekdaysBetween = (startV, endV) => {
   return count;
 };
 
+const addDaysISO = (isoStr, days) => {
+  if (!isoStr) return "";
+  const [y, m, d] = String(isoStr).split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  if (isNaN(dt)) return "";
+  dt.setDate(dt.getDate() + days);
+  return iso(dt);
+};
+
 const fourteenDaysFromNowISO = () => {
-  const d = new Date();
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   d.setDate(d.getDate() + 14);
   return iso(d);
 };
@@ -375,13 +364,12 @@ const isOverlapOrUpcomingWithin = (startISO, endISO, daysAhead = 14) => {
   const windowEnd = new Date(startOfToday);
   windowEnd.setDate(windowEnd.getDate() + daysAhead);
 
-  const s = new Date(startISO);
-  const e = new Date(endISO);
-  if (isNaN(s) || isNaN(e)) return false;
+  const [sy, sm, sd] = startISO.split("-").map(Number);
+  const [ey, em, ed] = endISO.split("-").map(Number);
+  const start = new Date(sy, sm - 1, sd);
+  const end = new Date(ey, em - 1, ed);
 
-  // normalize to date-only
-  const start = new Date(s.getFullYear(), s.getMonth(), s.getDate());
-  const end = new Date(e.getFullYear(), e.getMonth(), e.getDate());
+  if (isNaN(start) || isNaN(end)) return false;
 
   const currently = start <= startOfToday && end >= startOfToday;
   const upcoming = start >= startOfToday && start <= windowEnd;
@@ -391,23 +379,24 @@ const isOverlapOrUpcomingWithin = (startISO, endISO, daysAhead = 14) => {
 
 const shortDate = (isoStr) => {
   if (!isoStr) return "—";
-  const d = new Date(isoStr);
-  if (isNaN(d)) return isoStr;
-  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
+  const [y, m, d] = String(isoStr).split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  if (isNaN(dt)) return isoStr;
+  return dt.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
 };
 
 const isOnLeaveToday = (startISO, endISO) => {
   if (!startISO || !endISO) return false;
+
   const today = new Date();
   const t = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
 
-  const s = new Date(startISO);
-  const e = new Date(endISO);
-  if (isNaN(s) || isNaN(e)) return false;
+  const [sy, sm, sd] = startISO.split("-").map(Number);
+  const [ey, em, ed] = endISO.split("-").map(Number);
+  const start = new Date(sy, sm - 1, sd).getTime();
+  const end = new Date(ey, em - 1, ed).getTime();
 
-  const start = new Date(s.getFullYear(), s.getMonth(), s.getDate()).getTime();
-  const end = new Date(e.getFullYear(), e.getMonth(), e.getDate()).getTime();
-
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return false;
   return start <= t && end >= t;
 };
 
@@ -425,9 +414,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   const nameToId = useMemo(() => {
     const map = {};
     users.forEach((u) => {
-      if (u?.name && u?.id) {
-        map[u.name.toLowerCase()] = String(u.id);
-      }
+      if (u?.name && u?.id) map[u.name.toLowerCase()] = String(u.id);
     });
     return map;
   }, [users]);
@@ -463,9 +450,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     }
 
     const value =
-      field === "annualLeave"
-        ? clamp(toInt(rawValue, 0), 0, 42)
-        : Math.max(0, toInt(rawValue, 0));
+      field === "annualLeave" ? clamp(toInt(rawValue, 0), 0, 42) : Math.max(0, toInt(rawValue, 0));
 
     const current = users.find((u) => String(u.id) === String(uid));
     if (current && toInt(current[field] ?? 0) === value) return;
@@ -490,7 +475,10 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
           offDays: toInt(merged.offDays ?? 0),
         },
       }));
-      toast({ title: "Saved", description: `${field === "annualLeave" ? "Annual Leave" : "Off Days"} updated.` });
+      toast({
+        title: "Saved",
+        description: `${field === "annualLeave" ? "Annual Leave" : "Off Days"} updated.`,
+      });
     } catch (err) {
       toast({
         title: "Save failed",
@@ -566,18 +554,28 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  // dialog state
+  // decision dialog state (approve/deny)
   const [activeReq, setActiveReq] = useState(null);
   const [decisionOpen, setDecisionOpen] = useState(false);
   const [decisionType, setDecisionType] = useState("approve"); // approve | deny
   const [decisionNote, setDecisionNote] = useState("");
-  // allocation adjust (approve)
   const [adjAnnual, setAdjAnnual] = useState(0);
   const [adjOff, setAdjOff] = useState(0);
   const [overrideTwoWeekRule, setOverrideTwoWeekRule] = useState(false);
   const [savingDecision, setSavingDecision] = useState(false);
 
-  // fetch requests
+  // ✅ modify dialog state (edit/cancel approved leave)
+  const [modifyOpen, setModifyOpen] = useState(false);
+  const [modifyMode, setModifyMode] = useState("edit"); // edit | cancel
+  const [modifyReq, setModifyReq] = useState(null);
+  const [modifyStart, setModifyStart] = useState("");
+  const [modifyEnd, setModifyEnd] = useState("");
+  const [cancelReturnDate, setCancelReturnDate] = useState(""); // return-to-work date
+  const [refundAnnual, setRefundAnnual] = useState(0);
+  const [refundOff, setRefundOff] = useState(0);
+  const [modifyNote, setModifyNote] = useState("");
+  const [savingModify, setSavingModify] = useState(false);
+
   const loadRequests = async () => {
     setReqLoading(true);
     try {
@@ -586,7 +584,11 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
       const data = await res.json();
       setRequests(Array.isArray(data) ? data : data?.requests || []);
     } catch (e) {
-      toast({ title: "Error", description: e?.message || "Could not fetch leave requests.", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: e?.message || "Could not fetch leave requests.",
+        variant: "destructive",
+      });
     } finally {
       setReqLoading(false);
     }
@@ -597,80 +599,79 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   }, []);
 
   const userById = (id) => users.find((u) => String(u.id) === String(id));
+
   const segmentOfUser = (u) => {
-  if (!u) return "Unassigned";
-  if (u.name === "Admin") return "Admins";
+    if (!u) return "Unassigned";
+    if (u.name === "Admin") return "Admins";
+    if (["Clive Camille", "Jennifer Arnephy", "Gilmer Philoe", "Nelson Joseph"].includes(u.name)) return "Admins";
 
-  // ✅ Admin segment is name-based (HR + producers) + Nelson (Fleet lead)
-  if (["Clive Camille", "Jennifer Arnephy", "Gilmer Philoe", "Nelson Joseph"].includes(u.name)) {
-    return "Admins";
-  }
-
-  const d = String(u.description || "").toLowerCase();
-
-  // Drivers count as Operations (unless explicitly mapped to Admins above)
-  if (/cam ?op|camera ?operator|operations|driver|fleet/.test(d)) return "Operations";
-
-  if (d.includes("sports journalist")) return "Sports Section";
-  if (d.includes("journalist")) return "Newsroom";
-  if (d.includes("producer")) return "Production";
-  return "Unassigned";
-};
+    const d = String(u.description || "").toLowerCase();
+    if (/cam ?op|camera ?operator|operations|driver|fleet/.test(d)) return "Operations";
+    if (d.includes("sports journalist")) return "Sports Section";
+    if (d.includes("journalist")) return "Newsroom";
+    if (d.includes("producer")) return "Production";
+    return "Unassigned";
+  };
 
   const filteredRequests = useMemo(() => {
-  return (requests || [])
-    .filter((r) =>
-      statusFilter === "all" ? true : (r.status || "pending") === statusFilter
-    )
-    .filter((r) => {
-      if (segmentFilter === "all") return true;
-      const u = userById(r.userId);
-      return segmentOfUser(u) === segmentFilter;
-    })
-    .filter((r) => {
-      if (!dateFrom && !dateTo) return true;
-      const createdISO = iso(getReqCreatedAt(r));
-      if (!createdISO) return false;
-      const d = new Date(createdISO);
-      if (isNaN(d)) return false;
-      if (dateFrom && d < new Date(dateFrom)) return false;
-      if (dateTo) {
-        const end = new Date(dateTo);
-        end.setHours(23, 59, 59, 999);
-        if (d > end) return false;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      const aISO = iso(getReqCreatedAt(a)) || "1970-01-01";
-      const bISO = iso(getReqCreatedAt(b)) || "1970-01-01";
-      return new Date(bISO) - new Date(aISO);
-    });
-}, [requests, statusFilter, segmentFilter, dateFrom, dateTo, users]);
+    return (requests || [])
+      .filter((r) => (statusFilter === "all" ? true : (r.status || "pending") === statusFilter))
+      .filter((r) => {
+        if (segmentFilter === "all") return true;
+        const u = userById(r.userId);
+        return segmentOfUser(u) === segmentFilter;
+      })
+      .filter((r) => {
+        if (!dateFrom && !dateTo) return true;
+        const createdISO = iso(getReqCreatedAt(r));
+        if (!createdISO) return false;
 
-// ✅ Card data: approved leaves that are active now OR start within next 14 days
-const currentlyOnLeave = useMemo(() => {
-  return (requests || [])
-    .filter((r) => String(r.status || "").toLowerCase() === "approved")
-    .map((r) => {
-      const u = userById(r.userId);
-      const name = r.userName || u?.name || "Unknown";
+        const [cy, cm, cd] = createdISO.split("-").map(Number);
+        const created = new Date(cy, cm - 1, cd);
+        if (isNaN(created)) return false;
 
-      const startISO = iso(getReqStart(r));
-      const endISO = iso(getReqEnd(r));
+        if (dateFrom) {
+          const [fy, fm, fd] = dateFrom.split("-").map(Number);
+          const from = new Date(fy, fm - 1, fd);
+          if (created < from) return false;
+        }
 
-      return {
-        id: r.id || `${name}-${startISO}-${endISO}`,
-        name,
-        segment: segmentOfUser(u),
-        startISO,
-        endISO,
-        isNow: isOnLeaveToday(startISO, endISO),
-      };
-    })
-    .filter((x) => isOverlapOrUpcomingWithin(x.startISO, x.endISO, 14))
-    .sort((a, b) => new Date(a.startISO) - new Date(b.startISO));
-}, [requests, users]);
+        if (dateTo) {
+          const [ty, tm, td] = dateTo.split("-").map(Number);
+          const to = new Date(ty, tm - 1, td);
+          to.setHours(23, 59, 59, 999);
+          if (created > to) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        const aISO = iso(getReqCreatedAt(a)) || "1970-01-01";
+        const bISO = iso(getReqCreatedAt(b)) || "1970-01-01";
+        return new Date(bISO).getTime() - new Date(aISO).getTime();
+      });
+  }, [requests, statusFilter, segmentFilter, dateFrom, dateTo, users]);
+
+  const currentlyOnLeave = useMemo(() => {
+    return (requests || [])
+      .filter((r) => String(r.status || "").toLowerCase() === "approved")
+      .map((r) => {
+        const u = userById(r.userId);
+        const name = r.userName || u?.name || "Unknown";
+        const startISO = iso(getReqStart(r));
+        const endISO = iso(getReqEnd(r));
+        return {
+          id: r.id || `${name}-${startISO}-${endISO}`,
+          name,
+          segment: segmentOfUser(u),
+          startISO,
+          endISO,
+          isNow: isOnLeaveToday(startISO, endISO),
+        };
+      })
+      .filter((x) => isOverlapOrUpcomingWithin(x.startISO, x.endISO, 14))
+      .sort((a, b) => new Date(a.startISO).getTime() - new Date(b.startISO).getTime());
+  }, [requests, users]);
 
   const openDecision = (req, type) => {
     setActiveReq(req);
@@ -678,10 +679,7 @@ const currentlyOnLeave = useMemo(() => {
     setDecisionNote("");
 
     if (type === "approve") {
-      const total = Math.max(
-        toInt(req?.totalWeekdays ?? 0, 0),
-        getReqTotalDays(req)
-      );
+      const total = Math.max(toInt(req?.totalWeekdays ?? 0, 0), getReqTotalDays(req));
       const suggestedA = getReqAnnualAlloc(req);
       const suggestedO = getReqOffAlloc(req);
       const a = suggestedA || (suggestedO ? 0 : total);
@@ -710,160 +708,473 @@ const currentlyOnLeave = useMemo(() => {
   };
 
   const applyDecision = async () => {
-  if (!activeReq) return;
-  const req = activeReq;
-  const u = userById(req.userId);
+    if (!activeReq) return;
+    const req = activeReq;
+    const u = userById(req.userId);
 
-  setSavingDecision(true);
+    setSavingDecision(true);
 
-  try {
-    if (decisionType === "deny") {
+    try {
+      if (decisionType === "deny") {
+        const patch = {
+          status: "denied",
+          decisionNote,
+          approverId: currentAdmin?.id || null,
+          approverName: currentAdmin?.name || "Admin",
+          decidedAt: new Date().toISOString(),
+        };
+
+        const res = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!res.ok) throw new Error("Failed to deny request");
+
+        const saved = await res.json();
+        setRequests((prev) =>
+          prev.map((r) => (String(r.id) === String(req.id) ? { ...r, ...saved } : r))
+        );
+
+        toast({
+          title: "Request denied",
+          description: `Reason noted${decisionNote ? `: ${decisionNote}` : ""}.`,
+        });
+
+        closeDecision();
+        return;
+      }
+
+      // ---------- Approve ----------
+      const total = Math.max(toInt(req?.totalWeekdays ?? 0, 0), getReqTotalDays(req));
+
+      if (twoWeekRuleViolated(req) && !overrideTwoWeekRule) {
+        setSavingDecision(false);
+        toast({
+          title: "Two-week rule",
+          description:
+            "This request starts in less than 14 days. Toggle 'Override 2-week rule' to proceed, or deny with a note.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (!u?.id) throw new Error("User has no ID — cannot approve request.");
+
+      // ✅ DO NOT PATCH /users here — backend deducts once on approval
       const patch = {
-        status: "denied",
+        status: "approved",
         decisionNote,
         approverId: currentAdmin?.id || null,
         approverName: currentAdmin?.name || "Admin",
         decidedAt: new Date().toISOString(),
+        appliedAnnual: toInt(adjAnnual, 0),
+        appliedOff: toInt(adjOff, 0),
       };
 
-      const res = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
+      const res2 = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new Error("Failed to deny request");
+      if (!res2.ok) throw new Error("Failed to approve request");
 
-      // Prefer server as source of truth (it may normalize fields)
-      const saved = await res.json();
+      const savedReq = await res2.json();
       setRequests((prev) =>
-        prev.map((r) => (String(r.id) === String(req.id) ? { ...r, ...saved } : r))
+        prev.map((r) => (String(r.id) === String(req.id) ? { ...r, ...savedReq } : r))
       );
 
+      // refresh users so balances display correctly immediately
+      try {
+        const uRes = await fetch(`${API_BASE}/users`);
+        if (uRes.ok) {
+          const usersData = await uRes.json();
+          setUsers(Array.isArray(usersData) ? usersData : usersData?.users || []);
+        }
+      } catch {
+        // non-fatal
+      }
+
       toast({
-        title: "Request denied",
-        description: `Reason noted${decisionNote ? `: ${decisionNote}` : ""}.`,
+        title: "Request approved",
+        description: `Applied Annual: ${toInt(adjAnnual, 0)}, Off days: ${toInt(adjOff, 0)}.`,
       });
 
       closeDecision();
-      return;
-    }
-
-    // ---------- Approve ----------
-    // Use total requested days (if dates missing)
-    const total = Math.max(toInt(req?.totalWeekdays ?? 0, 0), getReqTotalDays(req));
-    const sum = toInt(adjAnnual, 0) + toInt(adjOff, 0);
-    if (total > 0 && sum !== total) {
-      // allowed; admins can split differently — UI may warn elsewhere
-    }
-
-    if (twoWeekRuleViolated(req) && !overrideTwoWeekRule) {
+    } catch (e) {
       setSavingDecision(false);
       toast({
-        title: "Two-week rule",
-        description:
-          "This request starts in less than 14 days. Toggle 'Override 2-week rule' to proceed, or deny with a note.",
+        title: "Action failed",
+        description: e?.message || "Please try again.",
         variant: "destructive",
       });
-      return;
+    }
+  };
+
+  // =========================
+  // ✅ Edit/Cancel helpers
+  // =========================
+  const closeModify = () => {
+    setModifyOpen(false);
+    setModifyReq(null);
+    setModifyMode("edit");
+    setModifyStart("");
+    setModifyEnd("");
+    setCancelReturnDate("");
+    setRefundAnnual(0);
+    setRefundOff(0);
+    setModifyNote("");
+    setSavingModify(false);
+  };
+
+  const openModify = (req, mode) => {
+    setModifyReq(req);
+    setModifyMode(mode);
+
+    const s = iso(getReqStart(req));
+    const e = iso(getReqEnd(req));
+
+    setModifyStart(s);
+    setModifyEnd(e);
+
+    // Cancel default: return-to-work is the day after original end (simple default)
+    setCancelReturnDate(e ? addDaysISO(e, 1) : "");
+
+    // Adjustment defaults: 0 until admin chooses
+    setRefundAnnual(0);
+    setRefundOff(0);
+    setModifyNote("");
+
+    setModifyOpen(true);
+  };
+
+  // Simple weekday-only estimate (holidays come later)
+  // ✅ Supports half-day explicit fields if they exist in request payload
+  const calcTotalWeekdays = (req, startISO, endISO) => {
+    const maybeHalf =
+      req?.requestedDays ??
+      req?.daysRequested ??
+      req?.totalRequestedDays ??
+      null;
+
+    const explicitHalf = toHalf(maybeHalf, 0);
+    if (explicitHalf > 0) return explicitHalf;
+
+    const explicit = Math.max(toInt(req?.totalWeekdays ?? 0, 0), getReqTotalDays(req));
+    if (explicit > 0) return toHalf(explicit, 0);
+
+    return toHalf(weekdaysBetween(startISO, endISO), 0);
+  };
+
+  // ✅ Cancel logic fix:
+  // Used must be 0 if leave is upcoming (has not started yet).
+  // Used = weekdays from start -> min(today, lastLeaveDay)
+  const calcCancelUsedUnused = (req, startISO, endISO, returnISO) => {
+    const total = calcTotalWeekdays(req, startISO, endISO);
+
+    if (!startISO || !endISO || !returnISO) return { total, used: 0, unused: total };
+
+    const returnDate = new Date(returnISO);
+    if (isNaN(returnDate)) return { total, used: 0, unused: total };
+
+    // last leave day is day before return
+    const lastLeaveDay = new Date(returnISO);
+    lastLeaveDay.setDate(lastLeaveDay.getDate() - 1);
+    const lastISO = iso(lastLeaveDay);
+
+    const todayISO = iso(new Date());
+
+    // ✅ If leave hasn't started yet, nothing is used
+    if (todayISO < startISO) {
+      return { total, used: 0, unused: total };
     }
 
-    if (!u?.id) throw new Error("User has no ID — cannot approve request.");
+    // If returning on/before start, used is 0
+    if (returnISO <= startISO) return { total, used: 0, unused: total };
 
-    // ✅ IMPORTANT:
-    // Do NOT PATCH /users balances here.
-    // The backend leave approval route already deducts balances (approveAndDeduct).
-    const patch = {
-      status: "approved",
-      decisionNote,
-      approverId: currentAdmin?.id || null,
-      approverName: currentAdmin?.name || "Admin",
-      decidedAt: new Date().toISOString(),
-      appliedAnnual: toInt(adjAnnual, 0),
-      appliedOff: toInt(adjOff, 0),
-    };
+    // If returning after end+1, treat "unused" as (total - used up to today/end)
+    if (returnISO > addDaysISO(endISO, 1)) {
+      const usedLast = todayISO > endISO ? endISO : todayISO;
+      const used = usedLast >= startISO ? toHalf(weekdaysBetween(startISO, usedLast), 0) : 0;
+      const unused = Math.max(0, toHalf(total - used, 0));
+      return { total, used, unused };
+    }
 
-    const res2 = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    if (!res2.ok) throw new Error("Failed to approve request");
+    // Normal cancel within range:
+    const effectiveLast = todayISO < lastISO ? todayISO : lastISO;
+    const used = effectiveLast >= startISO ? toHalf(weekdaysBetween(startISO, effectiveLast), 0) : 0;
+    const unused = Math.max(0, toHalf(total - used, 0));
+    return { total, used, unused };
+  };
 
-    const savedReq = await res2.json();
+  // ✅ FIXED submitModify (no redeclared vars, half-day safe, backend compatible)
+  const submitModify = async () => {
+    if (!modifyReq) return;
 
-    setRequests((prev) =>
-      prev.map((r) => (String(r.id) === String(req.id) ? { ...r, ...savedReq } : r))
-    );
+    const req = modifyReq;
+    const mode = modifyMode;
 
-    // ✅ Refresh users from backend so UI matches server-truth balances after deduction
-    // (This avoids showing stale balances until next page refresh)
-    try {
-      const uRes = await fetch(`${API_BASE}/users`);
-      if (uRes.ok) {
-        const usersData = await uRes.json();
-        setUsers(Array.isArray(usersData) ? usersData : usersData?.users || []);
+    const startISO = iso(modifyStart);
+    const endISO = iso(modifyEnd);
+    const returnISO = iso(cancelReturnDate);
+
+    const originalStart = iso(getReqStart(req));
+    const originalEnd = iso(getReqEnd(req));
+
+    const appliedA = toHalf(req.appliedAnnual ?? getReqAnnualAlloc(req) ?? 0, 0);
+    const appliedO = toHalf(req.appliedOff ?? getReqOffAlloc(req) ?? 0, 0);
+
+    const originalTotal = calcTotalWeekdays(req, originalStart, originalEnd);
+    const newTotal = mode === "edit" ? calcTotalWeekdays(req, startISO, endISO) : originalTotal;
+
+    const cancelStats =
+      mode === "cancel"
+        ? calcCancelUsedUnused(req, originalStart, originalEnd, returnISO)
+        : { total: originalTotal, used: 0, unused: 0 };
+
+    // admin "adjustments"
+    const adjA = Math.max(0, toHalf(refundAnnual, 0));
+    const adjO = Math.max(0, toHalf(refundOff, 0));
+    const adjSum = toHalf(adjA + adjO, 0);
+
+    const deltaDays = toHalf(newTotal - originalTotal, 0);
+
+    let nextA = appliedA;
+    let nextO = appliedO;
+
+    // =========================
+    // ✅ VALIDATION
+    // =========================
+    if (mode === "edit") {
+      if (!startISO || !endISO) {
+        toast({
+          title: "Missing dates",
+          description: "Please choose a start and end date.",
+          variant: "destructive",
+        });
+        return;
       }
-    } catch {
-      // Non-fatal; balances will still be correct on next reload
+
+      if (endISO < startISO) {
+        toast({
+          title: "Invalid dates",
+          description: "End date must be after start date.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (deltaDays < 0) {
+        const refundDays = Math.abs(deltaDays);
+
+        if (adjSum !== refundDays) {
+          toast({
+            title: "Refund must match shortened days",
+            description: `Annual + Off must equal ${refundDays} day(s).`,
+            variant: "destructive",
+          });
+          return;
+        }
+
+        if (adjA > appliedA || adjO > appliedO) {
+          toast({
+            title: "Refund too large",
+            description:
+              "Refund cannot exceed what was originally deducted from that bucket. Adjust split.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        nextA = toHalf(appliedA - adjA, 0);
+        nextO = toHalf(appliedO - adjO, 0);
+      } else if (deltaDays > 0) {
+        const extraDays = deltaDays;
+
+        if (adjSum !== extraDays) {
+          toast({
+            title: "Extra days must be allocated",
+            description: `Annual + Off must equal ${extraDays} day(s).`,
+            variant: "destructive",
+          });
+          return;
+        }
+
+        nextA = toHalf(appliedA + adjA, 0);
+        nextO = toHalf(appliedO + adjO, 0);
+      } else {
+        if (adjSum !== 0) {
+          toast({
+            title: "No balance change needed",
+            description: "This edit keeps the same total days. Set adjustments to 0 / 0.",
+            variant: "destructive",
+          });
+          return;
+        }
+        nextA = appliedA;
+        nextO = appliedO;
+      }
+
+      if (toHalf(nextA + nextO, 0) !== newTotal) {
+        toast({
+          title: "Split mismatch",
+          description: `Applied Annual + Off must equal ${newTotal}.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    } else {
+      // CANCEL
+      if (!returnISO) {
+        toast({
+          title: "Missing return date",
+          description: "Please choose the date the person returns to work.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const unused = toHalf(cancelStats.unused, 0);
+
+      if (adjSum !== unused) {
+        toast({
+          title: "Refund must match unused",
+          description: `Annual + Off must equal ${unused} unused day(s).`,
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
-    toast({
-      title: "Request approved",
-      description: `Applied Annual: ${toInt(adjAnnual, 0)}, Off days: ${toInt(adjOff, 0)}.`,
-    });
+    setSavingModify(true);
 
-    closeDecision();
-  } catch (e) {
-    setSavingDecision(false);
-    toast({
-      title: "Action failed",
-      description: e?.message || "Please try again.",
-      variant: "destructive",
-    });
-  }
-};
+    try {
+      const payload =
+        mode === "edit"
+          ? {
+              action: "modify",
+              mode: "edit",
+              newStartDate: startISO,
+              newEndDate: endISO,
+              newTotalDays: newTotal,
+
+              // ✅ backend-compatible: send NEW applied totals
+              newAppliedAnnual: Math.max(0, nextA),
+              newAppliedOff: Math.max(0, nextO),
+
+              editedById: currentAdmin?.id || null,
+              editedByName: currentAdmin?.name || "Admin",
+              editNote: modifyNote || "",
+
+              // optional meta (backend can ignore)
+              deltaDays,
+              adjustmentAnnual: adjA,
+              adjustmentOff: adjO,
+            }
+          : {
+              action: "modify",
+              mode: "cancel",
+              cancelReturnDate: returnISO,
+
+              refundAnnual: Math.max(0, adjA),
+              refundOff: Math.max(0, adjO),
+
+              editedById: currentAdmin?.id || null,
+              editedByName: currentAdmin?.name || "Admin",
+              editNote: modifyNote || "",
+
+              // optional meta for server logs
+              cancelUsedDays: toHalf(cancelStats.used, 0),
+              cancelUnusedDays: toHalf(cancelStats.unused, 0),
+            };
+
+      const res = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        if (res.status === 404 || res.status === 400) {
+          throw new Error("Feature not enabled yet on the server (next step).");
+        }
+        throw new Error(txt || "Failed to update leave request");
+      }
+
+      const savedReq = await res.json();
+
+      setRequests((prev) =>
+        prev.map((r) => (String(r.id) === String(req.id) ? { ...r, ...savedReq } : r))
+      );
+
+      // refresh users so balances match server truth
+      try {
+        const uRes = await fetch(`${API_BASE}/users`);
+        if (uRes.ok) {
+          const usersData = await uRes.json();
+          setUsers(Array.isArray(usersData) ? usersData : usersData?.users || []);
+        }
+      } catch {
+        // non-fatal
+      }
+
+      toast({
+        title: mode === "edit" ? "Leave updated" : "Leave cancelled",
+        description:
+          mode === "edit"
+            ? "Dates updated and balances adjusted."
+            : "Refund applied and balances adjusted.",
+      });
+
+      closeModify();
+    } catch (e) {
+      setSavingModify(false);
+      toast({
+        title: "Could not update",
+        description: e?.message || "Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   // Render utils
   const renderReqRow = (r) => {
     const u = userById(r.userId);
     const seg = segmentOfUser(u);
 
-    const startV = getReqStart(r);
-    const endV = getReqEnd(r);
-    const resumeV = getReqResumeOn(r);
-    const createdV = getReqCreatedAt(r);
+    const startISO = iso(getReqStart(r));
+    const endISO = iso(getReqEnd(r));
+    const resumeISO = iso(getReqResumeOn(r));
+    const createdISO = iso(getReqCreatedAt(r));
 
-    const startISO = iso(startV);
-    const endISO = iso(endV);
-    const resumeISO = iso(resumeV);
-    const createdISO = iso(createdV);
+    const total = toHalf(Math.max(toInt(r?.totalWeekdays ?? 0, 0), getReqTotalDays(r)), 0);
 
-    const total = Math.max(
-      toInt(r?.totalWeekdays ?? 0, 0),
-      getReqTotalDays(r)
-    );
-
-    const a = getReqAnnualAlloc(r);
-    const o = getReqOffAlloc(r);
-    const sumOK = total === 0 || a + o === total;
+    const a = toHalf(getReqAnnualAlloc(r), 0);
+    const o = toHalf(getReqOffAlloc(r), 0);
+    const sumOK = total === 0 || toHalf(a + o, 0) === total;
 
     const typeLabel = String(getReqType(r) || "local").toUpperCase();
     const reasonText = (getReqReason(r) || "—").trim() || "—";
 
+    const status = (r.status || "pending").toLowerCase();
+
     return (
-      <tr key={r.id} className="border-t align-top">
+      <tr key={r.id} className="border-t align-top group hover:bg-gray-50">
         <td className="p-2 border-r">
           <div className="font-medium">{r.userName || u?.name || "Unknown"}</div>
           <div className="text-xs text-gray-500">{seg}</div>
           <div className="text-[11px] text-gray-500 mt-1">Requested: {createdISO || "—"}</div>
         </td>
+
         <td className="p-2 border-r">
           <div className="text-sm">
             <div>
-              <span className="font-medium">Dates:</span>{" "}
-              {startISO || "—"} → {endISO || "—"}
+              <span className="font-medium">Dates:</span> {startISO || "—"} → {endISO || "—"}
               {total > 0 && (
-                <span className="ml-2 text-xs text-gray-600">({total} day{total === 1 ? "" : "s"})</span>
+                <span className="ml-2 text-xs text-gray-600">
+                  ({total} day{total === 1 ? "" : "s"})
+                </span>
               )}
             </div>
             <div className="mt-1">
@@ -878,54 +1189,89 @@ const currentlyOnLeave = useMemo(() => {
             </div>
           </div>
         </td>
+
         <td className="p-2 border-r">
           <div className="text-sm">
-            <div>Annual alloc: <span className="font-semibold">{a}</span></div>
-            <div>Off-day alloc: <span className="font-semibold">{o}</span></div>
+            <div>
+              Annual alloc: <span className="font-semibold">{a}</span>
+            </div>
+            <div>
+              Off-day alloc: <span className="font-semibold">{o}</span>
+            </div>
             {!sumOK && total > 0 && (
               <div className="mt-1 text-xs text-amber-600">
-                ⚠️ Allocation ({a + o}) differs from requested days ({total})
+                ⚠️ Allocation ({toHalf(a + o, 0)}) differs from requested days ({total})
               </div>
             )}
           </div>
         </td>
+
         <td className="p-2 border-r">
           <div className="text-sm">
-            <div>Current Annual: <span className="font-semibold">{toInt(u?.annualLeave ?? 0)}</span></div>
-            <div>Current Off days: <span className="font-semibold">{toInt(u?.offDays ?? 0)}</span></div>
+            <div>
+              Current Annual: <span className="font-semibold">{toInt(u?.annualLeave ?? 0)}</span>
+            </div>
+            <div>
+              Current Off days: <span className="font-semibold">{toInt(u?.offDays ?? 0)}</span>
+            </div>
           </div>
         </td>
+
         <td className="p-2">
-          <div className="flex flex-col gap-2">
-            {(r.status || "pending") === "pending" ? (
+          <div className="flex flex-col gap-2 group">
+            {status === "pending" ? (
               <>
-                <Button
-                  size="sm"
-                  onClick={() => openDecision(r, "approve")}
-                  className="w-full"
-                >
+                <Button size="sm" onClick={() => openDecision(r, "approve")} className="w-full">
                   Approve
                 </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => openDecision(r, "deny")}
-                  className="w-full"
-                >
+                <Button size="sm" variant="destructive" onClick={() => openDecision(r, "deny")} className="w-full">
                   Deny
                 </Button>
               </>
             ) : (
               <div className="text-xs">
-                <div className="font-medium capitalize">Status: {r.status}</div>
-                <div>By: {r.approverName || "—"}</div>
-                <div>On: {iso(r.decidedAt) || "—"}</div>
-                {r.decisionNote && <div className="mt-1 italic text-gray-600">“{r.decisionNote}”</div>}
-                {r.status === "approved" && (
-                  <div className="mt-1 text-[11px] text-gray-600">
-                    Applied — Annual: {toInt(r.appliedAnnual ?? 0)}, Off: {toInt(r.appliedOff ?? 0)}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-medium capitalize">Status: {r.status}</div>
+                    <div>By: {r.approverName || "—"}</div>
+                    <div>On: {iso(r.decidedAt) || "—"}</div>
+                    {r.decisionNote && (
+                      <div className="mt-1 italic text-gray-600">“{r.decisionNote}”</div>
+                    )}
+                    {status === "approved" && (
+                      <div className="mt-1 text-[11px] text-gray-600">
+                        Applied — Annual: {toHalf(r.appliedAnnual ?? 0)}, Off: {toHalf(r.appliedOff ?? 0)}
+                      </div>
+                    )}
+                    {(r.lastEditedAt || r.lastEditedByName) && (
+                      <div className="mt-1 text-[11px] text-gray-500">
+                        Edited by {r.lastEditedByName || "—"} at {iso(r.lastEditedAt) || "—"}
+                      </div>
+                    )}
                   </div>
-                )}
+
+                  {/* ✅ hover actions (approved only) */}
+                  {status === "approved" && (
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                      <button
+                        type="button"
+                        className="p-1 rounded hover:bg-gray-100"
+                        title="Edit"
+                        onClick={() => openModify(r, "edit")}
+                      >
+                        <Pencil size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        className="p-1 rounded hover:bg-red-50 text-red-600"
+                        title="Cancel"
+                        onClick={() => openModify(r, "cancel")}
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -958,6 +1304,7 @@ const currentlyOnLeave = useMemo(() => {
               <option value="all">All</option>
             </select>
           </div>
+
           <div>
             <Label className="text-xs">Segment</Label>
             <select
@@ -973,24 +1320,17 @@ const currentlyOnLeave = useMemo(() => {
               <option value="Admins">Admins</option>
             </select>
           </div>
+
           <div>
             <Label className="text-xs">From (created)</Label>
-            <Input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="w-full"
-            />
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-full" />
           </div>
+
           <div>
             <Label className="text-xs">To (created)</Label>
-            <Input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="w-full"
-            />
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-full" />
           </div>
+
           <div className="flex items-end gap-2">
             <Button
               variant="secondary"
@@ -1018,7 +1358,7 @@ const currentlyOnLeave = useMemo(() => {
                 <th className="text-left p-2 border-r">Request</th>
                 <th className="text-left p-2 border-r w-[180px]">Allocations</th>
                 <th className="text-left p-2 border-r w-[160px]">Current Balances</th>
-                <th className="text-left p-2 w-[140px]">Actions / Status</th>
+                <th className="text-left p-2 w-[160px]">Actions / Status</th>
               </tr>
             </thead>
             <tbody>
@@ -1036,7 +1376,7 @@ const currentlyOnLeave = useMemo(() => {
         </div>
       </section>
 
-          {/* ===================== Currently on leave (Conditional) ===================== */}
+      {/* ===================== Currently on leave (Conditional) ===================== */}
       {currentlyOnLeave.length > 0 && (
         <section>
           <h2 className="text-2xl font-bold mb-3">Currently on leave</h2>
@@ -1048,22 +1388,15 @@ const currentlyOnLeave = useMemo(() => {
 
             <div className="p-3 space-y-2">
               {currentlyOnLeave.map((x) => (
-                <div
-                  key={x.id}
-                  className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
-                >
+                <div key={x.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium truncate">{x.name}</span>
                       <span className="text-xs text-gray-500">{x.segment}</span>
                       {x.isNow ? (
-                        <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-800">
-                          On Leave
-                        </span>
+                        <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-800">On Leave</span>
                       ) : (
-                        <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-800">
-                          Upcoming
-                        </span>
+                        <span className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-800">Upcoming</span>
                       )}
                     </div>
 
@@ -1122,10 +1455,7 @@ const currentlyOnLeave = useMemo(() => {
                                 [draftKey]: { ...prev[draftKey], annualLeave: val },
                               }));
                             }}
-                            onBlur={() =>
-                              !disabled &&
-                              persistField(user, "annualLeave", drafts[draftKey]?.annualLeave)
-                            }
+                            onBlur={() => !disabled && persistField(user, "annualLeave", drafts[draftKey]?.annualLeave)}
                             className="w-24 border px-2 py-1 rounded"
                             disabled={disabled}
                             title={disabled ? "Cannot edit — user is missing an ID" : undefined}
@@ -1143,16 +1473,12 @@ const currentlyOnLeave = useMemo(() => {
                                 [draftKey]: { ...prev[draftKey], offDays: val },
                               }));
                             }}
-                            onBlur={() =>
-                              !disabled && persistField(user, "offDays", drafts[draftKey]?.offDays)
-                            }
+                            onBlur={() => !disabled && persistField(user, "offDays", drafts[draftKey]?.offDays)}
                             className="w-24 border px-2 py-1 rounded"
                             disabled={disabled}
                             title={disabled ? "Cannot edit — user is missing an ID" : undefined}
                           />
-                          {isSaving && (
-                            <span className="ml-2 text-xs text-gray-500">Saving…</span>
-                          )}
+                          {isSaving && <span className="ml-2 text-xs text-gray-500">Saving…</span>}
                         </td>
                       </tr>
                     );
@@ -1164,7 +1490,7 @@ const currentlyOnLeave = useMemo(() => {
         ))}
       </section>
 
-      {/* ===================== Decision Dialog ===================== */}
+      {/* ===================== Decision Dialog (Approve/Deny) ===================== */}
       <AlertDialog open={decisionOpen} onOpenChange={(o) => (o ? null : closeDecision())}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1176,20 +1502,28 @@ const currentlyOnLeave = useMemo(() => {
                 {activeReq && (
                   <>
                     <div className="text-sm">
-                      <div><span className="font-medium">User:</span> {activeReq.userName}</div>
                       <div>
-                        <span className="font-medium">Dates:</span>{" "}
-                        {iso(getReqStart(activeReq))} → {iso(getReqEnd(activeReq))}{" "}
+                        <span className="font-medium">User:</span> {activeReq.userName}
+                      </div>
+                      <div>
+                        <span className="font-medium">Dates:</span> {iso(getReqStart(activeReq))} →{" "}
+                        {iso(getReqEnd(activeReq))}{" "}
                         {(() => {
-                          const total = Math.max(
-                            toInt(activeReq?.totalWeekdays ?? 0, 0),
-                            getReqTotalDays(activeReq)
-                          );
-                          return total > 0 ? <span className="ml-2 text-xs text-gray-600">({total} day{total === 1 ? "" : "s"})</span> : null;
+                          const total = Math.max(toInt(activeReq?.totalWeekdays ?? 0, 0), getReqTotalDays(activeReq));
+                          return total > 0 ? (
+                            <span className="ml-2 text-xs text-gray-600">
+                              ({total} day{total === 1 ? "" : "s"})
+                            </span>
+                          ) : null;
                         })()}
                       </div>
-                      <div><span className="font-medium">Resume On:</span> {iso(getReqResumeOn(activeReq)) || "—"}</div>
-                      <div><span className="font-medium">Type:</span> {String(getReqType(activeReq) || "local").toUpperCase()}</div>
+                      <div>
+                        <span className="font-medium">Resume On:</span> {iso(getReqResumeOn(activeReq)) || "—"}
+                      </div>
+                      <div>
+                        <span className="font-medium">Type:</span>{" "}
+                        {String(getReqType(activeReq) || "local").toUpperCase()}
+                      </div>
                       {twoWeekRuleViolated(activeReq) && decisionType === "approve" && (
                         <div className="mt-2 text-xs text-amber-600">
                           ⚠️ Starts within 14 days (2-week rule). Tick override below to proceed.
@@ -1231,7 +1565,7 @@ const currentlyOnLeave = useMemo(() => {
                           <Textarea
                             value={decisionNote}
                             onChange={(e) => setDecisionNote(e.target.value)}
-                            placeholder="E.g., Approved — enjoy your leave. Deduction adjusted due to weekend."
+                            placeholder="E.g., Approved — enjoy your leave."
                           />
                         </div>
                       </>
@@ -1263,6 +1597,198 @@ const currentlyOnLeave = useMemo(() => {
                 : decisionType === "approve"
                 ? "Approve"
                 : "Deny"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ===================== ✅ Modify Dialog (Edit/Cancel Approved) ===================== */}
+      <AlertDialog open={modifyOpen} onOpenChange={(o) => (o ? null : closeModify())}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {modifyMode === "edit" ? "Edit approved leave" : "Cancel approved leave"}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                {modifyReq && (
+                  <>
+                    {(() => {
+                      const oStart = iso(getReqStart(modifyReq));
+                      const oEnd = iso(getReqEnd(modifyReq));
+                      const originalTotal = calcTotalWeekdays(modifyReq, oStart, oEnd);
+                      const newTotalLocal =
+                        modifyMode === "edit"
+                          ? calcTotalWeekdays(modifyReq, iso(modifyStart), iso(modifyEnd))
+                          : originalTotal;
+                      const delta = toHalf(newTotalLocal - originalTotal, 0);
+
+                      return (
+                        <div className="rounded border p-2">
+                          <div>
+                            <span className="font-medium">User:</span>{" "}
+                            {modifyReq.userName || userById(modifyReq.userId)?.name || "Unknown"}
+                          </div>
+                          <div>
+                            <span className="font-medium">Original dates:</span> {oStart} → {oEnd}
+                          </div>
+                          <div className="text-xs text-gray-600 mt-1">
+                            Applied: Annual {toHalf(modifyReq.appliedAnnual ?? 0)} / Off {toHalf(modifyReq.appliedOff ?? 0)}
+                          </div>
+                          {modifyMode === "edit" && (
+                            <div className="text-xs text-gray-700 mt-2">
+                              Original: <b>{originalTotal}</b> • New: <b>{newTotalLocal}</b> •{" "}
+                              {delta < 0 ? (
+                                <span>Shorten by <b>{Math.abs(delta)}</b></span>
+                              ) : delta > 0 ? (
+                                <span>Extend by <b>{delta}</b></span>
+                              ) : (
+                                <span>No change</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {modifyMode === "edit" ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label>New start date</Label>
+                            <Input
+                              type="date"
+                              value={modifyStart}
+                              onChange={(e) => setModifyStart(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <Label>New end date</Label>
+                            <Input
+                              type="date"
+                              value={modifyEnd}
+                              onChange={(e) => setModifyEnd(e.target.value)}
+                            />
+                          </div>
+                        </div>
+
+                        {(() => {
+                          const oStart = iso(getReqStart(modifyReq));
+                          const oEnd = iso(getReqEnd(modifyReq));
+                          const originalTotal = calcTotalWeekdays(modifyReq, oStart, oEnd);
+                          const newTotalLocal = calcTotalWeekdays(modifyReq, iso(modifyStart), iso(modifyEnd));
+                          const delta = toHalf(newTotalLocal - originalTotal, 0);
+
+                          const labelA = delta < 0 ? "Refund to Annual" : delta > 0 ? "Extra from Annual" : "Adjustment (Annual)";
+                          const labelO = delta < 0 ? "Refund to Off Days" : delta > 0 ? "Extra from Off Days" : "Adjustment (Off)";
+
+                          const helper =
+                            delta < 0
+                              ? `Annual + Off must equal ${Math.abs(delta)}`
+                              : delta > 0
+                              ? `Annual + Off must equal ${delta}`
+                              : "Set both to 0";
+
+                          return (
+                            <>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <Label>{labelA}</Label>
+                                  <Input
+                                    type="number"
+                                    step={0.5}
+                                    value={refundAnnual}
+                                    onChange={(e) => setRefundAnnual(toHalf(e.target.value, 0))}
+                                  />
+                                </div>
+                                <div>
+                                  <Label>{labelO}</Label>
+                                  <Input
+                                    type="number"
+                                    step={0.5}
+                                    value={refundOff}
+                                    onChange={(e) => setRefundOff(toHalf(e.target.value, 0))}
+                                  />
+                                </div>
+                              </div>
+                              <div className="text-xs text-gray-600">{helper}</div>
+                            </>
+                          );
+                        })()}
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <Label>Return to work date</Label>
+                          <Input
+                            type="date"
+                            value={cancelReturnDate}
+                            onChange={(e) => setCancelReturnDate(e.target.value)}
+                          />
+                          <div className="text-xs text-gray-600 mt-1">
+                            This means the last leave day is the day before.
+                          </div>
+                        </div>
+
+                        {(() => {
+                          const s = iso(getReqStart(modifyReq));
+                          const e = iso(getReqEnd(modifyReq));
+                          const r = iso(cancelReturnDate);
+                          const { total, used, unused } = calcCancelUsedUnused(modifyReq, s, e, r);
+                          return (
+                            <div className="text-xs text-gray-700">
+                              Total: <b>{total}</b> • Used: <b>{used}</b> • Unused (to refund): <b>{unused}</b>
+                            </div>
+                          );
+                        })()}
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label>Refund to Annual</Label>
+                            <Input
+                              type="number"
+                              step={0.5}
+                              value={refundAnnual}
+                              onChange={(e) => setRefundAnnual(toHalf(e.target.value, 0))}
+                            />
+                          </div>
+                          <div>
+                            <Label>Refund to Off Days</Label>
+                            <Input
+                              type="number"
+                              step={0.5}
+                              value={refundOff}
+                              onChange={(e) => setRefundOff(toHalf(e.target.value, 0))}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="text-xs text-gray-600">
+                          Refund Annual + Refund Off must equal “Unused”.
+                        </div>
+                      </>
+                    )}
+
+                    <div>
+                      <Label>Note (optional)</Label>
+                      <Textarea
+                        value={modifyNote}
+                        onChange={(e) => setModifyNote(e.target.value)}
+                        placeholder="E.g., Leave changed due to emergency / flight reschedule."
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={savingModify} onClick={closeModify}>
+              Close
+            </AlertDialogCancel>
+            <AlertDialogAction disabled={savingModify} onClick={submitModify}>
+              {savingModify ? "Saving..." : "Save"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
