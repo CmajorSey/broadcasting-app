@@ -23,18 +23,9 @@ import { Button } from "@/components/ui/button";
 import { Pencil, X } from "lucide-react";
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
-
-// ints (for balances, legacy fields)
 const toInt = (v, fb = 0) => {
   const n = Number(v);
   return Number.isFinite(n) ? Math.round(n) : fb;
-};
-
-// ✅ half-day safe numeric helper (allows 0.5, 4.5, etc.)
-const toHalf = (v, fb = 0) => {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return fb;
-  return Math.round(n * 2) / 2;
 };
 
 // ---------- Segment helpers ----------
@@ -130,15 +121,18 @@ const getPath = (obj, path) => {
 const deepFind = (obj, predicate, maxDepth = 4) => {
   const seen = new WeakSet();
   const stack = [{ val: obj, path: "", depth: 0 }];
+
   while (stack.length) {
     const { val, path, depth } = stack.pop();
     if (val && typeof val === "object") {
       if (seen.has(val)) continue;
       seen.add(val);
       if (depth > maxDepth) continue;
+
       for (const key of Object.keys(val)) {
         const child = val[key];
         const childPath = path ? `${path}.${key}` : key;
+
         if (predicate(key, child, childPath)) return { value: child, path: childPath };
         if (child && typeof child === "object") stack.push({ val: child, path: childPath, depth: depth + 1 });
       }
@@ -179,7 +173,7 @@ const deepAlloc = (r, which) => {
     r,
     (k, v) =>
       rx.test(k) &&
-      (typeof v === "number" || (typeof v === "string" && /^\d+(\.5)?$/.test(v)))
+      (typeof v === "number" || (typeof v === "string" && /^\d+$/.test(v)))
   );
   return match?.value;
 };
@@ -282,10 +276,10 @@ const getReqAnnualAlloc = (r) => {
       "appliedAnnual",
     ]) ?? deepAlloc(r, "annual");
 
-  if (explicit !== undefined && explicit !== null && explicit !== "") return toHalf(explicit, 0);
+  if (explicit !== undefined && explicit !== null && explicit !== "") return toInt(explicit, 0);
 
   const t = String(getReqType(r) || "").toLowerCase();
-  const days = toHalf(getReqTotalDays(r), 0);
+  const days = getReqTotalDays(r);
   if (t.includes("annual")) return days;
   return 0;
 };
@@ -307,29 +301,25 @@ const getReqOffAlloc = (r) => {
       "appliedOff",
     ]) ?? deepAlloc(r, "off");
 
-  if (explicit !== undefined && explicit !== null && explicit !== "") return toHalf(explicit, 0);
+  if (explicit !== undefined && explicit !== null && explicit !== "") return toInt(explicit, 0);
 
   const t = String(getReqType(r) || "").toLowerCase();
-  const days = toHalf(getReqTotalDays(r), 0);
+  const days = getReqTotalDays(r);
   if (t.includes("off")) return days;
   return 0;
 };
 
-// ✅ timezone-safe weekday counter using local date parts (avoids ISO UTC shifting)
 const weekdaysBetween = (startV, endV) => {
   const startISO = iso(startV);
   const endISO = iso(endV);
   if (!startISO || !endISO) return 0;
-
-  const [sy, sm, sd] = startISO.split("-").map(Number);
-  const [ey, em, ed] = endISO.split("-").map(Number);
-
-  const start = new Date(sy, sm - 1, sd);
-  const end = new Date(ey, em - 1, ed);
+  const start = new Date(startISO);
+  const end = new Date(endISO);
   if (isNaN(start) || isNaN(end) || end < start) return 0;
 
   let count = 0;
-  const cur = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const cur = new Date(start);
+  cur.setHours(0, 0, 0, 0);
   while (cur <= end) {
     const dow = cur.getDay(); // 0 Sun ... 6 Sat
     if (dow >= 1 && dow <= 5) count++;
@@ -339,17 +329,14 @@ const weekdaysBetween = (startV, endV) => {
 };
 
 const addDaysISO = (isoStr, days) => {
-  if (!isoStr) return "";
-  const [y, m, d] = String(isoStr).split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  if (isNaN(dt)) return "";
-  dt.setDate(dt.getDate() + days);
-  return iso(dt);
+  const d = new Date(isoStr);
+  if (isNaN(d)) return "";
+  d.setDate(d.getDate() + days);
+  return iso(d);
 };
 
 const fourteenDaysFromNowISO = () => {
-  const now = new Date();
-  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const d = new Date();
   d.setDate(d.getDate() + 14);
   return iso(d);
 };
@@ -364,12 +351,12 @@ const isOverlapOrUpcomingWithin = (startISO, endISO, daysAhead = 14) => {
   const windowEnd = new Date(startOfToday);
   windowEnd.setDate(windowEnd.getDate() + daysAhead);
 
-  const [sy, sm, sd] = startISO.split("-").map(Number);
-  const [ey, em, ed] = endISO.split("-").map(Number);
-  const start = new Date(sy, sm - 1, sd);
-  const end = new Date(ey, em - 1, ed);
+  const s = new Date(startISO);
+  const e = new Date(endISO);
+  if (isNaN(s) || isNaN(e)) return false;
 
-  if (isNaN(start) || isNaN(end)) return false;
+  const start = new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  const end = new Date(e.getFullYear(), e.getMonth(), e.getDate());
 
   const currently = start <= startOfToday && end >= startOfToday;
   const upcoming = start >= startOfToday && start <= windowEnd;
@@ -379,24 +366,23 @@ const isOverlapOrUpcomingWithin = (startISO, endISO, daysAhead = 14) => {
 
 const shortDate = (isoStr) => {
   if (!isoStr) return "—";
-  const [y, m, d] = String(isoStr).split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  if (isNaN(dt)) return isoStr;
-  return dt.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
+  const d = new Date(isoStr);
+  if (isNaN(d)) return isoStr;
+  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short" });
 };
 
 const isOnLeaveToday = (startISO, endISO) => {
   if (!startISO || !endISO) return false;
-
   const today = new Date();
   const t = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
 
-  const [sy, sm, sd] = startISO.split("-").map(Number);
-  const [ey, em, ed] = endISO.split("-").map(Number);
-  const start = new Date(sy, sm - 1, sd).getTime();
-  const end = new Date(ey, em - 1, ed).getTime();
+  const s = new Date(startISO);
+  const e = new Date(endISO);
+  if (isNaN(s) || isNaN(e)) return false;
 
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return false;
+  const start = new Date(s.getFullYear(), s.getMonth(), s.getDate()).getTime();
+  const end = new Date(e.getFullYear(), e.getMonth(), e.getDate()).getTime();
+
   return start <= t && end >= t;
 };
 
@@ -564,7 +550,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   const [overrideTwoWeekRule, setOverrideTwoWeekRule] = useState(false);
   const [savingDecision, setSavingDecision] = useState(false);
 
-  // ✅ modify dialog state (edit/cancel approved leave)
+  // ✅ NEW: modify dialog state (edit/cancel approved leave)
   const [modifyOpen, setModifyOpen] = useState(false);
   const [modifyMode, setModifyMode] = useState("edit"); // edit | cancel
   const [modifyReq, setModifyReq] = useState(null);
@@ -596,6 +582,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
 
   useEffect(() => {
     loadRequests();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const userById = (id) => users.find((u) => String(u.id) === String(id));
@@ -625,30 +612,20 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         if (!dateFrom && !dateTo) return true;
         const createdISO = iso(getReqCreatedAt(r));
         if (!createdISO) return false;
-
-        const [cy, cm, cd] = createdISO.split("-").map(Number);
-        const created = new Date(cy, cm - 1, cd);
-        if (isNaN(created)) return false;
-
-        if (dateFrom) {
-          const [fy, fm, fd] = dateFrom.split("-").map(Number);
-          const from = new Date(fy, fm - 1, fd);
-          if (created < from) return false;
-        }
-
+        const d = new Date(createdISO);
+        if (isNaN(d)) return false;
+        if (dateFrom && d < new Date(dateFrom)) return false;
         if (dateTo) {
-          const [ty, tm, td] = dateTo.split("-").map(Number);
-          const to = new Date(ty, tm - 1, td);
-          to.setHours(23, 59, 59, 999);
-          if (created > to) return false;
+          const end = new Date(dateTo);
+          end.setHours(23, 59, 59, 999);
+          if (d > end) return false;
         }
-
         return true;
       })
       .sort((a, b) => {
         const aISO = iso(getReqCreatedAt(a)) || "1970-01-01";
         const bISO = iso(getReqCreatedAt(b)) || "1970-01-01";
-        return new Date(bISO).getTime() - new Date(aISO).getTime();
+        return new Date(bISO) - new Date(aISO);
       });
   }, [requests, statusFilter, segmentFilter, dateFrom, dateTo, users]);
 
@@ -670,7 +647,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         };
       })
       .filter((x) => isOverlapOrUpcomingWithin(x.startISO, x.endISO, 14))
-      .sort((a, b) => new Date(a.startISO).getTime() - new Date(b.startISO).getTime());
+      .sort((a, b) => new Date(a.startISO) - new Date(b.startISO));
   }, [requests, users]);
 
   const openDecision = (req, type) => {
@@ -812,8 +789,16 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   };
 
   // =========================
-  // ✅ Edit/Cancel helpers
+  // ✅ NEW: Edit/Cancel helpers
   // =========================
+
+  // ✅ Half-day safe numeric helper (allows 0.5, 4.5, etc.)
+  const toHalf = (v, fb = 0) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fb;
+    return Math.round(n * 2) / 2;
+  };
+
   const closeModify = () => {
     setModifyOpen(false);
     setModifyReq(null);
@@ -892,7 +877,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     // If returning on/before start, used is 0
     if (returnISO <= startISO) return { total, used: 0, unused: total };
 
-    // If returning after end+1, treat "unused" as (total - used up to today/end)
+    // If returning after end+1, treat "unused" as 0 (they didn't shorten anything)
     if (returnISO > addDaysISO(endISO, 1)) {
       const usedLast = todayISO > endISO ? endISO : todayISO;
       const used = usedLast >= startISO ? toHalf(weekdaysBetween(startISO, usedLast), 0) : 0;
@@ -907,7 +892,6 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     return { total, used, unused };
   };
 
-  // ✅ FIXED submitModify (no redeclared vars, half-day safe, backend compatible)
   const submitModify = async () => {
     if (!modifyReq) return;
 
@@ -918,29 +902,22 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     const endISO = iso(modifyEnd);
     const returnISO = iso(cancelReturnDate);
 
-    const originalStart = iso(getReqStart(req));
-    const originalEnd = iso(getReqEnd(req));
-
+    // ✅ Half-safe applied values
     const appliedA = toHalf(req.appliedAnnual ?? getReqAnnualAlloc(req) ?? 0, 0);
     const appliedO = toHalf(req.appliedOff ?? getReqOffAlloc(req) ?? 0, 0);
+
+    const originalStart = iso(getReqStart(req));
+    const originalEnd = iso(getReqEnd(req));
 
     const originalTotal = calcTotalWeekdays(req, originalStart, originalEnd);
     const newTotal = mode === "edit" ? calcTotalWeekdays(req, startISO, endISO) : originalTotal;
 
+    const delta = toHalf(newTotal - originalTotal, 0);
+
     const cancelStats =
       mode === "cancel"
         ? calcCancelUsedUnused(req, originalStart, originalEnd, returnISO)
-        : { total: originalTotal, used: 0, unused: 0 };
-
-    // admin "adjustments"
-    const adjA = Math.max(0, toHalf(refundAnnual, 0));
-    const adjO = Math.max(0, toHalf(refundOff, 0));
-    const adjSum = toHalf(adjA + adjO, 0);
-
-    const deltaDays = toHalf(newTotal - originalTotal, 0);
-
-    let nextA = appliedA;
-    let nextO = appliedO;
+        : { total: 0, used: 0, unused: 0 };
 
     // =========================
     // ✅ VALIDATION
@@ -954,7 +931,6 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         });
         return;
       }
-
       if (endISO < startISO) {
         toast({
           title: "Invalid dates",
@@ -964,9 +940,12 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         return;
       }
 
-      if (deltaDays < 0) {
-        const refundDays = Math.abs(deltaDays);
+      const adjA = Math.max(0, toHalf(refundAnnual, 0));
+      const adjO = Math.max(0, toHalf(refundOff, 0));
+      const adjSum = toHalf(adjA + adjO, 0);
 
+      if (delta < 0) {
+        const refundDays = Math.abs(delta);
         if (adjSum !== refundDays) {
           toast({
             title: "Refund must match shortened days",
@@ -975,22 +954,16 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
           });
           return;
         }
-
         if (adjA > appliedA || adjO > appliedO) {
           toast({
             title: "Refund too large",
-            description:
-              "Refund cannot exceed what was originally deducted from that bucket. Adjust split.",
+            description: "Refund cannot exceed what was originally deducted from that bucket. Adjust split.",
             variant: "destructive",
           });
           return;
         }
-
-        nextA = toHalf(appliedA - adjA, 0);
-        nextO = toHalf(appliedO - adjO, 0);
-      } else if (deltaDays > 0) {
-        const extraDays = deltaDays;
-
+      } else if (delta > 0) {
+        const extraDays = delta;
         if (adjSum !== extraDays) {
           toast({
             title: "Extra days must be allocated",
@@ -999,9 +972,6 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
           });
           return;
         }
-
-        nextA = toHalf(appliedA + adjA, 0);
-        nextO = toHalf(appliedO + adjO, 0);
       } else {
         if (adjSum !== 0) {
           toast({
@@ -1011,8 +981,18 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
           });
           return;
         }
-        nextA = appliedA;
-        nextO = appliedO;
+      }
+
+      // ✅ Compute the NEW applied totals
+      let nextA = appliedA;
+      let nextO = appliedO;
+
+      if (delta < 0) {
+        nextA = toHalf(appliedA - adjA, 0);
+        nextO = toHalf(appliedO - adjO, 0);
+      } else if (delta > 0) {
+        nextA = toHalf(appliedA + adjA, 0);
+        nextO = toHalf(appliedO + adjO, 0);
       }
 
       if (toHalf(nextA + nextO, 0) !== newTotal) {
@@ -1034,12 +1014,14 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         return;
       }
 
-      const unused = toHalf(cancelStats.unused, 0);
+      const rA = Math.max(0, toHalf(refundAnnual, 0));
+      const rO = Math.max(0, toHalf(refundOff, 0));
+      const sum = toHalf(rA + rO, 0);
 
-      if (adjSum !== unused) {
+      if (sum !== toHalf(cancelStats.unused, 0)) {
         toast({
           title: "Refund must match unused",
-          description: `Annual + Off must equal ${unused} unused day(s).`,
+          description: `Annual + Off must equal ${toHalf(cancelStats.unused, 0)} unused day(s).`,
           variant: "destructive",
         });
         return;
@@ -1049,44 +1031,56 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     setSavingModify(true);
 
     try {
-      const payload =
-        mode === "edit"
-          ? {
-              action: "modify",
-              mode: "edit",
-              newStartDate: startISO,
-              newEndDate: endISO,
-              newTotalDays: newTotal,
+      const payload = (() => {
+        if (mode === "edit") {
+          const adjA = Math.max(0, toHalf(refundAnnual, 0));
+          const adjO = Math.max(0, toHalf(refundOff, 0));
 
-              // ✅ backend-compatible: send NEW applied totals
-              newAppliedAnnual: Math.max(0, nextA),
-              newAppliedOff: Math.max(0, nextO),
+          let nextA = appliedA;
+          let nextO = appliedO;
 
-              editedById: currentAdmin?.id || null,
-              editedByName: currentAdmin?.name || "Admin",
-              editNote: modifyNote || "",
+          if (delta < 0) {
+            nextA = toHalf(appliedA - adjA, 0);
+            nextO = toHalf(appliedO - adjO, 0);
+          } else if (delta > 0) {
+            nextA = toHalf(appliedA + adjA, 0);
+            nextO = toHalf(appliedO + adjO, 0);
+          }
 
-              // optional meta (backend can ignore)
-              deltaDays,
-              adjustmentAnnual: adjA,
-              adjustmentOff: adjO,
-            }
-          : {
-              action: "modify",
-              mode: "cancel",
-              cancelReturnDate: returnISO,
+          return {
+            action: "modify",
+            mode: "edit",
+            newStartDate: startISO,
+            newEndDate: endISO,
+            newTotalDays: newTotal,
+            // ✅ backend-compatible: send NEW applied totals
+            newAppliedAnnual: Math.max(0, nextA),
+            newAppliedOff: Math.max(0, nextO),
+            editedById: currentAdmin?.id || null,
+            editedByName: currentAdmin?.name || "Admin",
+            editNote: modifyNote || "",
+            // optional meta (backend can ignore)
+            deltaDays: delta,
+            adjustmentAnnual: adjA,
+            adjustmentOff: adjO,
+          };
+        }
 
-              refundAnnual: Math.max(0, adjA),
-              refundOff: Math.max(0, adjO),
-
-              editedById: currentAdmin?.id || null,
-              editedByName: currentAdmin?.name || "Admin",
-              editNote: modifyNote || "",
-
-              // optional meta for server logs
-              cancelUsedDays: toHalf(cancelStats.used, 0),
-              cancelUnusedDays: toHalf(cancelStats.unused, 0),
-            };
+        // cancel payload
+        return {
+          action: "modify",
+          mode: "cancel",
+          cancelReturnDate: returnISO,
+          refundAnnual: Math.max(0, toHalf(refundAnnual, 0)),
+          refundOff: Math.max(0, toHalf(refundOff, 0)),
+          editedById: currentAdmin?.id || null,
+          editedByName: currentAdmin?.name || "Admin",
+          editNote: modifyNote || "",
+          // optional meta for server logs
+          cancelUsedDays: toHalf(cancelStats.used, 0),
+          cancelUnusedDays: toHalf(cancelStats.unused, 0),
+        };
+      })();
 
       const res = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
         method: "PATCH",
@@ -1617,11 +1611,11 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
                       const oStart = iso(getReqStart(modifyReq));
                       const oEnd = iso(getReqEnd(modifyReq));
                       const originalTotal = calcTotalWeekdays(modifyReq, oStart, oEnd);
-                      const newTotalLocal =
+                      const newTotalPreview =
                         modifyMode === "edit"
                           ? calcTotalWeekdays(modifyReq, iso(modifyStart), iso(modifyEnd))
                           : originalTotal;
-                      const delta = toHalf(newTotalLocal - originalTotal, 0);
+                      const deltaPreview = toHalf(newTotalPreview - originalTotal, 0);
 
                       return (
                         <div className="rounded border p-2">
@@ -1637,11 +1631,11 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
                           </div>
                           {modifyMode === "edit" && (
                             <div className="text-xs text-gray-700 mt-2">
-                              Original: <b>{originalTotal}</b> • New: <b>{newTotalLocal}</b> •{" "}
-                              {delta < 0 ? (
-                                <span>Shorten by <b>{Math.abs(delta)}</b></span>
-                              ) : delta > 0 ? (
-                                <span>Extend by <b>{delta}</b></span>
+                              Original: <b>{originalTotal}</b> • New: <b>{newTotalPreview}</b> •{" "}
+                              {deltaPreview < 0 ? (
+                                <span>Shorten by <b>{Math.abs(deltaPreview)}</b></span>
+                              ) : deltaPreview > 0 ? (
+                                <span>Extend by <b>{deltaPreview}</b></span>
                               ) : (
                                 <span>No change</span>
                               )}
@@ -1676,17 +1670,19 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
                           const oStart = iso(getReqStart(modifyReq));
                           const oEnd = iso(getReqEnd(modifyReq));
                           const originalTotal = calcTotalWeekdays(modifyReq, oStart, oEnd);
-                          const newTotalLocal = calcTotalWeekdays(modifyReq, iso(modifyStart), iso(modifyEnd));
-                          const delta = toHalf(newTotalLocal - originalTotal, 0);
+                          const newTotalPreview = calcTotalWeekdays(modifyReq, iso(modifyStart), iso(modifyEnd));
+                          const deltaPreview = toHalf(newTotalPreview - originalTotal, 0);
 
-                          const labelA = delta < 0 ? "Refund to Annual" : delta > 0 ? "Extra from Annual" : "Adjustment (Annual)";
-                          const labelO = delta < 0 ? "Refund to Off Days" : delta > 0 ? "Extra from Off Days" : "Adjustment (Off)";
+                          const labelA =
+                            deltaPreview < 0 ? "Refund to Annual" : deltaPreview > 0 ? "Extra from Annual" : "Adjustment (Annual)";
+                          const labelO =
+                            deltaPreview < 0 ? "Refund to Off Days" : deltaPreview > 0 ? "Extra from Off Days" : "Adjustment (Off)";
 
                           const helper =
-                            delta < 0
-                              ? `Annual + Off must equal ${Math.abs(delta)}`
-                              : delta > 0
-                              ? `Annual + Off must equal ${delta}`
+                            deltaPreview < 0
+                              ? `Annual + Off must equal ${Math.abs(deltaPreview)}`
+                              : deltaPreview > 0
+                              ? `Annual + Off must equal ${deltaPreview}`
                               : "Set both to 0";
 
                           return (
