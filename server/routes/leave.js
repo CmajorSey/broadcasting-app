@@ -424,13 +424,22 @@ function handlePatch(req, res) {
   const lr = all[idx];
   const nowIso = new Date().toISOString();
 
-  // ======================================================
+   // ======================================================
   // ✅ MODIFY / CANCEL APPROVED LEAVE
   // ======================================================
   if (body.action === "modify") {
     if (lr.status !== "approved") {
-      return res.status(409).json({ error: "only approved leave can be modified" });
+      return res
+        .status(409)
+        .json({ error: "only approved leave can be modified" });
     }
+
+    // Half-day safe numeric
+    const num = (v, fb = 0) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fb;
+    };
+    const toHalf = (n, fb = 0) => Math.round(num(n, fb) * 2) / 2;
 
     const users = readJSON(USERS_FILE, []);
     const uIdx = findUserIndex(users, lr.userId);
@@ -438,21 +447,23 @@ function handlePatch(req, res) {
       return res.status(404).json({ error: "user not found" });
     }
 
+    const holidaySet = loadHolidaySet();
     const current = getBalances(users[uIdx]);
 
-    // ---- REVERSE original applied amounts (idempotent safe) ----
-    const origA = toInt(lr.appliedAnnual ?? 0, 0);
-    const origO = toInt(lr.appliedOff ?? 0, 0);
-
-    current.annualLeave = clamp(current.annualLeave + origA, 0, 42);
-    current.offDays = Math.max(0, current.offDays + origO);
+    // Original applied split (must preserve halves)
+    const origA = toHalf(lr.appliedAnnual ?? 0, 0);
+    const origO = toHalf(lr.appliedOff ?? 0, 0);
 
     // ==================================================
     // EDIT MODE
     // ==================================================
     if (body.mode === "edit") {
-      const newA = toInt(body.newAppliedAnnual ?? 0, 0);
-      const newO = toInt(body.newAppliedOff ?? 0, 0);
+      // ✅ Reverse original applied totals (so we can re-apply new totals cleanly)
+      current.annualLeave = clamp(current.annualLeave + origA, 0, 42);
+      current.offDays = Math.max(0, current.offDays + origO);
+
+      const newA = toHalf(body.newAppliedAnnual ?? 0, 0);
+      const newO = toHalf(body.newAppliedOff ?? 0, 0);
 
       current.annualLeave = clamp(current.annualLeave - newA, 0, 42);
       current.offDays = Math.max(0, current.offDays - newO);
@@ -460,13 +471,13 @@ function handlePatch(req, res) {
       users[uIdx] = setBalances(users[uIdx], current);
       writeJSON(USERS_FILE, users);
 
-         const holidaySet = loadHolidaySet();
-
       const nextStart = toISO(body.newStartDate ?? lr.startDate);
       const nextEnd = toISO(body.newEndDate ?? lr.endDate);
 
       // ✅ Always recompute resumeOn from the (possibly changed) end date
-      const nextResume = nextEnd ? nextWorkdayAfter(nextEnd, holidaySet) : (lr.resumeOn ?? undefined);
+      const nextResume = nextEnd
+        ? nextWorkdayAfter(nextEnd, holidaySet)
+        : lr.resumeOn ?? undefined;
 
       all[idx] = {
         ...lr,
@@ -474,7 +485,11 @@ function handlePatch(req, res) {
         endDate: nextEnd || lr.endDate,
         resumeOn: nextResume || lr.resumeOn,
 
-        days: body.newTotalDays ?? lr.days,
+        // keep half day totals if provided
+        days:
+          body.newTotalDays !== undefined ? toHalf(body.newTotalDays, lr.days) : lr.days,
+
+        // ✅ store NEW applied totals (half-safe)
         appliedAnnual: newA,
         appliedOff: newO,
 
@@ -492,8 +507,40 @@ function handlePatch(req, res) {
     // CANCEL MODE
     // ==================================================
     if (body.mode === "cancel") {
-      const refundA = toInt(body.refundAnnual ?? 0, 0);
-      const refundO = toInt(body.refundOff ?? 0, 0);
+      // Prevent double-cancel / double-refund
+      if (String(lr.status || "").toLowerCase() === "cancelled") {
+        return res
+          .status(409)
+          .json({ error: "leave request already cancelled" });
+      }
+
+      // ✅ IMPORTANT:
+      // Cancel should NOT reverse original + add refund (that double-credits).
+      // The request was already deducted on approval; cancellation refunds ONLY the unused portion.
+      const refundA = toHalf(body.refundAnnual ?? 0, 0);
+      const refundO = toHalf(body.refundOff ?? 0, 0);
+
+      // ✅ NEW: Enforce "no swapping buckets / no stealing"
+      // Refunds must not exceed what was originally deducted from each bucket.
+      if (refundA > origA || refundO > origO) {
+        const problems = [];
+        if (refundA > origA) problems.push(`refundAnnual (${refundA}) exceeds appliedAnnual (${origA})`);
+        if (refundO > origO) problems.push(`refundOff (${refundO}) exceeds appliedOff (${origO})`);
+
+        return res.status(400).json({
+          error:
+            "Invalid refund split: refunds must return to the same bucket originally deducted.",
+          details: problems,
+        });
+      }
+
+      // Extra safety: prevent any over-refund beyond total applied
+      const maxRefund = toHalf(origA + origO, 0);
+      if (toHalf(refundA + refundO, 0) > maxRefund) {
+        return res.status(400).json({
+          error: "Invalid refund: refund exceeds total applied days.",
+        });
+      }
 
       current.annualLeave = clamp(current.annualLeave + refundA, 0, 42);
       current.offDays = Math.max(0, current.offDays + refundO);
@@ -501,17 +548,16 @@ function handlePatch(req, res) {
       users[uIdx] = setBalances(users[uIdx], current);
       writeJSON(USERS_FILE, users);
 
-           const holidaySet = loadHolidaySet();
-
       // If admin didn't provide a return date, compute it from the leave end date
-      const computedReturn =
-        lr?.endDate ? nextWorkdayAfter(toISO(lr.endDate), holidaySet) : null;
+      const computedReturn = lr?.endDate
+        ? nextWorkdayAfter(toISO(lr.endDate), holidaySet)
+        : null;
 
       all[idx] = {
         ...lr,
         status: "cancelled",
         cancelledAt: nowIso,
-        cancelledReturnDate: body.cancelReturnDate ?? computedReturn,
+        cancelledReturnDate: toISO(body.cancelReturnDate) || computedReturn,
 
         refundedAnnual: refundA,
         refundedOff: refundO,
