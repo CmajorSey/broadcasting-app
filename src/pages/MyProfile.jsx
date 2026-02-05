@@ -47,6 +47,14 @@ const [myRequests, setMyRequests] = useState([]);
 const [reqLoading, setReqLoading] = useState(false);
 const [expandedRequestId, setExpandedRequestId] = useState(null);
 
+// --- My Requests UI controls (filters + pagination) ---
+const [myReqFilter, setMyReqFilter] = useState("current"); // all | current | approved | cancelled | none
+const [myReqPage, setMyReqPage] = useState(1);
+const [myReqPerPage, setMyReqPerPage] = useState(() => {
+  const saved = Number(localStorage.getItem("myProfile.requestsPerPage"));
+  return [4, 6, 8].includes(saved) ? saved : 6; // default 6
+});
+
 // --- Public Holidays (fetched from backend) ---
 const [publicHolidays, setPublicHolidays] = useState([]); // ["YYYY-MM-DD"]
 
@@ -1051,130 +1059,319 @@ const submitLeaveRequest = async () => {
           </Button>
         </div>
 
-        {/* 8) My recent requests list */}
-        <div className="mt-4 border rounded">
-          <div className="px-3 py-2 text-sm font-medium bg-muted/40">
-            My Requests
+        {/* 8) My Requests (clean + filters + pagination) */}
+<div className="mt-4 border rounded">
+  <div className="px-3 py-2 bg-muted/40 flex flex-col gap-2">
+    <div className="flex items-start justify-between gap-3 flex-wrap">
+      <div className="text-sm font-medium">My Requests</div>
+
+      {/* Per-page selector */}
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-muted-foreground">Per page</span>
+        <select
+          className="border rounded px-2 py-1 text-xs"
+          value={myReqPerPage}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            const safe = [4, 6, 8].includes(n) ? n : 6;
+            setMyReqPerPage(safe);
+            localStorage.setItem("myProfile.requestsPerPage", String(safe));
+            setMyReqPage(1);
+          }}
+        >
+          <option value={4}>4</option>
+          <option value={6}>6</option>
+          <option value={8}>8</option>
+        </select>
+      </div>
+    </div>
+
+    {/* Filter pills */}
+    <div className="flex flex-wrap gap-2">
+      {[
+        { key: "current", label: "Current" },
+        { key: "all", label: "All" },
+        { key: "approved", label: "Approved" },
+        { key: "cancelled", label: "Cancelled" },
+        { key: "none", label: "None" },
+      ].map((f) => (
+        <Button
+          key={f.key}
+          type="button"
+          size="sm"
+          variant={myReqFilter === f.key ? "default" : "outline"}
+          onClick={() => {
+            setMyReqFilter(f.key);
+            setMyReqPage(1);
+          }}
+          className="h-7 px-3 text-xs"
+        >
+          {f.label}
+        </Button>
+      ))}
+    </div>
+  </div>
+
+  {(() => {
+    const safeISO = (iso) => (typeof iso === "string" ? iso : "");
+    const toDate = (iso) => {
+      const s = safeISO(iso);
+      if (!s) return null;
+      const parts = s.split("-");
+      if (parts.length !== 3) return null;
+      const [y, m, d] = parts.map((x) => Number(x));
+      if (!y || !m || !d) return null;
+      return new Date(y, m - 1, d); // local-safe, avoids UTC drift
+    };
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const normalizeStatus = (s) => {
+      const v = String(s || "pending").toLowerCase();
+      if (v === "denied") return "cancelled";
+      return v;
+    };
+
+    const isCurrentRequest = (r) => {
+      const status = normalizeStatus(r?.status);
+      if (status === "cancelled") return false;
+
+      // Pending is always "current" (awaiting decision)
+      if (status === "pending") return true;
+
+      // Approved: current if today is <= end date (upcoming or on-leave)
+      if (status === "approved") {
+        const end = toDate(r?.endDate);
+        if (!end) return true; // if dates missing, still treat as current
+        end.setHours(0, 0, 0, 0);
+        return today <= end;
+      }
+
+      // Any other status: keep it visible only in "all"
+      return false;
+    };
+
+    const matchesFilter = (r) => {
+      const status = normalizeStatus(r?.status);
+
+      if (myReqFilter === "none") return false;
+      if (myReqFilter === "all") return true;
+      if (myReqFilter === "approved") return status === "approved";
+      if (myReqFilter === "cancelled") return status === "cancelled";
+      if (myReqFilter === "current") return isCurrentRequest(r);
+
+      return true;
+    };
+
+    const filtered = Array.isArray(myRequests)
+      ? myRequests.filter(matchesFilter)
+      : [];
+
+    const total = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(total / myReqPerPage));
+    const page = Math.min(Math.max(1, myReqPage), totalPages);
+    const startIdx = (page - 1) * myReqPerPage;
+    const pageItems = filtered.slice(startIdx, startIdx + myReqPerPage);
+
+    const statusPill = (r) => {
+      const s = normalizeStatus(r?.status);
+      const base =
+        "inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium border";
+      if (s === "approved") return <span className={`${base} bg-emerald-50 border-emerald-200 text-emerald-700`}>Approved</span>;
+      if (s === "cancelled") return <span className={`${base} bg-rose-50 border-rose-200 text-rose-700`}>Cancelled</span>;
+      return <span className={`${base} bg-amber-50 border-amber-200 text-amber-700`}>Pending</span>;
+    };
+
+    const typePill = (r) => {
+      const t = String(r?.type || "").toLowerCase();
+      const base =
+        "inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium border bg-muted/30";
+      if (t === "annual") return <span className={base}>Annual</span>;
+      if (t === "offday" || t === "off_day") return <span className={base}>Off Day</span>;
+      return <span className={base}>Leave</span>;
+    };
+
+    const showDays =
+      (r) =>
+        r?.requestedDays ??
+        r?.daysRequested ??
+        r?.totalWeekdays ??
+        r?.days ??
+        "—";
+
+    const submittedAnnual = (r) => r?.allocations?.annual ?? r?.annualAlloc ?? 0;
+    const submittedOff = (r) => r?.allocations?.off ?? r?.offAlloc ?? 0;
+
+    const halfStart = (r) =>
+      r?.halfDayStart && r.halfDayStart !== "none"
+        ? `Start half-day (${String(r.halfDayStart).toUpperCase()})`
+        : null;
+
+    const halfEnd = (r) =>
+      r?.halfDayEnd && r.halfDayEnd !== "none"
+        ? `End half-day (${String(r.halfDayEnd).toUpperCase()})`
+        : null;
+
+    // Empty states (including "None" filter)
+    if (reqLoading) {
+      return <div className="p-3 text-sm text-muted-foreground">Loading…</div>;
+    }
+
+    if (myReqFilter === "none") {
+      return (
+        <div className="p-3 text-sm text-muted-foreground">
+          (None) — showing no requests.
+        </div>
+      );
+    }
+
+    if (!Array.isArray(myRequests) || myRequests.length === 0) {
+      return <div className="p-3 text-sm text-muted-foreground">No requests yet.</div>;
+    }
+
+    if (filtered.length === 0) {
+      const msg =
+        myReqFilter === "approved"
+          ? "No approved requests yet."
+          : myReqFilter === "cancelled"
+          ? "No cancelled requests."
+          : myReqFilter === "current"
+          ? "You have no current requests."
+          : "No requests found.";
+      return <div className="p-3 text-sm text-muted-foreground">{msg}</div>;
+    }
+
+    return (
+      <div className="p-3 space-y-2">
+        {/* List */}
+        <div className="space-y-2">
+          {pageItems.map((r) => {
+            const allocA = submittedAnnual(r);
+            const allocO = submittedOff(r);
+            const hasAlloc = Number(allocA) > 0 || Number(allocO) > 0;
+
+            const hs = halfStart(r);
+            const he = halfEnd(r);
+
+            const decided = ["approved", "cancelled"].includes(
+              String(normalizeStatus(r?.status))
+            );
+
+            return (
+              <div key={r.id} className="border rounded p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {typePill(r)}
+                    {statusPill(r)}
+                    <span className="text-xs text-muted-foreground capitalize">
+                      {r?.localOrOverseas || "—"}
+                    </span>
+                  </div>
+
+                  <div className="text-xs text-muted-foreground">
+                    {r?.createdAt ? new Date(r.createdAt).toLocaleString() : "—"}
+                  </div>
+                </div>
+
+                <div className="mt-2 text-sm">
+                  <div className="font-medium">
+                    {formatLeaveDate(r.startDate)} → {formatLeaveDate(r.endDate)}
+                  </div>
+
+                  {(hs || he) && (
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {hs ? hs : null}
+                      {hs && he ? " • " : null}
+                      {he ? he : null}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                  <div>
+                    <span className="font-medium text-foreground">Days:</span>{" "}
+                    {showDays(r)}
+                  </div>
+                  <div>
+                    <span className="font-medium text-foreground">Alloc:</span>{" "}
+                    {hasAlloc ? `${allocA} / ${allocO}` : "— / —"}
+                  </div>
+                </div>
+
+                {r?.reason ? (
+                  <div className="mt-2 text-sm whitespace-pre-wrap">
+                    {r.reason}
+                  </div>
+                ) : null}
+
+                {/* Admin note (clean toggle) */}
+                {decided && r?.decisionNote ? (
+                  <div className="mt-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs"
+                      onClick={() =>
+                        setExpandedRequestId((prev) =>
+                          prev === r.id ? null : r.id
+                        )
+                      }
+                    >
+                      {expandedRequestId === r.id ? "Hide admin note" : "View admin note"}
+                    </Button>
+
+                    {expandedRequestId === r.id && (
+                      <div className="mt-2 text-xs text-muted-foreground border-l-2 pl-2 whitespace-pre-wrap">
+                        {r.decisionNote}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Pagination */}
+        <div className="flex items-center justify-between pt-2">
+          <div className="text-xs text-muted-foreground">
+            Showing {Math.min(total, startIdx + 1)}–{Math.min(total, startIdx + myReqPerPage)} of {total}
           </div>
 
-          {reqLoading ? (
-            <div className="p-3 text-sm text-gray-600">Loading…</div>
-          ) : myRequests.length === 0 ? (
-            <div className="p-3 text-sm text-gray-600">No requests yet.</div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="text-left p-2 border-r">Submitted</th>
-                  <th className="text-left p-2 border-r">Dates</th>
-                  <th className="text-left p-2 border-r">Days</th>
-                  <th className="text-left p-2 border-r">Alloc (A / O)</th>
-                  <th className="text-left p-2 border-r">Local/Overseas</th>
-                  <th className="text-left p-2 border-r">Reason</th>
-                  <th className="text-left p-2">Status</th>
-                </tr>
-              </thead>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              onClick={() => setMyReqPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+            >
+              ← Prev
+            </Button>
 
-              <tbody>
-                {myRequests.map((r) => {
-                  // 🔐 Allocation MUST reflect what USER SUBMITTED (snapshot from form)
-                  const submittedAnnual =
-                    r?.allocations?.annual ?? r?.annualAlloc ?? 0;
+            <div className="text-xs text-muted-foreground">
+              Page {page} / {totalPages}
+            </div>
 
-                  const submittedOff = r?.allocations?.off ?? r?.offAlloc ?? 0;
-
-                  const showAlloc =
-                    Number(submittedAnnual) > 0 || Number(submittedOff) > 0;
-
-                  const isDecided = r.status === "approved" || r.status === "denied";
-
-                  // ✅ prefer requestedDays if present (supports halves)
-                  const showDays =
-                    r?.requestedDays ??
-                    r?.daysRequested ??
-                    r?.totalWeekdays ??
-                    r?.days ??
-                    "—";
-
-                  // ✅ half-day notes (if backend stores them)
-                  const halfStart =
-                    r?.halfDayStart && r.halfDayStart !== "none"
-                      ? `Start half-day (${r.halfDayStart.toUpperCase()})`
-                      : null;
-
-                  const halfEnd =
-                    r?.halfDayEnd && r.halfDayEnd !== "none"
-                      ? `End half-day (${r.halfDayEnd.toUpperCase()})`
-                      : null;
-
-                  return (
-                    <tr key={r.id} className="border-t align-top">
-                      <td className="p-2 border-r">
-                        {r.createdAt ? new Date(r.createdAt).toLocaleString() : "—"}
-                      </td>
-
-                      <td className="p-2 border-r">
-                        {formatLeaveDate(r.startDate)} → {formatLeaveDate(r.endDate)}
-                        {(halfStart || halfEnd) && (
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {halfStart ? halfStart : null}
-                            {halfStart && halfEnd ? " • " : null}
-                            {halfEnd ? halfEnd : null}
-                          </div>
-                        )}
-                      </td>
-
-                      <td className="p-2 border-r">{showDays}</td>
-
-                      <td className="p-2 border-r">
-                        {showAlloc ? `${submittedAnnual} / ${submittedOff}` : "— / —"}
-                      </td>
-
-                      <td className="p-2 border-r capitalize">
-                        {r.localOrOverseas || "—"}
-                      </td>
-
-                      <td className="p-2 border-r whitespace-pre-wrap">
-                        {r.reason || "—"}
-                      </td>
-
-                      <td className="p-2">
-                        <div className="flex items-center gap-2">
-                          <span className="capitalize font-medium">
-                            {r.status || "pending"}
-                          </span>
-
-                          {/* (+) toggle only if admin left a message */}
-                          {isDecided && r.decisionNote && (
-                            <button
-                              type="button"
-                              className="text-xs font-bold text-muted-foreground hover:text-foreground"
-                              onClick={() =>
-                                setExpandedRequestId((prev) =>
-                                  prev === r.id ? null : r.id
-                                )
-                              }
-                              aria-label="Toggle admin message"
-                            >
-                              {expandedRequestId === r.id ? "−" : "+"}
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Expanded admin message */}
-                        {expandedRequestId === r.id && r.decisionNote && (
-                          <div className="mt-2 text-xs text-muted-foreground border-l-2 pl-2 whitespace-pre-wrap">
-                            {r.decisionNote}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs"
+              onClick={() => setMyReqPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+            >
+              Next →
+            </Button>
+          </div>
         </div>
+      </div>
+    );
+  })()}
+</div>
       </CardContent>
     </Card>
   );
