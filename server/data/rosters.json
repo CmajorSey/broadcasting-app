@@ -531,5 +531,63 @@
       "afternoonShift": [],
       "off": []
     }
+  ],
+  "2026-02-01": [
+    {
+      "date": "2026-02-02",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2026-02-03",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2026-02-04",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2026-02-05",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2026-02-06",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2026-02-07",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2026-02-01",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    }
   ]
 }

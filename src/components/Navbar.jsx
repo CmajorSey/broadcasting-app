@@ -30,19 +30,23 @@ export default function Navbar({ loggedInUser, setLoggedInUser, users }) {
     return stored ? JSON.parse(stored) : null;
   });
 
-  useEffect(() => {
-    const handleStorageChange = (e) => {
-      if (e.key === "adminViewAs") {
-        const updated = localStorage.getItem("adminViewAs");
-        setAdminViewAs(updated ? JSON.parse(updated) : null);
-      }
-      if (e.key === CLOCK_STORAGE_KEY) {
-        setIs12h(localStorage.getItem(CLOCK_STORAGE_KEY) === "12h");
-      }
-    };
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
-  }, []);
+useEffect(() => {
+  const handleStorageChange = (e) => {
+  const key = e?.key;
+
+  if (!key || key === "adminViewAs") {
+    const updated = localStorage.getItem("adminViewAs");
+    setAdminViewAs(updated ? JSON.parse(updated) : null);
+  }
+
+  if (!key || key === CLOCK_STORAGE_KEY) {
+    setIs12h(localStorage.getItem(CLOCK_STORAGE_KEY) === "12h");
+  }
+};
+  window.addEventListener("storage", handleStorageChange);
+  return () => window.removeEventListener("storage", handleStorageChange);
+}, []);
+
 
   // --- ⏰ NAVBAR CLOCK (GMT+4, Seychelles) with seconds + persistence ---
   const [now, setNow] = useState(() => new Date());

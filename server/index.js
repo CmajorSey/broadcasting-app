@@ -159,19 +159,46 @@ const PORT = process.env.PORT || 4000;
 
 const ALLOWED_ORIGINS = [
   "http://localhost:5173",
-  "http://192.168.100.61:5173", // ✅ Your LAN frontend
+  "http://127.0.0.1:5173",
+
+  // ✅ Your primary Netlify site
   "https://loboard.netlify.app",
+
+  // ✅ Capacitor/WebView origins (safe to include)
+  "capacitor://localhost",
+  "ionic://localhost",
 ];
 
-app.use(cors({
-  origin: ALLOWED_ORIGINS,
+// ✅ Allow LAN frontends (any 192.168.x.x:5173) + Netlify preview deploys + your known list
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true; // allow non-browser requests (curl/postman/server-to-server)
+
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+
+  // LAN Vite dev (any 192.168.*.*:5173)
+  if (/^http:\/\/192\.168\.\d{1,3}\.\d{1,3}:5173$/.test(origin)) return true;
+
+  // Netlify deploy previews like https://<something>--loboard.netlify.app
+  // (If you don't use deploy previews, this still doesn't hurt.)
+  if (/^https:\/\/.+\.netlify\.app$/.test(origin)) return true;
+
+  return false;
+};
+
+const corsOptions = {
+  origin: (origin, cb) => {
+    if (isAllowedOrigin(origin)) return cb(null, true);
+    return cb(new Error(`CORS blocked origin: ${origin}`));
+  },
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
-}));
+};
+
+app.use(cors(corsOptions));
 
 // Express 5: use a RegExp to match all paths for preflight
-app.options(new RegExp(".*"), cors());
+app.options(new RegExp(".*"), cors(corsOptions));
 
 app.use(express.json());
 
@@ -336,732 +363,543 @@ app.delete("/notification-groups/:id", (req, res) => {
 });
 console.log("🚨 ROUTE CHECKPOINT 4");
 console.log("🚨 ROUTE CHECKPOINT 5");
+// ✅ JSON array helpers (used by suggestions + notifications)
+// NOTE: Duplicate helper removed.
+// We use the newer const-based helpers below (supports legacy wrappers + ensureFile).
+// (Leaving this comment block to preserve section readability.)
+
+
 // ✅ Notifications API (edit, delete-one, clear-all, and polling support) + Suggestions API
-(() => {
-  // ---------------------------
-  // Notifications (existing)
-  // ---------------------------
-  const notificationsPath = path.join(DATA_DIR, "notifications.json");
 
-  const ensureFile = (p, fallback = "[]") => {
-    if (!fs.existsSync(p)) fs.writeFileSync(p, fallback);
-  };
+// ---------------------------
+// Shared JSON helpers (safe + array-only contract)
+// ---------------------------
+const notificationsPath = path.join(DATA_DIR, "notifications.json");
+const suggestionsPath =
+  typeof SUGGESTIONS_FILE === "string"
+    ? SUGGESTIONS_FILE
+    : path.join(DATA_DIR, "suggestions.json");
 
-  const readJsonArray = (p) => {
-    ensureFile(p);
-    const raw = fs.readFileSync(p, "utf-8");
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
+const ensureFile = (filePath, defaultValue) => {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, JSON.stringify(defaultValue, null, 2), "utf-8");
     }
-  };
+  } catch (e) {
+    console.error("ensureFile failed:", filePath, e);
+  }
+};
 
-  const writeJsonArray = (p, arr) => {
-    fs.writeFileSync(p, JSON.stringify(arr, null, 2));
-  };
+// ✅ Always returns an ARRAY.
+// Accepts legacy wrapper: { suggestions: [] } or { notifications: [] }.
+const readJsonArray = (filePath) => {
+  try {
+    ensureFile(filePath, []);
+    const raw = fs.readFileSync(filePath, "utf-8") || "[]";
+    const parsed = JSON.parse(raw);
 
-    // Normalize ISO to second precision (treat bare "YYYY-MM-DDTHH:MM:SS" as UTC)
-  const isoSec = (dateish) => {
+    if (Array.isArray(parsed)) return parsed;
+
+    // legacy wrappers
+    if (parsed && Array.isArray(parsed.suggestions)) return parsed.suggestions;
+    if (parsed && Array.isArray(parsed.notifications)) return parsed.notifications;
+
+    return [];
+  } catch (e) {
+    console.error("readJsonArray failed:", filePath, e);
+    return [];
+  }
+};
+
+const writeJsonArray = (filePath, arr) => {
+  try {
+    ensureFile(filePath, []);
+    const out = Array.isArray(arr) ? arr : [];
+    fs.writeFileSync(filePath, JSON.stringify(out, null, 2), "utf-8");
+    return true;
+  } catch (e) {
+    console.error("writeJsonArray failed:", filePath, e);
+    return false;
+  }
+};
+
+// Normalize ISO to second precision for stable compare (avoids ms drift)
+const isoSec = (dateish) => {
+  try {
+    const d = new Date(dateish);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString().split(".")[0];
+  } catch {
+    return null;
+  }
+};
+
+// ---------------------------
+// ✅ Suggestions (ONE set of routes only)
+// Robust: legacy migration + id/timestamp addressing
+// ---------------------------
+
+// Migrate legacy entries:
+// - ensure createdAt from timestamp
+// - ensure userName from name
+// - derive status from archived
+// - ensure id (prefer ts:<isoSec(createdAt)>)
+const migrateSuggestions = () => {
+  const arr = readJsonArray(suggestionsPath);
+  let changed = false;
+
+  const out = arr.map((s, idx) => {
+    const x = { ...s };
+
+    if (!x.createdAt && x.timestamp) x.createdAt = x.timestamp;
+    if (!x.userName && x.name) x.userName = x.name;
+    if (typeof x.status === "undefined" && typeof x.archived === "boolean") {
+      x.status = x.archived ? "archived" : "new";
+    }
+
+    if (!x.id) {
+      const key = isoSec(x.createdAt || x.timestamp);
+      x.id = key ? `ts:${key}` : `legacy-${Date.now()}-${idx}`;
+      changed = true;
+    }
+
+    return x;
+  });
+
+  if (changed) writeJsonArray(suggestionsPath, out);
+  return out;
+};
+
+// Find by exact id OR by ISO-to-seconds timestamp (createdAt or legacy timestamp)
+const findSuggestionIndex = (all, key) => {
+  const str = String(key || "");
+  const iso = isoSec(str);
+
+  let idx = all.findIndex((s) => String(s.id) === str);
+  if (idx !== -1) return idx;
+
+  if (iso) {
+    idx = all.findIndex(
+      (s) => isoSec(s.createdAt) === iso || isoSec(s.timestamp) === iso
+    );
+    if (idx !== -1) return idx;
+  }
+
+  return -1;
+};
+
+// ✍️ POST /suggestions — create (supports legacy client keys)
+app.post("/suggestions", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const userId = body.userId ? String(body.userId) : null;
+    const userName = String(body.userName || body.name || "Unknown").trim();
+    const section = String(body.section || body.department || "General").trim();
+    const message = String(body.message || body.suggestion || body.text || "").trim();
+    const createdAtRaw = body.createdAt || body.timestamp;
+
+    if (!message) {
+      return res.status(400).json({ error: "Suggestion 'message' is required" });
+    }
+
+    const all = migrateSuggestions();
+
+    const createdAt =
+      createdAtRaw && !Number.isNaN(new Date(createdAtRaw).getTime())
+        ? new Date(createdAtRaw).toISOString()
+        : new Date().toISOString();
+
+    // Prefer deterministic id from timestamp seconds; ensure uniqueness
+    const baseId = `ts:${isoSec(createdAt)}`;
+    const uniqueId = all.some((s) => s.id === baseId)
+      ? `${baseId}-${Math.random().toString(36).slice(2, 6)}`
+      : baseId;
+
+    const entry = {
+      id: uniqueId,
+      userId,
+      userName,
+      section,
+      message,
+      createdAt,
+      status: "new",
+    };
+
+    all.push(entry);
+    writeJsonArray(suggestionsPath, all);
+    console.log("💡 Suggestion saved:", {
+      id: entry.id,
+      userName: entry.userName,
+      section: entry.section,
+    });
+
+    // 🔔 Optional: notify admins (FCM + in-app)
     try {
-      if (!dateish) return null;
-      const s = String(dateish);
-      // If there's no timezone info, assume UTC instead of local time
-      const needsZ = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(s);
-      const d = new Date(needsZ ? s + "Z" : s);
-      if (Number.isNaN(d.getTime())) return null;
+      const usersRaw = fs.readFileSync(USERS_FILE, "utf-8");
+      const allUsers = JSON.parse(usersRaw || "[]");
+      const admins = allUsers.filter(
+        (u) => Array.isArray(u.roles) && u.roles.includes("admin")
+      );
+
+      // Push
+      try {
+        const title = "💡 New User Suggestion";
+        const bodyText = `${entry.userName}: ${entry.message.slice(0, 80)}${
+          entry.message.length > 80 ? "…" : ""
+        }`;
+        await sendPushToUsers(admins, title, bodyText);
+      } catch (pushErr) {
+        console.warn("Push for suggestion failed (non-fatal):", pushErr);
+      }
+
+      // In-app notification
+      try {
+        const notifs = readJsonArray(notificationsPath);
+        const recipients = Array.from(
+          new Set([
+            ...admins.map((a) => String(a.id)).filter(Boolean),
+            ...admins.map((a) => String(a.name || "")).filter(Boolean),
+            "admin",
+            "admins",
+            "ALL",
+          ])
+        );
+
+        notifs.push({
+          title: "💡 New User Suggestion",
+          message: `${entry.userName} sent a suggestion in ${entry.section}.`,
+          recipients,
+          timestamp: new Date().toISOString(),
+          kind: "user_suggestion",
+          displayRecipients: ["Admins"],
+          action: {
+            type: "open_suggestions",
+            id: entry.id,
+            url: "/admin?tab=notifications#suggestions",
+          },
+        });
+
+        writeJsonArray(notificationsPath, notifs);
+      } catch (notifErr) {
+        console.warn("In-app notification for suggestion failed (non-fatal):", notifErr);
+      }
+    } catch (whoErr) {
+      console.warn("Admin targeting for suggestion failed (non-fatal):", whoErr);
+    }
+
+    return res.status(201).json(entry);
+  } catch (err) {
+    console.error("Failed to create suggestion:", err);
+    return res.status(500).json({ error: "Could not submit suggestion" });
+  }
+});
+
+// 📥 GET /suggestions — list (migrates legacy on read)
+app.get("/suggestions", (req, res) => {
+  try {
+    const all = migrateSuggestions();
+    const { status, section } = req.query || {};
+
+    let out = all;
+    if (status) {
+      const s = String(status).toLowerCase();
+      out = out.filter((x) => String(x.status || "new").toLowerCase() === s);
+    }
+    if (section) {
+      const sec = String(section).toLowerCase();
+      out = out.filter((x) => String(x.section || "general").toLowerCase() === sec);
+    }
+
+    out.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    console.log("📤 GET /suggestions ->", out.length, "item(s)");
+    return res.json(out);
+  } catch (err) {
+    console.error("Failed to read suggestions:", err);
+    return res.status(500).json({ error: "Could not read suggestions" });
+  }
+});
+
+// ✏️ PATCH /suggestions/:idOrTimestamp — update status/response
+app.patch("/suggestions/:id", (req, res) => {
+  try {
+    const key = req.params.id;
+    const body = req.body || {}; // { status?, response? }
+
+    const all = migrateSuggestions();
+    const idx = findSuggestionIndex(all, key);
+    if (idx === -1) return res.status(404).json({ error: "Suggestion not found" });
+
+    const validStatuses = new Set(["new", "reviewed", "responded", "archived"]);
+    if (typeof body.status === "string" && validStatuses.has(body.status)) {
+      all[idx].status = body.status;
+    }
+    if (typeof body.response === "string") {
+      all[idx].response = body.response;
+      all[idx].respondedAt = new Date().toISOString();
+      if (!body.status) all[idx].status = "responded";
+    }
+
+    writeJsonArray(suggestionsPath, all);
+    return res.json({ success: true, suggestion: all[idx] });
+  } catch (err) {
+    console.error("Failed to patch suggestion:", err);
+    return res.status(500).json({ error: "Could not update suggestion" });
+  }
+});
+
+// 🗑️ DELETE /suggestions/:idOrTimestamp — remove
+app.delete("/suggestions/:id", (req, res) => {
+  try {
+    const key = req.params.id;
+    const all = migrateSuggestions();
+    const idx = findSuggestionIndex(all, key);
+    if (idx === -1) return res.status(404).json({ error: "Suggestion not found" });
+
+    const next = all.slice(0, idx).concat(all.slice(idx + 1));
+    writeJsonArray(suggestionsPath, next);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Failed to delete suggestion:", err);
+    return res.status(500).json({ error: "Could not delete suggestion" });
+  }
+});
+
+// ---------------------------
+// ✅ Notifications (your existing safe implementation)
+// ---------------------------
+
+const ensureNotifsFile = () => {
+  try {
+    fs.mkdirSync(path.dirname(notificationsPath), { recursive: true });
+    if (!fs.existsSync(notificationsPath)) {
+      fs.writeFileSync(notificationsPath, JSON.stringify([], null, 2), "utf-8");
+    }
+  } catch (e) {
+    console.error("ensureNotifsFile failed:", e);
+  }
+};
+
+// ✅ Always return an ARRAY no matter what is in the file:
+// - [] (normal)
+// - { notifications: [] } (legacy wrapper)
+// - anything else -> []
+const readNotifsSafe = () => {
+  try {
+    ensureNotifsFile();
+    const raw = fs.readFileSync(notificationsPath, "utf-8") || "[]";
+    const parsed = JSON.parse(raw);
+
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && Array.isArray(parsed.notifications)) return parsed.notifications;
+
+    return [];
+  } catch (e) {
+    console.error("readNotifsSafe failed:", e);
+    return [];
+  }
+};
+
+const writeNotifsSafe = (arr) => {
+  try {
+    ensureNotifsFile();
+    const out = Array.isArray(arr) ? arr : [];
+    fs.writeFileSync(notificationsPath, JSON.stringify(out, null, 2), "utf-8");
+    return true;
+  } catch (e) {
+    console.error("writeNotifsSafe failed:", e);
+    return false;
+  }
+};
+
+// ✉️ POST /notifications — create new notification
+app.post("/notifications", (req, res) => {
+  try {
+    const body = req.body || {};
+    const title = String(body.title || "").trim();
+    const message = String(body.message || "").trim();
+    const recipients = Array.isArray(body.recipients)
+      ? Array.from(new Set(body.recipients.filter(Boolean).map(String)))
+      : [];
+
+    const createdAt =
+      body.createdAt && !Number.isNaN(new Date(body.createdAt).getTime())
+        ? new Date(body.createdAt).toISOString()
+        : new Date().toISOString();
+
+    if (!title || !message || recipients.length === 0) {
+      return res.status(400).json({ error: "Missing title, message, or recipients" });
+    }
+
+    const all = readNotifsSafe();
+
+    const newNotification = {
+      title,
+      message,
+      recipients,
+      timestamp: createdAt,
+    };
+
+    all.push(newNotification);
+
+    const ok = writeNotifsSafe(all);
+    if (!ok) {
+      // ✅ Never break the frontend shape
+      return res.status(200).json(newNotification);
+    }
+
+    return res.status(201).json(newNotification);
+  } catch (err) {
+    console.error("Failed to create notification:", err);
+    // ✅ Never break the frontend shape
+    return res.status(200).json([]);
+  }
+});
+
+// 🧭 GET /notifications  (polling supported via ?after=<ISO>)
+app.get("/notifications", (req, res) => {
+  // ✅ debug log MUST be inside the handler (req exists here)
+  console.log("✅ HIT /notifications", new Date().toISOString(), req.query);
+
+  // ✅ absolute safety: this route must NEVER 500 and must ALWAYS return an array
+  const safeIsoSec = (v) => {
+    try {
+      const d = new Date(v);
+      if (isNaN(d)) return null;
+      // normalize to second precision ISO (matches your isoSec intent)
       return d.toISOString().split(".")[0];
     } catch {
       return null;
     }
   };
 
+  let all = [];
+  try {
+    const raw = typeof readNotifsSafe === "function" ? readNotifsSafe() : [];
+    // Accept either an array OR an object wrapper (just in case)
+    if (Array.isArray(raw)) all = raw;
+    else if (raw && Array.isArray(raw.notifications)) all = raw.notifications;
+    else all = [];
+  } catch (err) {
+    console.error("Failed to read notifications:", err);
+    all = [];
+  }
 
-  // ✉️ POST /notifications — create new notification
-  app.post("/notifications", (req, res) => {
-    try {
-      const body = req.body || {};
-      const title = String(body.title || "").trim();
-      const message = String(body.message || "").trim();
-      const recipients = Array.isArray(body.recipients)
-        ? Array.from(new Set(body.recipients.filter(Boolean).map(String)))
-        : [];
-      const createdAt = body.createdAt && !Number.isNaN(new Date(body.createdAt))
-        ? new Date(body.createdAt).toISOString()
-        : new Date().toISOString();
+  try {
+    const after = req.query?.after;
 
-      if (!title || !message || recipients.length === 0) {
-        return res.status(400).json({ error: "Missing title, message, or recipients" });
-      }
+    // Normalize/filter support:
+    // - stored field may be timestamp OR createdAt
+    // - query after can be full ISO; we compare at second precision ISO
+    if (after) {
+      const a =
+        typeof isoSec === "function" ? isoSec(after) : safeIsoSec(after);
+      if (!a) return res.status(200).json([]); // ✅ keep array shape
 
-      const all = readJsonArray(notificationsPath);
-      const newNotification = {
-        title,
-        message,
-        recipients,
-        timestamp: createdAt,
-      };
-
-      // Optional passthrough metadata (kept from your previous PATCH allowlist)
-      for (const k of ["kind", "action", "displayRecipients", "status"]) {
-        if (k in body) newNotification[k] = body[k];
-      }
-
-      all.push(newNotification);
-      writeJsonArray(notificationsPath, all);
-
-      return res.status(201).json(newNotification);
-    } catch (err) {
-      console.error("Failed to create notification:", err);
-      res.status(500).json({ error: "Could not create notification" });
-    }
-  });
-
-  // 🧭 GET /notifications  (polling supported via ?after=<ISO>)
-  app.get("/notifications", (req, res) => {
-    try {
-      const all = readJsonArray(notificationsPath);
-      const { after } = req.query || {};
-      if (after) {
-        const a = isoSec(after);
-        if (!a) return res.status(400).json({ error: "Invalid 'after' timestamp" });
-        const filtered = all.filter((n) => {
-          const t = isoSec(n?.timestamp);
-          return t && t > a;
-        });
-        return res.json(filtered);
-      }
-      return res.json(all);
-    } catch (err) {
-      console.error("Failed to read notifications:", err);
-      res.status(500).json({ error: "Could not read notifications" });
-    }
-  });
-
-  // ✏️ PATCH /notifications/:timestamp
-  app.patch("/notifications/:timestamp", (req, res) => {
-    try {
-      const encoded = req.params.timestamp;
-      const decoded = decodeURIComponent(encoded);
-      const targetKey = isoSec(decoded);
-      if (!targetKey) return res.status(400).json({ error: "Invalid timestamp" });
-
-      const all = readJsonArray(notificationsPath);
-      const idx = all.findIndex((n) => isoSec(n?.timestamp) === targetKey);
-      if (idx === -1) return res.status(404).json({ error: "Notification not found" });
-
-      const body = req.body || {};
-      const allowed = ["title", "message", "recipients", "kind", "action", "displayRecipients", "status"];
-      const current = all[idx];
-
-      const updated = { ...current };
-      for (const key of allowed) {
-        if (key in body) updated[key] = body[key];
-      }
-
-      all[idx] = updated;
-      writeJsonArray(notificationsPath, all);
-
-      return res.json({ success: true, notification: updated });
-    } catch (err) {
-      console.error("Failed to patch notification:", err);
-      res.status(500).json({ error: "Could not patch notification" });
-    }
-  });
-
-  // 🗑️ DELETE /notifications/:timestamp  (delete one)
-  app.delete("/notifications/:timestamp", (req, res) => {
-    try {
-      const encoded = req.params.timestamp;
-      const decoded = decodeURIComponent(encoded);
-      const targetKey = isoSec(decoded);
-      if (!targetKey) return res.status(400).json({ error: "Invalid timestamp" });
-
-      const all = readJsonArray(notificationsPath);
-      const updated = all.filter((n) => isoSec(n?.timestamp) !== targetKey);
-      writeJsonArray(notificationsPath, updated);
-
-      console.log("🗑 Deleted notification:", decoded);
-      return res.json({ success: true });
-    } catch (err) {
-      console.error("Failed to delete notification:", err);
-      res.status(500).json({ error: "Could not delete notification" });
-    }
-  });
-
-  // 🧹 DELETE /notifications  (clear all, or clear olderThan=<ISO>)
-  app.delete("/notifications", (req, res) => {
-    try {
-      const { olderThan } = req.query || {};
-      const all = readJsonArray(notificationsPath);
-
-      if (olderThan) {
-        const cutoff = isoSec(olderThan);
-        if (!cutoff) return res.status(400).json({ error: "Invalid 'olderThan' timestamp" });
-        const kept = all.filter((n) => {
-          const t = isoSec(n?.timestamp);
-          return t && t >= cutoff;
-        });
-        writeJsonArray(notificationsPath, kept);
-        return res.json({ success: true, removed: all.length - kept.length, kept: kept.length });
-      }
-
-      writeJsonArray(notificationsPath, []);
-      return res.json({ success: true, removed: all.length, kept: 0 });
-    } catch (err) {
-      console.error("Failed to clear notifications:", err);
-      res.status(500).json({ error: "Could not clear notifications" });
-    }
-  });
-
-    // ---------------------------
-  // ✅ Suggestions (robust: legacy migration + id/timestamp addressing)
-  // ---------------------------
-  const suggestionsPath =
-    typeof SUGGESTIONS_FILE === "string" ? SUGGESTIONS_FILE : path.join(DATA_DIR, "suggestions.json");
-
-  // Migrate legacy entries:
-  // - ensure createdAt from timestamp
-  // - ensure userName from name
-  // - derive status from archived
-  // - ensure id (prefer ts:<isoSec(createdAt)>)
-  const migrateSuggestions = () => {
-    const arr = readJsonArray(suggestionsPath);
-    let changed = false;
-
-    const out = arr.map((s, idx) => {
-      const x = { ...s };
-
-      if (!x.createdAt && x.timestamp) x.createdAt = x.timestamp;
-      if (!x.userName && x.name) x.userName = x.name;
-      if (typeof x.status === "undefined" && typeof x.archived === "boolean") {
-        x.status = x.archived ? "archived" : "new";
-      }
-
-      if (!x.id) {
-        const key = isoSec(x.createdAt || x.timestamp);
-        x.id = key ? `ts:${key}` : `legacy-${Date.now()}-${idx}`;
-        changed = true;
-      }
-
-      return x;
-    });
-
-    if (changed) writeJsonArray(suggestionsPath, out);
-    return out;
-  };
-
-  // Find by exact id OR by ISO-to-seconds timestamp (createdAt or legacy timestamp)
-  const findSuggestionIndex = (all, key) => {
-    const str = String(key || "");
-    const iso = isoSec(str);
-
-    let idx = all.findIndex((s) => String(s.id) === str);
-    if (idx !== -1) return idx;
-
-    if (iso) {
-      idx = all.findIndex(
-        (s) => isoSec(s.createdAt) === iso || isoSec(s.timestamp) === iso
-      );
-      if (idx !== -1) return idx;
-    }
-
-    return -1;
-  };
-
-  // ✍️ POST /suggestions — create (supports legacy client keys)
-  app.post("/suggestions", async (req, res) => {
-    try {
-      const body = req.body || {};
-      const userId = body.userId ? String(body.userId) : null;
-      const userName = String(body.userName || body.name || "Unknown").trim();
-      const section = String(body.section || body.department || "General").trim();
-      const message = String(body.message || body.suggestion || body.text || "").trim();
-      const createdAtRaw = body.createdAt || body.timestamp;
-
-      if (!message) {
-        return res.status(400).json({ error: "Suggestion 'message' is required" });
-      }
-
-      const all = migrateSuggestions();
-      const createdAt = createdAtRaw && !Number.isNaN(new Date(createdAtRaw))
-        ? new Date(createdAtRaw).toISOString()
-        : new Date().toISOString();
-
-      // Prefer deterministic id from timestamp seconds; ensure uniqueness
-      const baseId = `ts:${isoSec(createdAt)}`;
-      const uniqueId =
-        all.some((s) => s.id === baseId)
-          ? `${baseId}-${Math.random().toString(36).slice(2, 6)}`
-          : baseId;
-
-      const entry = {
-        id: uniqueId,
-        userId,
-        userName,
-        section,
-        message,
-        createdAt,
-        status: "new",
-      };
-
-      all.push(entry);
-      writeJsonArray(suggestionsPath, all);
-      console.log("💡 Suggestion saved:", { id: entry.id, userName: entry.userName, section: entry.section });
-
-      // 🔔 Optional: notify admins (FCM + in-app)
-      try {
-        const usersRaw = fs.readFileSync(USERS_FILE, "utf-8");
-        const allUsers = JSON.parse(usersRaw || "[]");
-        const admins = allUsers.filter((u) => Array.isArray(u.roles) && u.roles.includes("admin"));
-
-        // Push
-        try {
-          const title = "💡 New User Suggestion";
-          const bodyText = `${entry.userName}: ${entry.message.slice(0, 80)}${entry.message.length > 80 ? "…" : ""}`;
-          await sendPushToUsers(admins, title, bodyText);
-        } catch (pushErr) {
-          console.warn("Push for suggestion failed (non-fatal):", pushErr);
-        }
-
-        // In-app notification
-        try {
-          const notifs = readJsonArray(notificationsPath);
-          const recipients = Array.from(new Set([
-            ...admins.map((a) => String(a.id)).filter(Boolean),
-            ...admins.map((a) => String(a.name || "")).filter(Boolean),
-            "admin",
-            "admins",
-            "ALL",
-          ]));
-
-          notifs.push({
-            title: "💡 New User Suggestion",
-            message: `${entry.userName} sent a suggestion in ${entry.section}.`,
-            recipients,
-            timestamp: new Date().toISOString(),
-            kind: "user_suggestion",
-            displayRecipients: ["Admins"],
-            action: {
-              type: "open_suggestions",
-              id: entry.id,
-              url: "/admin?tab=notifications#suggestions"
-            },
-          });
-          writeJsonArray(notificationsPath, notifs);
-        } catch (notifErr) {
-          console.warn("In-app notification for suggestion failed (non-fatal):", notifErr);
-        }
-      } catch (whoErr) {
-        console.warn("Admin targeting for suggestion failed (non-fatal):", whoErr);
-      }
-
-      return res.status(201).json(entry);
-    } catch (err) {
-      console.error("Failed to create suggestion:", err);
-      res.status(500).json({ error: "Could not submit suggestion" });
-    }
-  });
-
-  // 📥 GET /suggestions — list (migrates legacy on read)
-  app.get("/suggestions", (req, res) => {
-    try {
-      const all = migrateSuggestions();
-      const { status, section } = req.query || {};
-
-      let out = all;
-      if (status) {
-        const s = String(status).toLowerCase();
-        out = out.filter((x) => String(x.status || "new").toLowerCase() === s);
-      }
-      if (section) {
-        const sec = String(section).toLowerCase();
-        out = out.filter((x) => String(x.section || "general").toLowerCase() === sec);
-      }
-
-      out.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-      console.log("📤 GET /suggestions ->", out.length, "item(s)");
-      return res.json(out);
-    } catch (err) {
-      console.error("Failed to read suggestions:", err);
-      res.status(500).json({ error: "Could not read suggestions" });
-    }
-  });
-
-  // ✏️ PATCH /suggestions/:idOrTimestamp — update status/response
-  app.patch("/suggestions/:id", (req, res) => {
-    try {
-      const key = req.params.id;
-      const body = req.body || {}; // { status?, response? }
-
-      const all = migrateSuggestions();
-      const idx = findSuggestionIndex(all, key);
-      if (idx === -1) return res.status(404).json({ error: "Suggestion not found" });
-
-      const validStatuses = new Set(["new", "reviewed", "responded", "archived"]);
-      if (typeof body.status === "string" && validStatuses.has(body.status)) {
-        all[idx].status = body.status;
-      }
-      if (typeof body.response === "string") {
-        all[idx].response = body.response;
-        all[idx].respondedAt = new Date().toISOString();
-        if (!body.status) all[idx].status = "responded";
-      }
-
-      writeJsonArray(suggestionsPath, all);
-      return res.json({ success: true, suggestion: all[idx] });
-    } catch (err) {
-      console.error("Failed to patch suggestion:", err);
-      res.status(500).json({ error: "Could not update suggestion" });
-    }
-  });
-
-  // 🗑️ DELETE /suggestions/:idOrTimestamp — remove
-  app.delete("/suggestions/:id", (req, res) => {
-    try {
-      const key = req.params.id;
-      const all = migrateSuggestions();
-      const idx = findSuggestionIndex(all, key);
-      if (idx === -1) return res.status(404).json({ error: "Suggestion not found" });
-
-      const next = all.slice(0, idx).concat(all.slice(idx + 1));
-      writeJsonArray(suggestionsPath, next);
-      return res.json({ success: true });
-    } catch (err) {
-      console.error("Failed to delete suggestion:", err);
-      res.status(500).json({ error: "Could not delete suggestion" });
-    }
-  });
-
-  // ✍️ POST /suggestions — user submits a suggestion (with legacy key support)
-  app.post("/suggestions", async (req, res) => {
-    try {
-      const body = req.body || {};
-      const userId = body.userId ? String(body.userId) : null;
-      const userName = String(body.userName || body.name || "Unknown").trim();
-      const section = String(body.section || body.department || "General").trim();
-      const message = String(body.message || body.suggestion || body.text || "").trim();
-      const createdAtRaw = body.createdAt || body.timestamp;
-
-      if (!message) {
-        return res.status(400).json({ error: "Suggestion 'message' is required" });
-      }
-
-      const all = readJsonArray(suggestionsPath);
-      const entry = {
-        id: Date.now().toString(),
-        userId,
-        userName,
-        section,
-        message,
-        createdAt: createdAtRaw && !Number.isNaN(new Date(createdAtRaw)) ? new Date(createdAtRaw).toISOString() : new Date().toISOString(),
-        status: "new",
-      };
-
-      all.push(entry);
-      writeJsonArray(suggestionsPath, all);
-      console.log("💡 Suggestion saved:", { id: entry.id, userName: entry.userName, section: entry.section });
-
-      // 🔔 Optional: notify admins (FCM + in-app)
-      try {
-        const usersRaw = fs.readFileSync(USERS_FILE, "utf-8");
-        const allUsers = JSON.parse(usersRaw || "[]");
-        const admins = allUsers.filter((u) => Array.isArray(u.roles) && u.roles.includes("admin"));
-
-        // Push
-        try {
-          const title = "💡 New User Suggestion";
-          const bodyText = `${entry.userName}: ${entry.message.slice(0, 80)}${entry.message.length > 80 ? "…" : ""}`;
-          await sendPushToUsers(admins, title, bodyText);
-        } catch (pushErr) {
-          console.warn("Push for suggestion failed (non-fatal):", pushErr);
-        }
-
-        // In-app notification
-        try {
-          const notifs = readJsonArray(notificationsPath);
-          const recipients = Array.from(new Set([
-            ...admins.map((a) => String(a.id)).filter(Boolean),
-            ...admins.map((a) => String(a.name || "")).filter(Boolean),
-            "admin",
-            "admins",
-            "ALL",
-          ]));
-
-          notifs.push({
-            title: "💡 New User Suggestion",
-            message: `${entry.userName} sent a suggestion in ${entry.section}.`,
-            recipients,
-            timestamp: new Date().toISOString(),
-            kind: "user_suggestion",
-            displayRecipients: ["Admins"],
-            action: {
-              type: "open_suggestions",
-              id: entry.id,
-              url: "/admin?tab=notifications#suggestions"
-            },
-          });
-          writeJsonArray(notificationsPath, notifs);
-        } catch (notifErr) {
-          console.warn("In-app notification for suggestion failed (non-fatal):", notifErr);
-        }
-      } catch (whoErr) {
-        console.warn("Admin targeting for suggestion failed (non-fatal):", whoErr);
-      }
-
-      return res.status(201).json(entry);
-    } catch (err) {
-      console.error("Failed to create suggestion:", err);
-      res.status(500).json({ error: "Could not submit suggestion" });
-    }
-  });
-
-  // 📥 GET /suggestions — list (with legacy normalization + optional filters)
-  app.get("/suggestions", (req, res) => {
-    try {
-      const rawArr = readJsonArray(suggestionsPath);
-
-      // normalize legacy items (without mutating disk)
-      const normArr = rawArr.map((x) => {
-        const out = { ...x };
-        if (!out.createdAt && out.timestamp) out.createdAt = out.timestamp;
-        if (!out.userName && out.name) out.userName = out.name;
-        if (typeof out.status === "undefined" && typeof out.archived === "boolean") {
-          out.status = out.archived ? "archived" : "new";
-        }
-        return out;
+      const filtered = all.filter((n) => {
+        const ts = n?.timestamp || n?.createdAt || null;
+        const t = typeof isoSec === "function" ? isoSec(ts) : safeIsoSec(ts);
+        return t && t > a;
       });
 
-      const { status, section } = req.query || {};
-      let out = normArr;
-
-      if (status) {
-        const s = String(status).toLowerCase();
-        out = out.filter((x) => String(x.status || "new").toLowerCase() === s);
-      }
-      if (section) {
-        const sec = String(section).toLowerCase();
-        out = out.filter((x) => String(x.section || "general").toLowerCase() === sec);
-      }
-
-      out.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-      console.log("📤 GET /suggestions ->", out.length, "item(s)");
-      return res.json(out);
-    } catch (err) {
-      console.error("Failed to read suggestions:", err);
-      res.status(500).json({ error: "Could not read suggestions" });
+      return res.status(200).json(filtered);
     }
-  });
 
-  // ✏️ PATCH /suggestions/:id — update status/response
-  app.patch("/suggestions/:id", (req, res) => {
-    try {
-      const { id } = req.params;
-      const body = req.body || {}; // { status?, response? }
+    return res.status(200).json(all);
+  } catch (err) {
+    console.error("Failed to process notifications:", err);
+    // ✅ CRITICAL: never break the frontend contract
+    return res.status(200).json([]);
+  }
+});
 
-      const all = readJsonArray(suggestionsPath);
-      const idx = all.findIndex((s) => String(s.id) === String(id));
-      if (idx === -1) return res.status(404).json({ error: "Suggestion not found" });
 
-      const validStatuses = new Set(["new", "reviewed", "responded", "archived"]);
-      if (typeof body.status === "string" && validStatuses.has(body.status)) {
-        all[idx].status = body.status;
-      }
-      if (typeof body.response === "string") {
-        all[idx].response = body.response;
-        all[idx].respondedAt = new Date().toISOString();
-        if (!body.status) all[idx].status = "responded";
-      }
 
-      writeJsonArray(suggestionsPath, all);
-      return res.json({ success: true, suggestion: all[idx] });
-    } catch (err) {
-      console.error("Failed to patch suggestion:", err);
-      res.status(500).json({ error: "Could not update suggestion" });
+// ✏️ PATCH /notifications/:timestamp
+app.patch("/notifications/:timestamp", (req, res) => {
+  try {
+    const encoded = req.params.timestamp;
+    const decoded = decodeURIComponent(encoded);
+    const targetKey = isoSec(decoded);
+    if (!targetKey) return res.status(400).json({ error: "Invalid timestamp" });
+
+    const all = readNotifsSafe();
+    const idx = all.findIndex((n) => isoSec(n?.timestamp) === targetKey);
+    if (idx === -1) return res.status(404).json({ error: "Notification not found" });
+
+    const body = req.body || {};
+    const allowed = [
+      "title",
+      "message",
+      "recipients",
+      "kind",
+      "action",
+      "displayRecipients",
+      "status",
+    ];
+
+    const current = all[idx];
+    const updated = { ...current };
+    for (const key of allowed) {
+      if (key in body) updated[key] = body[key];
     }
-  });
 
-  // 🗑️ DELETE /suggestions/:id — remove
-  app.delete("/suggestions/:id", (req, res) => {
-    try {
-      const { id } = req.params;
-      const all = readJsonArray(suggestionsPath);
-      const next = all.filter((s) => String(s.id) !== String(id));
-      writeJsonArray(suggestionsPath, next);
-      return res.json({ success: true });
-    } catch (err) {
-      console.error("Failed to delete suggestion:", err);
-      res.status(500).json({ error: "Could not delete suggestion" });
+    all[idx] = updated;
+    writeNotifsSafe(all);
+
+    return res.json({ success: true, notification: updated });
+  } catch (err) {
+    console.error("Failed to patch notification:", err);
+    return res.status(500).json({ error: "Could not patch notification" });
+  }
+});
+
+// 🗑️ DELETE /notifications/:timestamp  (delete one)
+app.delete("/notifications/:timestamp", (req, res) => {
+  try {
+    const encoded = req.params.timestamp;
+    const decoded = decodeURIComponent(encoded);
+    const targetKey = isoSec(decoded);
+    if (!targetKey) return res.status(400).json({ error: "Invalid timestamp" });
+
+    const all = readNotifsSafe();
+    const updated = all.filter((n) => isoSec(n?.timestamp) !== targetKey);
+    writeNotifsSafe(updated);
+
+    console.log("🗑 Deleted notification:", decoded);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Failed to delete notification:", err);
+    return res.status(500).json({ error: "Could not delete notification" });
+  }
+});
+
+// 🧹 DELETE /notifications  (clear all, or clear olderThan=<ISO>)
+app.delete("/notifications", (req, res) => {
+  try {
+    const { olderThan } = req.query || {};
+    const all = readNotifsSafe();
+
+    if (olderThan) {
+      const cutoff = isoSec(olderThan);
+      if (!cutoff) return res.status(400).json({ error: "Invalid 'olderThan' timestamp" });
+
+      const kept = all.filter((n) => {
+        const t = isoSec(n?.timestamp);
+        return t && t >= cutoff;
+      });
+
+      writeNotifsSafe(kept);
+      return res.json({ success: true, removed: all.length - kept.length, kept: kept.length });
     }
-  });
-})();
 
-
-  const notificationsPath = path.join(DATA_DIR, "notifications.json");
-
-  const ensureFile = () => {
-    if (!fs.existsSync(notificationsPath)) {
-      fs.writeFileSync(notificationsPath, JSON.stringify([], null, 2));
-    }
-  };
-
-  const readNotifs = () => {
-    ensureFile();
-    const raw = fs.readFileSync(notificationsPath, "utf-8");
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  };
-
-  const writeNotifs = (arr) => {
-    fs.writeFileSync(notificationsPath, JSON.stringify(arr, null, 2));
-  };
-
-  // Normalize ISO to second precision for stable compare (avoids ms drift)
-  const isoSec = (dateish) => {
-    try {
-      return new Date(dateish).toISOString().split(".")[0];
-    } catch {
-      return null;
-    }
-  };
-
-  // ✉️ POST /notifications — create new notification
-  app.post("/notifications", (req, res) => {
-    try {
-      const body = req.body || {};
-      const title = String(body.title || "").trim();
-      const message = String(body.message || "").trim();
-      const recipients = Array.isArray(body.recipients)
-        ? Array.from(new Set(body.recipients.filter(Boolean).map(String)))
-        : [];
-      const createdAt = body.createdAt && !Number.isNaN(new Date(body.createdAt))
-        ? new Date(body.createdAt).toISOString()
-        : new Date().toISOString();
-
-      if (!title || !message || recipients.length === 0) {
-        return res.status(400).json({ error: "Missing title, message, or recipients" });
-      }
-
-      const all = readNotifs();
-      const newNotification = {
-        title,
-        message,
-        recipients,
-        timestamp: createdAt,
-      };
-
-      all.push(newNotification);
-      writeNotifs(all);
-
-      return res.status(201).json(newNotification);
-    } catch (err) {
-      console.error("Failed to create notification:", err);
-      res.status(500).json({ error: "Could not create notification" });
-    }
-  });
-
-  // 🧭 GET /notifications  (polling supported via ?after=<ISO>)
-  app.get("/notifications", (req, res) => {
-    try {
-      const all = readNotifs();
-      const { after } = req.query || {};
-      if (after) {
-        const a = isoSec(after);
-        if (!a) return res.status(400).json({ error: "Invalid 'after' timestamp" });
-        const filtered = all.filter((n) => {
-          const t = isoSec(n?.timestamp);
-          return t && t > a;
-        });
-        return res.json(filtered);
-      }
-      return res.json(all);
-    } catch (err) {
-      console.error("Failed to read notifications:", err);
-      res.status(500).json({ error: "Could not read notifications" });
-    }
-  });
-
-  // ✏️ PATCH /notifications/:timestamp
-  app.patch("/notifications/:timestamp", (req, res) => {
-    try {
-      const encoded = req.params.timestamp;
-      const decoded = decodeURIComponent(encoded);
-      const targetKey = isoSec(decoded);
-      if (!targetKey) return res.status(400).json({ error: "Invalid timestamp" });
-
-      const all = readNotifs();
-      const idx = all.findIndex((n) => isoSec(n?.timestamp) === targetKey);
-      if (idx === -1) return res.status(404).json({ error: "Notification not found" });
-
-      const body = req.body || {};
-      const allowed = ["title", "message", "recipients", "kind", "action", "displayRecipients", "status"];
-      const current = all[idx];
-
-      const updated = { ...current };
-      for (const key of allowed) {
-        if (key in body) updated[key] = body[key];
-      }
-
-      all[idx] = updated;
-      writeNotifs(all);
-
-      return res.json({ success: true, notification: updated });
-    } catch (err) {
-      console.error("Failed to patch notification:", err);
-      res.status(500).json({ error: "Could not patch notification" });
-    }
-  });
-
-  // 🗑️ DELETE /notifications/:timestamp  (delete one)
-  app.delete("/notifications/:timestamp", (req, res) => {
-    try {
-      const encoded = req.params.timestamp;
-      const decoded = decodeURIComponent(encoded);
-      const targetKey = isoSec(decoded);
-      if (!targetKey) return res.status(400).json({ error: "Invalid timestamp" });
-
-      const all = readNotifs();
-      const updated = all.filter((n) => isoSec(n?.timestamp) !== targetKey);
-      writeNotifs(updated);
-
-      console.log("🗑 Deleted notification:", decoded);
-      return res.json({ success: true });
-    } catch (err) {
-      console.error("Failed to delete notification:", err);
-      res.status(500).json({ error: "Could not delete notification" });
-    }
-  });
-
-  // 🧹 DELETE /notifications  (clear all, or clear olderThan=<ISO>)
-  app.delete("/notifications", (req, res) => {
-    try {
-      const { olderThan } = req.query || {};
-      const all = readNotifs();
-
-      if (olderThan) {
-        const cutoff = isoSec(olderThan);
-        if (!cutoff) return res.status(400).json({ error: "Invalid 'olderThan' timestamp" });
-        const kept = all.filter((n) => {
-          const t = isoSec(n?.timestamp);
-          return t && t >= cutoff;
-        });
-        writeNotifs(kept);
-        return res.json({ success: true, removed: all.length - kept.length, kept: kept.length });
-      }
-
-      writeNotifs([]);
-      return res.json({ success: true, removed: all.length, kept: 0 });
-    } catch (err) {
-      console.error("Failed to clear notifications:", err);
-      res.status(500).json({ error: "Could not clear notifications" });
-    }
-  });
-
+    writeNotifsSafe([]);
+    return res.json({ success: true, removed: all.length, kept: 0 });
+  } catch (err) {
+    console.error("Failed to clear notifications:", err);
+    return res.status(500).json({ error: "Could not clear notifications" });
+  }
+});
 
 /* ✅ Forgot-password → log request, push admins, and write an in-app notification (with action + compact display) */
 app.post("/auth/request-admin-reset", async (req, res) => {
@@ -1115,7 +953,6 @@ app.post("/auth/request-admin-reset", async (req, res) => {
 
     // 📣 In-app notification (full recipients for filtering, compact display label, and action payload)
     try {
-      const notificationsPath = path.join(DATA_DIR, "notifications.json");
       const notifRaw = fs.existsSync(notificationsPath)
         ? fs.readFileSync(notificationsPath, "utf-8")
         : "[]";
@@ -1136,7 +973,6 @@ app.post("/auth/request-admin-reset", async (req, res) => {
         "ALL",
       ]));
 
-      // Deep-link to User Management (adjust path if your User Management is under a different route)
       const actionUrl = entry.requesterId
         ? `/settings?resetUser=${encodeURIComponent(entry.requesterId)}`
         : `/settings?resetName=${encodeURIComponent(entry.identifier)}`;
@@ -1146,12 +982,11 @@ app.post("/auth/request-admin-reset", async (req, res) => {
         message,
         recipients,
         timestamp: new Date().toISOString(),
-        // 👇 extra metadata your UI can use
         kind: "password_reset_request",
-        displayRecipients: ["Admins"],             // compact label for UI
+        displayRecipients: ["Admins"],
         action: {
           type: "open_user_management",
-          userId: entry.requesterId,               // may be null if name didn't match
+          userId: entry.requesterId,
           userName: entry.requesterName || entry.identifier,
           url: actionUrl,
         },
@@ -1159,7 +994,10 @@ app.post("/auth/request-admin-reset", async (req, res) => {
 
       notifications.push(newNotification);
       fs.writeFileSync(notificationsPath, JSON.stringify(notifications, null, 2));
-      console.log("📣 Admin notification written:", { title, displayRecipients: newNotification.displayRecipients });
+      console.log("📣 Admin notification written:", {
+        title,
+        displayRecipients: newNotification.displayRecipients,
+      });
     } catch (notifErr) {
       console.warn("Writing admin notification failed:", notifErr);
     }
@@ -1173,104 +1011,11 @@ app.post("/auth/request-admin-reset", async (req, res) => {
 
 console.log("🚨 ROUTE CHECKPOINT 6");
 console.log("🚨 ROUTE CHECKPOINT 7");
-
-
-// ✅ One-time restore: force import vehicles from Git-tracked copy
-app.get("/force-import-vehicles", (req, res) => {
-  const VEHICLES_DEFAULT_FILE = path.join(__dirname, "data", "vehicles.json");
-  if (fs.existsSync(VEHICLES_DEFAULT_FILE)) {
-    const defaultVehicles = fs.readFileSync(VEHICLES_DEFAULT_FILE, "utf-8");
-    fs.writeFileSync(VEHICLES_FILE, defaultVehicles);
-    return res.json({ message: "✅ Live /data/vehicles.json has been overwritten from Git-tracked vehicles.json." });
-  }
-  return res.status(404).json({ error: "Git-tracked vehicles.json not found." });
-});
-
-// ✅ One-time restore: force import rosters from Git-tracked copy
-app.get("/force-import-rosters", (req, res) => {
-  const ROSTERS_DEFAULT_FILE = path.join(__dirname, "data", "rosters.json");
-  if (fs.existsSync(ROSTERS_DEFAULT_FILE)) {
-    const defaultRosters = fs.readFileSync(ROSTERS_DEFAULT_FILE, "utf-8");
-    fs.writeFileSync(ROSTERS_FILE, defaultRosters);
-    return res.json({ message: "✅ Live /data/rosters.json has been overwritten from Git-tracked rosters.json." });
-  }
-  return res.status(404).json({ error: "Git-tracked rosters.json not found." });
-});
-
-// ✅ One-time restore: force import notification groups from Git-tracked copy
-app.get("/force-import-groups", (req, res) => {
-  const GROUPS_DEFAULT_FILE = path.join(__dirname, "data", "notificationGroups.json");
-  const GROUPS_LIVE_FILE = path.join(DATA_DIR, "notificationGroups.json");
-  if (fs.existsSync(GROUPS_DEFAULT_FILE)) {
-    const defaultGroups = fs.readFileSync(GROUPS_DEFAULT_FILE, "utf-8");
-    fs.writeFileSync(GROUPS_LIVE_FILE, defaultGroups);
-    return res.json({ message: "✅ Live /data/notificationGroups.json has been overwritten from Git-tracked notificationGroups.json." });
-  }
-  return res.status(404).json({ error: "Git-tracked notificationGroups.json not found." });
-});
-
 console.log("🚨 ROUTE CHECKPOINT 8");
 console.log("🚨 ROUTE CHECKPOINT 9");
-
-// GET roster by weekStart
-app.get("/rosters/:weekStart", (req, res) => {
-  const { weekStart } = req.params;
-  const filePath = ROSTERS_FILE;
-
-  try {
-    const fileData = fs.readFileSync(filePath);
-    const rosters = JSON.parse(fileData);
-    const rosterForWeek = rosters[weekStart] || [];
-    res.json(rosterForWeek);
-  } catch (error) {
-    console.error("Error reading rosters:", error);
-    res.status(500).json({ error: "Failed to read rosters" });
-  }
-});
-app.patch("/rosters/:weekStart", (req, res) => {
-  const { weekStart } = req.params;
-  const filePath = ROSTERS_FILE;
-
-
-  try {
-    const fileData = fs.readFileSync(filePath);
-    const rosters = JSON.parse(fileData);
-
-    rosters[weekStart] = req.body;
-
-    fs.writeFileSync(filePath, JSON.stringify(rosters, null, 2));
-    res.json({ success: true, data: rosters[weekStart] });
-  } catch (error) {
-    console.error("Error updating roster:", error);
-    res.status(500).json({ error: "Failed to update roster" });
-  }
-});
-
-
-
-app.get("/settings", (req, res) => {
-  try {
-   const data = fs.readFileSync(SETTINGS_FILE, "utf-8");
-    res.json(JSON.parse(data));
-  } catch (err) {
-    console.error("Error reading settings:", err);
-    res.status(500).json({ error: "Failed to read settings" });
-  }
-});
-
-app.patch("/settings", (req, res) => {
-  try {
-    const current = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8"));
-    const updated = { ...current, ...req.body };
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(updated, null, 2));
-    res.json(updated);
-  } catch (err) {
-    console.error("Error writing settings:", err);
-    res.status(500).json({ error: "Failed to update settings" });
-  }
-});
 console.log("🚨 ROUTE CHECKPOINT 10");
 console.log("🚨 ROUTE CHECKPOINT 11");
+
 
 
 // ==========================

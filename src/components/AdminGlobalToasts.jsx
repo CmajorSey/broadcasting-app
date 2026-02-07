@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import API_BASE from "@/api";
 import { useToast } from "@/hooks/use-toast";
+import { playSoundFor, isSoundEnabled } from "@/lib/soundRouter";
 
 // -------------------- Helpers --------------------
 
@@ -166,8 +167,24 @@ export default function AdminGlobalToasts({ loggedInUser }) {
         });
 
         for (const n of unseen) {
-          const title = n?.title || "🔑 Password Reset Request";
+                             const title = n?.title || "🔑 Password Reset Request";
           const message = n?.message || "A user requested a password reset.";
+
+          // 🔊 sound (best effort)
+          try {
+            const enabled = localStorage.getItem("notificationSoundsEnabled");
+            if (enabled !== "false") {
+              const a = new Audio("/sounds/lo_notify_new.mp3");
+              a.volume = 1;
+              const p = a.play();
+              if (p && typeof p.catch === "function") {
+                p.catch((e) => console.warn("[sound] play blocked:", e));
+              }
+            }
+          } catch (e) {
+            console.warn("[sound] play failed:", e);
+          }
+
           toast({ title, description: message, duration: 6000 });
 
           const who = n?.action?.userName || "this user";
@@ -275,6 +292,21 @@ export default function AdminGlobalToasts({ loggedInUser }) {
           const description = `${plate} • ${startLabel} → ${endLabel}`;
 
           // Use action button to jump to Fleet
+                          // 🔊 sound (best effort)
+          try {
+            const enabled = localStorage.getItem("notificationSoundsEnabled");
+            if (enabled !== "false") {
+              const a = new Audio("/sounds/lo_notify_new.mp3");
+              a.volume = 1;
+              const p = a.play();
+              if (p && typeof p.catch === "function") {
+                p.catch((e) => console.warn("[sound] play blocked:", e));
+              }
+            }
+          } catch (e) {
+            console.warn("[sound] play failed:", e);
+          }
+
           toast({
             title,
             description,
@@ -283,6 +315,10 @@ export default function AdminGlobalToasts({ loggedInUser }) {
               onClick: () => navigate("/fleet"),
             },
           });
+
+          if (isSoundEnabled()) {
+            playSoundFor({ title, message: description }, { enabled: true });
+          }
 
           // mark seen for today
           seen[v.id] = todayKey;

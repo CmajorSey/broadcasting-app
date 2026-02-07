@@ -86,36 +86,70 @@ export default function NotificationsPanel({ loggedInUser }) {
   };
 
 
-  const fetchGroups = async () => {
+   const fetchGroups = async () => {
     try {
       const res = await fetch(`${API_BASE}/notification-groups`);
-      if (!res.ok) throw new Error("groups fetch failed");
-      const data = await res.json();
-      setGroups(Array.isArray(data) ? data : []);
+
+      // If server errors, don’t crash UI
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        console.error("Groups fetch failed:", { status: res.status, body });
+        setGroups([]);
+        return;
+      }
+
+      const data = await res.json().catch(() => null);
+
+      // Accept: [] OR { groups: [] } OR { data: [] }
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.groups)
+        ? data.groups
+        : Array.isArray(data?.data)
+        ? data.data
+        : [];
+
+      setGroups(list);
     } catch (err) {
       console.error("Failed to fetch groups:", err);
       setGroups([]);
     }
   };
 
-  const fetchHistory = async () => {
+   const fetchHistory = async () => {
     try {
       const res = await fetch(`${API_BASE}/notifications`);
-      const data = await res.json();
 
-      if (!Array.isArray(data)) {
-        console.error("Expected an array but got:", data);
+      // Handle backend 500 safely (don’t try to .json() blindly)
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        console.error("Notifications history fetch failed:", {
+          status: res.status,
+          body,
+        });
         setHistory([]);
         return;
       }
 
+      const data = await res.json().catch(() => null);
+
+      // Accept: [] OR { notifications: [] } OR { data: [] }
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.notifications)
+        ? data.notifications
+        : Array.isArray(data?.data)
+        ? data.data
+        : [];
+
       // Newest first
-      const sorted = [...data].sort(
+      const sorted = [...list].sort(
         (a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)
       );
       setHistory(sorted);
     } catch (err) {
       console.error("Failed to fetch notifications history:", err);
+      setHistory([]);
     }
   };
 
@@ -254,18 +288,26 @@ export default function NotificationsPanel({ loggedInUser }) {
   const handleClearAll = async () => {
     try {
       setClearingAll(true);
+
       // delete one-by-one using the route your backend supports
       for (const n of history) {
         const ts = isoSec(n?.timestamp);
         if (!ts) continue;
+
+        // Match handleDelete(): ensure UTC by appending Z
+        const tsParam = `${ts}Z`;
+
         try {
-          await fetch(`${API_BASE}/notifications/${encodeURIComponent(ts)}`, { method: "DELETE" });
+          await fetch(`${API_BASE}/notifications/${encodeURIComponent(tsParam)}`, {
+            method: "DELETE",
+          });
           // tiny delay to avoid FS write thrash
           await new Promise((r) => setTimeout(r, 50));
         } catch {
           // ignore per-item errors; we refresh after loop
         }
       }
+
       toast({ title: "All notifications cleared" });
       await fetchHistory();
     } catch (err) {
