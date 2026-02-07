@@ -187,17 +187,24 @@ const isAllowedOrigin = (origin) => {
 
 const corsOptions = {
   origin: (origin, cb) => {
+    // ✅ Allow requests with no Origin header (same-origin, server-to-server, health checks)
+    if (!origin) return cb(null, true);
+
+    // ✅ Allow only whitelisted origins
     if (isAllowedOrigin(origin)) return cb(null, true);
-    return cb(new Error(`CORS blocked origin: ${origin}`));
+
+    // ✅ Do NOT throw (throwing can remove CORS headers and cause confusing browser errors)
+    return cb(null, false);
   },
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
 };
 
+// ✅ CORS must be registered BEFORE any routes
 app.use(cors(corsOptions));
 
-// Express 5: use a RegExp to match all paths for preflight
+// ✅ Preflight for all routes (Express 5)
 app.options(new RegExp(".*"), cors(corsOptions));
 
 app.use(express.json());
