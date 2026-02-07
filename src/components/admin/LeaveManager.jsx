@@ -802,9 +802,67 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   const [modifySplitMode, setModifySplitMode] = useState("auto"); // "auto" | "manual"
   const [modifySplitPreset, setModifySplitPreset] = useState("annual"); // "annual" | "off" | "even"
 
+  // =========================
+  // ✅ NEW: Consumption order helpers (MyProfile → LeaveManager understanding)
+  // =========================
+  // A request can store: consumptionOrder: "annual_first" | "off_first"
+  // Backwards compatible: default to "annual_first" if missing.
+  const getConsumptionOrder = (req) => {
+    const v = String(
+      req?.consumptionOrder ??
+        req?.allocOrder ??
+        req?.allocationOrder ??
+        req?.bucketOrder ??
+        "annual_first"
+    ).toLowerCase();
+
+    return v === "off_first" ? "off_first" : "annual_first";
+  };
+
+  // Given:
+  // - appliedA/appliedO: what was actually deducted on approval
+  // - usedDays: how many leave days have been used so far (workday/holiday-aware)
+  // Return the ONLY valid refund split on cancellation (unused days refund),
+  // based on the consumption order that the employee accepted in MyProfile.
+  const computeCancelRefundSplit = (req, appliedA, appliedO, usedDays) => {
+    const order = getConsumptionOrder(req);
+
+    const totalApplied = toHalf(toHalf(appliedA, 0) + toHalf(appliedO, 0), 0);
+    const used = Math.max(0, Math.min(toHalf(usedDays, 0), totalApplied));
+
+    let usedFromAnnual = 0;
+    let usedFromOff = 0;
+
+    if (order === "off_first") {
+      usedFromOff = Math.min(toHalf(appliedO, 0), used);
+      const rem = toHalf(used - usedFromOff, 0);
+      usedFromAnnual = Math.min(toHalf(appliedA, 0), rem);
+    } else {
+      // annual_first
+      usedFromAnnual = Math.min(toHalf(appliedA, 0), used);
+      const rem = toHalf(used - usedFromAnnual, 0);
+      usedFromOff = Math.min(toHalf(appliedO, 0), rem);
+    }
+
+    const refundA = Math.max(0, toHalf(toHalf(appliedA, 0) - usedFromAnnual, 0));
+    const refundO = Math.max(0, toHalf(toHalf(appliedO, 0) - usedFromOff, 0));
+
+    return {
+      order,
+      used,
+      usedFromAnnual: toHalf(usedFromAnnual, 0),
+      usedFromOff: toHalf(usedFromOff, 0),
+      refundAnnual: toHalf(refundA, 0),
+      refundOff: toHalf(refundO, 0),
+      unused: toHalf(toHalf(refundA, 0) + toHalf(refundO, 0), 0),
+    };
+  };
+
   // ✅ Single source of truth for EDIT/CANCEL validation + save blocking
   const modifyValidation = useMemo(() => {
-    if (!modifyOpen || !modifyReq) return { ok: true, errors: [], deltaDays: 0, absDelta: 0, cancelUnused: 0 };
+    if (!modifyOpen || !modifyReq) {
+      return { ok: true, errors: [], deltaDays: 0, absDelta: 0, cancelUnused: 0 };
+    }
 
     const mode = modifyMode;
     const req = modifyReq;
@@ -820,7 +878,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     const startISO = iso(modifyStart);
     const endISO = iso(modifyEnd);
 
-    // ✅ NEW total must always follow the selected dates (prevents “looks right but doesn’t save”)
+    // ✅ New total must always follow the selected dates
     const newTotal =
       mode === "edit"
         ? (startISO && endISO ? toHalf(weekdaysBetween(startISO, endISO, publicHolidays), 0) : 0)
@@ -839,15 +897,33 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
       if (!startISO || !endISO) errors.push("Please choose a start and end date.");
       if (startISO && endISO && endISO < startISO) errors.push("End date must be after start date.");
 
-      // If dates changed, must pick how to refund/deduct the delta
       if (absDelta > 0) {
-        if (sum !== absDelta) {
-          errors.push(`Annual + Off must equal ${absDelta} day(s).`);
+        // Must allocate/refund exactly abs(delta)
+        if (sum !== absDelta) errors.push(`Annual + Off must equal ${absDelta} day(s).`);
+
+        // ✅ EXTEND: must have enough balance in each chosen bucket
+        if (deltaDays > 0) {
+          const u = users.find((x) => String(x.id) === String(req.userId));
+          const curAnnual = toHalf(u?.annualLeave ?? 0, 0);
+          const curOff = toHalf(u?.offDays ?? 0, 0);
+
+          if (rA > curAnnual) {
+            errors.push(`Not enough Annual Leave. Trying to take ${rA}, but user has ${curAnnual}.`);
+          }
+          if (rO > curOff) {
+            errors.push(`Not enough Off Days. Trying to take ${rO}, but user has ${curOff}.`);
+          }
         }
 
-        // If shortening, cannot refund more than originally deducted from each bucket
-        const appliedA = toHalf(req.__uiAppliedAnnual ?? req.appliedAnnual ?? getReqAnnualAlloc(req) ?? 0, 0);
-        const appliedO = toHalf(req.__uiAppliedOff ?? req.appliedOff ?? getReqOffAlloc(req) ?? 0, 0);
+        // ✅ SHORTEN: cannot refund more than originally deducted per bucket
+        const appliedA = toHalf(
+          req.__uiAppliedAnnual ?? req.appliedAnnual ?? getReqAnnualAlloc(req) ?? 0,
+          0
+        );
+        const appliedO = toHalf(
+          req.__uiAppliedOff ?? req.appliedOff ?? getReqOffAlloc(req) ?? 0,
+          0
+        );
 
         if (deltaDays < 0) {
           if (rA > appliedA) errors.push("Refund to Annual cannot exceed what was originally deducted from Annual.");
@@ -857,25 +933,46 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         // No date delta: adjustments must be 0/0
         if (sum !== 0) errors.push("No date change detected — set adjustments to 0 / 0.");
       }
-    } else {
-      // CANCEL
-      const returnISO = iso(cancelReturnDate);
-      if (!returnISO) errors.push("Please choose the return-to-work date.");
 
-      const cancelStats = returnISO
-        ? calcCancelUsedUnused(req, oStart, oEnd, returnISO)
-        : { unused: 0 };
-
-      const cancelUnused = toHalf(cancelStats.unused, 0);
-
-      if (sum !== cancelUnused) {
-        errors.push(`Refund Annual + Refund Off must equal ${cancelUnused} unused day(s).`);
-      }
-
-      return { ok: errors.length === 0, errors, deltaDays, absDelta, cancelUnused };
+      return { ok: errors.length === 0, errors, deltaDays, absDelta, cancelUnused: 0 };
     }
 
-    return { ok: errors.length === 0, errors, deltaDays, absDelta, cancelUnused: 0 };
+    // CANCEL
+    const returnISO = iso(cancelReturnDate);
+    if (!returnISO) errors.push("Please choose the return-to-work date.");
+
+    const cancelStats = returnISO
+      ? calcCancelUsedUnused(req, oStart, oEnd, returnISO)
+      : { unused: 0, used: 0 };
+
+    const cancelUnused = toHalf(cancelStats.unused, 0);
+
+    if (sum !== cancelUnused) {
+      errors.push(`Refund Annual + Refund Off must equal ${cancelUnused} unused day(s).`);
+    }
+
+    // ✅ NEW: Order-aware cancellation split (prevents false “stealing”)
+    // Instead of forcing "refund back to what was approved", we refund based on what was USED,
+    // respecting the user's agreed order (annual_first / off_first).
+    const appliedA = toHalf(req.__uiAppliedAnnual ?? req.appliedAnnual ?? getReqAnnualAlloc(req) ?? 0, 0);
+    const appliedO = toHalf(req.__uiAppliedOff ?? req.appliedOff ?? getReqOffAlloc(req) ?? 0, 0);
+
+    const expected = computeCancelRefundSplit(req, appliedA, appliedO, toHalf(cancelStats.used ?? 0, 0));
+
+    if (cancelUnused !== expected.unused) {
+      // Data inconsistency guard
+      errors.push(
+        "Cannot cancel: leave record is inconsistent (unused days do not match applied totals). Please correct the leave record first."
+      );
+    } else {
+      if (rA !== expected.refundAnnual || rO !== expected.refundOff) {
+        errors.push(
+          `Refund split must follow the agreed order (${expected.order.replace("_", " ")}): Annual ${expected.refundAnnual} / Off ${expected.refundOff}.`
+        );
+      }
+    }
+
+    return { ok: errors.length === 0, errors, deltaDays, absDelta, cancelUnused };
   }, [
     modifyOpen,
     modifyMode,
@@ -886,37 +983,37 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     refundAnnual,
     refundOff,
     publicHolidays,
+    users,
   ]);
 
+  const loadRequests = async () => {
+    setReqLoading(true);
 
- const loadRequests = async () => {
-  setReqLoading(true);
+    // ✅ Force a state reset so Refresh behaves like full page reload
+    setRequests([]);
 
-  // ✅ Force a state reset so Refresh behaves like full page reload
-  setRequests([]);
+    try {
+      const res = await fetch(`${API_BASE}/leave-requests`, {
+        cache: "no-store",
+      });
 
-  try {
-    const res = await fetch(`${API_BASE}/leave-requests`, {
-      cache: "no-store",
-    });
+      if (!res.ok) throw new Error("Failed to load leave requests");
 
-    if (!res.ok) throw new Error("Failed to load leave requests");
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : data?.requests || [];
 
-    const data = await res.json();
-    const list = Array.isArray(data) ? data : data?.requests || [];
-
-    // ✅ Always create a new array reference
-    setRequests([...list]);
-  } catch (e) {
-    toast({
-      title: "Error",
-      description: e?.message || "Could not fetch leave requests.",
-      variant: "destructive",
-    });
-  } finally {
-    setReqLoading(false);
-  }
-};
+      // ✅ Always create a new array reference
+      setRequests([...list]);
+    } catch (e) {
+      toast({
+        title: "Error",
+        description: e?.message || "Could not fetch leave requests.",
+        variant: "destructive",
+      });
+    } finally {
+      setReqLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadRequests();
@@ -1071,7 +1168,6 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     return { onLeaveNow: onLeaveNowList, upcomingLeave: upcomingList };
   }, [requests, users, publicHolidays]);
 
-
   const openDecision = (req, type) => {
     setActiveReq(req);
     setDecisionType(type);
@@ -1215,9 +1311,9 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   // =========================
 
   // ✅ Half-day safe numeric helper is now imported from leaveReconcile:
-// import { toHalf } from "@/lib/leaveReconcile";
+  // import { toHalf } from "@/lib/leaveReconcile";
 
-    const closeModify = () => {
+  const closeModify = () => {
     setModifyOpen(false);
     setModifyReq(null);
     setModifyMode("edit");
@@ -1234,7 +1330,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     setModifySplitPreset("annual");
   };
 
-    const openModify = (req, mode) => {
+  const openModify = (req, mode) => {
     // ✅ Never mutate the request object that lives inside React state
     const safeReq = { ...(req || {}) };
 
@@ -1266,84 +1362,100 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     setModifySplitMode("auto");
     setModifySplitPreset("annual");
 
-    // Force user to explicitly choose a split when there is a delta
-    setRefundAnnual(0);
-    setRefundOff(0);
-
-    setModifyNote("");
-
     // ✅ Store UI-only values on the safe clone only
     safeReq.__uiAppliedAnnual = appliedA;
     safeReq.__uiAppliedOff = appliedO;
 
+    // ✅ Default split values
+    // - Edit: start at 0/0 and force explicit allocation if delta exists
+    // - Cancel: auto-fill based on used days + consumptionOrder
+    if (mode === "cancel") {
+      const stats = calcCancelUsedUnused(safeReq, s, e, iso(defaultReturn));
+      const expected = computeCancelRefundSplit(
+        safeReq,
+        appliedA,
+        appliedO,
+        toHalf(stats?.used ?? 0, 0)
+      );
+      setRefundAnnual(expected.refundAnnual);
+      setRefundOff(expected.refundOff);
+
+      // In cancel mode, manual split is allowed, but must match expected.
+      setModifySplitMode("auto");
+      setModifySplitPreset("annual");
+    } else {
+      setRefundAnnual(0);
+      setRefundOff(0);
+    }
+
+    setModifyNote("");
     setModifyOpen(true);
   };
-
 
   // Simple weekday-only estimate (holidays come later)
   // ✅ Supports half-day explicit fields if they exist in request payload
   function calcTotalWeekdays(req, startISO, endISO) {
-  const maybeHalf =
-    req?.requestedDays ??
-    req?.daysRequested ??
-    req?.totalRequestedDays ??
-    null;
+    const maybeHalf =
+      req?.requestedDays ??
+      req?.daysRequested ??
+      req?.totalRequestedDays ??
+      null;
 
-  const explicitHalf = toHalf(maybeHalf, 0);
-  if (explicitHalf > 0) return explicitHalf;
+    const explicitHalf = toHalf(maybeHalf, 0);
+    if (explicitHalf > 0) return explicitHalf;
 
-  const explicit = Math.max(toInt(req?.totalWeekdays ?? 0, 0), getReqTotalDays(req));
-  if (explicit > 0) return toHalf(explicit, 0);
+    const explicit = Math.max(toInt(req?.totalWeekdays ?? 0, 0), getReqTotalDays(req));
+    if (explicit > 0) return toHalf(explicit, 0);
 
-  return toHalf(weekdaysBetween(startISO, endISO, publicHolidays), 0);
-}
+    return toHalf(weekdaysBetween(startISO, endISO, publicHolidays), 0);
+  }
 
   // ✅ Cancel logic fix:
   // Used must be 0 if leave is upcoming (has not started yet).
   // Used = weekdays from start -> min(today, lastLeaveDay)
   function calcCancelUsedUnused(req, startISO, endISO, returnISO) {
-  const total = calcTotalWeekdays(req, startISO, endISO);
+    const total = calcTotalWeekdays(req, startISO, endISO);
 
-  if (!startISO || !endISO || !returnISO) return { total, used: 0, unused: total };
+    if (!startISO || !endISO || !returnISO) return { total, used: 0, unused: total };
 
-  const returnDate = new Date(returnISO);
-  if (isNaN(returnDate)) return { total, used: 0, unused: total };
+    const returnDate = new Date(returnISO);
+    if (isNaN(returnDate)) return { total, used: 0, unused: total };
 
-  // last leave day is day before return
-  const lastLeaveDay = new Date(returnISO);
-  lastLeaveDay.setDate(lastLeaveDay.getDate() - 1);
-  const lastISO = iso(lastLeaveDay);
+    // last leave day is day before return
+    const lastLeaveDay = new Date(returnISO);
+    lastLeaveDay.setDate(lastLeaveDay.getDate() - 1);
+    const lastISO = iso(lastLeaveDay);
 
-  const todayISO = iso(new Date());
+    const todayISO = iso(new Date());
 
-  // ✅ If leave hasn't started yet, nothing is used
-  if (todayISO < startISO) {
-    return { total, used: 0, unused: total };
-  }
+    // ✅ If leave hasn't started yet, nothing is used
+    if (todayISO < startISO) {
+      return { total, used: 0, unused: total };
+    }
 
-  // If returning on/before start, used is 0
-  if (returnISO <= startISO) return { total, used: 0, unused: total };
+    // If returning on/before start, used is 0
+    if (returnISO <= startISO) return { total, used: 0, unused: total };
 
-  // If returning after end+1, treat "unused" as 0 (they didn't shorten anything)
-  if (returnISO > addDaysISO(endISO, 1)) {
-    const usedLast = todayISO > endISO ? endISO : todayISO;
+    // If returning after end+1, treat "unused" as 0 (they didn't shorten anything)
+    if (returnISO > addDaysISO(endISO, 1)) {
+      const usedLast = todayISO > endISO ? endISO : todayISO;
+      const used =
+        usedLast >= startISO
+          ? toHalf(weekdaysBetween(startISO, usedLast, publicHolidays), 0)
+          : 0;
+      const unused = Math.max(0, toHalf(total - used, 0));
+      return { total, used, unused };
+    }
+
+    // Normal cancel within range:
+    const effectiveLast = todayISO < lastISO ? todayISO : lastISO;
     const used =
-      usedLast >= startISO
-        ? toHalf(weekdaysBetween(startISO, usedLast, publicHolidays), 0)
+      effectiveLast >= startISO
+        ? toHalf(weekdaysBetween(startISO, effectiveLast, publicHolidays), 0)
         : 0;
     const unused = Math.max(0, toHalf(total - used, 0));
     return { total, used, unused };
   }
-
-  // Normal cancel within range:
-  const effectiveLast = todayISO < lastISO ? todayISO : lastISO;
-  const used =
-    effectiveLast >= startISO
-      ? toHalf(weekdaysBetween(startISO, effectiveLast, publicHolidays), 0)
-      : 0;
-  const unused = Math.max(0, toHalf(total - used, 0));
-  return { total, used, unused };
-}
 
   const submitModify = async () => {
     if (!modifyReq) return;
@@ -1362,7 +1474,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     const originalStart = iso(getReqStart(req));
     const originalEnd = iso(getReqEnd(req));
 
-       // ✅ Original total: prefer stored, else compute from original dates
+    // ✅ Original total: prefer stored, else compute from original dates
     const storedTotal = toHalf(req?.totalWeekdays ?? getReqTotalDays(req) ?? 0, 0);
     const originalTotal =
       storedTotal > 0
@@ -1376,7 +1488,6 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         : originalTotal;
 
     const delta = toHalf(newTotal - originalTotal, 0);
-
 
     const cancelStats =
       mode === "cancel"
@@ -1428,6 +1539,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         }
       } else if (delta > 0) {
         const extraDays = delta;
+
         if (adjSum !== extraDays) {
           toast({
             title: "Extra days must be allocated",
@@ -1436,11 +1548,20 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
           });
           return;
         }
-      } else {
-        if (adjSum !== 0) {
+
+        // ✅ EXTEND: must have enough balance in each chosen bucket
+        const u = userById(req.userId);
+        const curAnnual = toHalf(u?.annualLeave ?? 0, 0);
+        const curOff = toHalf(u?.offDays ?? 0, 0);
+
+        if (adjA > curAnnual || adjO > curOff) {
+          const parts = [];
+          if (adjA > curAnnual) parts.push(`Annual needed ${adjA}, available ${curAnnual}.`);
+          if (adjO > curOff) parts.push(`Off needed ${adjO}, available ${curOff}.`);
+
           toast({
-            title: "No balance change needed",
-            description: "This edit keeps the same total days. Set adjustments to 0 / 0.",
+            title: "Not enough balance",
+            description: parts.join(" "),
             variant: "destructive",
           });
           return;
@@ -1467,7 +1588,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         });
         return;
       }
-       } else {
+    } else {
       // CANCEL
       if (!returnISO) {
         toast({
@@ -1494,31 +1615,23 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         return;
       }
 
-      // ✅ NEW: No bucket swapping / no stealing
-      // You can only refund back into the SAME bucket that was originally deducted.
-      // i.e., refundAnnual <= appliedA AND refundOff <= appliedO
-      if (rA > appliedA || rO > appliedO) {
-        const parts = [];
-        if (rA > appliedA) parts.push(`Annual refund (${rA}) exceeds Annual deducted (${appliedA}).`);
-        if (rO > appliedO) parts.push(`Off refund (${rO}) exceeds Off deducted (${appliedO}).`);
+      // ✅ NEW: Order-aware cancellation split (prevents false “stealing”)
+      const expected = computeCancelRefundSplit(req, appliedA, appliedO, toHalf(cancelStats.used ?? 0, 0));
 
+      if (requiredUnused !== expected.unused) {
         toast({
-          title: "Invalid refund split",
+          title: "Cannot refund",
           description:
-            parts.join(" ") ||
-            "You cannot refund into a bucket that was not originally used.",
+            "This leave record has inconsistent applied totals (unused does not match what was deducted). Please correct the leave record first.",
           variant: "destructive",
         });
         return;
       }
 
-      // ✅ Extra safety: if original applied totals are inconsistent, block swapping attempts anyway
-      const maxRefund = toHalf(appliedA + appliedO, 0);
-      if (requiredUnused > maxRefund) {
+      if (rA !== expected.refundAnnual || rO !== expected.refundOff) {
         toast({
-          title: "Cannot refund",
-          description:
-            "This leave record has inconsistent applied totals (unused exceeds what was deducted). Please correct the leave record first.",
+          title: "Invalid refund split",
+          description: `This cancellation must follow the agreed order (${expected.order.replace("_", " ")}). Expected: Annual ${expected.refundAnnual} / Off ${expected.refundOff}.`,
           variant: "destructive",
         });
         return;
@@ -1558,8 +1671,8 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
             editNote: modifyNote || "",
             // optional meta (backend can ignore)
             deltaDays: delta,
-            adjustmentAnnual: adjA,
-            adjustmentOff: adjO,
+            adjustmentAnnual: Math.max(0, toHalf(refundAnnual, 0)),
+            adjustmentOff: Math.max(0, toHalf(refundOff, 0)),
           };
         }
 
@@ -1630,8 +1743,73 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   };
 
   // Render utils
+  const changeSummaryText = (r) => {
+    if (!r) return "";
+
+    const mode = String(
+      r.lastEditMode || r.editMode || r.modifyMode || r.mode || ""
+    ).toLowerCase();
+
+    const status = String(r.status || "").toLowerCase();
+
+    const isCancelled =
+      mode === "cancel" ||
+      status === "cancelled" ||
+      !!r.cancelReturnDate ||
+      !!r.cancelledAt;
+
+    const isEdited =
+      mode === "edit" ||
+      (!!r.lastEditedAt || !!r.lastEditedByName) ||
+      (!!r.editedAt || !!r.editedByName);
+
+    if (!isCancelled && !isEdited) return "";
+
+    const fmtSigned = (n) => {
+      const x = toHalf(n, 0);
+      if (x === 0) return "0";
+      return x > 0 ? `+${x}` : `${x}`;
+    };
+
+    if (isCancelled) {
+      const ra = toHalf(r.refundAnnual ?? r.refundedAnnual ?? 0, 0);
+      const ro = toHalf(r.refundOff ?? r.refundedOff ?? 0, 0);
+      const total =
+        toHalf(
+          r.cancelUnusedDays ??
+            r.unusedDays ??
+            r.refundedDays ??
+            (ra + ro) ??
+            0,
+          0
+        ) || 0;
+
+      if (total > 0 || ra > 0 || ro > 0) {
+        return `Cancelled: refunded ${toHalf(total, 0)} (Annual ${ra} / Off ${ro})`;
+      }
+      return "Cancelled";
+    }
+
+    // EDIT summary (prefer stored deltas if backend persisted them)
+    const delta = toHalf(r.deltaDays ?? r.dayDelta ?? 0, 0);
+    const adjA = toHalf(r.adjustmentAnnual ?? r.deltaAnnual ?? 0, 0);
+    const adjO = toHalf(r.adjustmentOff ?? r.deltaOff ?? 0, 0);
+
+    if (delta !== 0 || adjA !== 0 || adjO !== 0) {
+      const parts = [];
+      if (adjA !== 0) parts.push(`Annual ${fmtSigned(adjA)}`);
+      if (adjO !== 0) parts.push(`Off ${fmtSigned(adjO)}`);
+      const split = parts.length ? ` (${parts.join(" / ")})` : "";
+      const dayLabel = Math.abs(delta) === 1 ? "day" : "days";
+      return `Edited: ${fmtSigned(delta)} ${dayLabel}${split}`;
+    }
+
+    return "Edited";
+  };
+
   const renderReqRow = (r) => {
     const u = userById(r.userId);
+
     const seg = segmentOfUser(u);
 
     const startISO = iso(getReqStart(r));
@@ -1689,9 +1867,26 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
             <div>
               Off-day alloc: <span className="font-semibold">{o}</span>
             </div>
+
+            {/* ✅ Option C: show a small “Edited/Cancelled” cue when applicable */}
+            {(() => {
+              const txt = changeSummaryText(r);
+              return txt ? (
+                <div className="mt-1 text-xs text-gray-600">{txt}</div>
+              ) : null;
+            })()}
+
+            {/* Keep allocation sanity-check (not edit/cancel), but no “mismatch”-style wording */}
             {!sumOK && total > 0 && (
               <div className="mt-1 text-xs text-amber-600">
-                ⚠️ Allocation ({toHalf(a + o, 0)}) differs from requested days ({total})
+                Allocation check: {toHalf(a + o, 0)} vs requested {total}
+              </div>
+            )}
+
+            {/* ✅ Consumption order hint (if present) */}
+            {status === "approved" && (
+              <div className="mt-1 text-[11px] text-gray-600">
+                Order: {getConsumptionOrder(r) === "off_first" ? "Off first" : "Annual first"}
               </div>
             )}
           </div>
@@ -1867,15 +2062,13 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         </div>
       </section>
 
-           {/* ===================== On Leave + Upcoming (Conditional) ===================== */}
+      {/* ===================== On Leave + Upcoming (Conditional) ===================== */}
       {(onLeaveNow.length > 0 || upcomingLeave.length > 0) && (
         <section>
           <h2 className="text-2xl font-bold mb-3">On Leave & Upcoming</h2>
 
           <div className="border rounded overflow-hidden">
-            <div className="bg-gray-100 px-3 py-2 text-sm text-gray-700">
-            
-            </div>
+            <div className="bg-gray-100 px-3 py-2 text-sm text-gray-700"></div>
 
             <div className="p-3 space-y-5">
               {/* On Leave Now */}
@@ -2135,16 +2328,16 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         </AlertDialogContent>
       </AlertDialog>
 
-            {/* ===================== ✅ Modify Dialog (Edit/Cancel Approved) ===================== */}
-      <AlertDialog open={modifyOpen} onOpenChange={(o) => (o ? null : closeModify())}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
+      {/* ===================== ✅ Modify Dialog (Edit/Cancel Approved) ===================== */}
+         <AlertDialog open={modifyOpen} onOpenChange={(o) => (o ? null : closeModify())}>
+        <AlertDialogContent className="w-[95vw] sm:max-w-3xl max-h-[90vh] flex flex-col">
+          <AlertDialogHeader className="shrink-0">
             <AlertDialogTitle>
               {modifyMode === "edit" ? "Edit approved leave" : "Cancel approved leave"}
             </AlertDialogTitle>
 
-            <AlertDialogDescription asChild>
-              <div className="space-y-3 text-sm">
+                     <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm flex-1 min-h-0 overflow-y-auto pr-1">
                 {modifyReq && (() => {
                   const u = userById(modifyReq.userId);
                   const curAnnual = toInt(u?.annualLeave ?? 0);
@@ -2154,29 +2347,27 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
                   const oEnd = iso(getReqEnd(modifyReq));
 
                   const storedTotal = toHalf(modifyReq?.totalWeekdays ?? getReqTotalDays(modifyReq) ?? 0, 0);
-const originalTotal = storedTotal > 0
-  ? storedTotal
-  : toHalf(weekdaysBetween(oStart, oEnd, publicHolidays), 0);
+                  const originalTotal = storedTotal > 0
+                    ? storedTotal
+                    : toHalf(weekdaysBetween(oStart, oEnd, publicHolidays), 0);
+
                   const originalAppliedA = toHalf(modifyReq.__uiAppliedAnnual ?? modifyReq.appliedAnnual ?? 0, 0);
                   const originalAppliedO = toHalf(modifyReq.__uiAppliedOff ?? modifyReq.appliedOff ?? 0, 0);
 
                   const startISO = iso(modifyStart);
                   const endISO = iso(modifyEnd);
 
-                 const newTotalPreview =
-  modifyMode === "edit"
-    ? toHalf(weekdaysBetween(startISO, endISO, publicHolidays), 0)
-    : originalTotal;
+                  const newTotalPreview =
+                    modifyMode === "edit"
+                      ? toHalf(weekdaysBetween(startISO, endISO, publicHolidays), 0)
+                      : originalTotal;
 
                   const deltaDays = toHalf(newTotalPreview - originalTotal, 0); // + extend, - shorten
 
-                  // For edit:
-                  // refundAnnual/refundOff = allocation of delta (either extra to deduct OR refund to give back)
                   const adjA = Math.max(0, toHalf(refundAnnual, 0));
                   const adjO = Math.max(0, toHalf(refundOff, 0));
                   const adjSum = toHalf(adjA + adjO, 0);
 
-                  // Compute what the applied totals WOULD become after edit
                   let nextAppliedA = originalAppliedA;
                   let nextAppliedO = originalAppliedO;
                   if (modifyMode === "edit") {
@@ -2189,25 +2380,19 @@ const originalTotal = storedTotal > 0
                     }
                   }
 
-                  // Balance preview:
-                  // Remaining balances are stored on the user. When applied totals increase, balances go down.
                   const annualAfter =
                     modifyMode === "edit"
                       ? curAnnual - toHalf(nextAppliedA - originalAppliedA, 0)
-                      : curAnnual + Math.max(0, toHalf(adjA, 0)); // cancel: refund adds
+                      : curAnnual + Math.max(0, toHalf(adjA, 0));
                   const offAfter =
                     modifyMode === "edit"
                       ? curOff - toHalf(nextAppliedO - originalAppliedO, 0)
                       : curOff + Math.max(0, toHalf(adjO, 0));
 
-                  // Reconcile (date-required vs selected days)
-                  // Here “selected” is the future applied split (annual+off) for edit mode,
-                  // or "unused" for cancel (handled below).
                   const required = modifyMode === "edit" ? newTotalPreview : originalTotal;
                   const selected = modifyMode === "edit" ? toHalf(nextAppliedA + nextAppliedO, 0) : required;
                   const mismatch = modifyMode === "edit" ? toHalf(selected - required, 0) : 0;
 
-                  // Helper for one-click fixes
                   const setDeltaToAnnual = () => {
                     const target = Math.abs(deltaDays);
                     setRefundAnnual(target);
@@ -2225,19 +2410,14 @@ const originalTotal = storedTotal > 0
                     setRefundOff(0);
                   };
                   const extendEndToMatchSelected = () => {
-                    // If selected > required, extend end date to match selected workdays
                     const desired = Math.round(selected);
                     const newEnd = endDateForWorkdayCount(startISO, desired, publicHolidays);
                     if (newEnd) setModifyEnd(newEnd);
                   };
                   const revertSelectionToRequiredPreferAnnual = () => {
-                    // If selected > required: reduce adjustments so applied totals == required
-                    // We do it by removing from Off first, then Annual (preserves original split)
                     const over = Math.max(0, Math.round(selected - required));
                     if (over <= 0) return;
 
-                    // Compute what we need to reduce from "delta allocation" layer.
-                    // If deltaDays > 0, we can reduce adjA/adjO.
                     if (deltaDays > 0) {
                       let reduce = over;
                       let newAdjO = adjO;
@@ -2255,7 +2435,6 @@ const originalTotal = storedTotal > 0
                     }
                   };
 
-                  // CANCEL preview stats (unused calc stays as you wrote)
                   const cancelStats =
                     modifyMode === "cancel"
                       ? calcCancelUsedUnused(modifyReq, oStart, oEnd, iso(cancelReturnDate))
@@ -2263,8 +2442,13 @@ const originalTotal = storedTotal > 0
 
                   const cancelUnused = toHalf(cancelStats.unused, 0);
 
-                  const headerCard = (
-                    <div className="rounded border p-2 space-y-1">
+                  const expectedCancelSplit =
+                    modifyMode === "cancel"
+                      ? computeCancelRefundSplit(modifyReq, originalAppliedA, originalAppliedO, toHalf(cancelStats.used ?? 0, 0))
+                      : null;
+
+                                const headerCard = (
+                    <div className="rounded border p-2 space-y-1 max-h-[28vh] overflow-y-auto">
                       <div>
                         <span className="font-medium">User:</span>{" "}
                         {modifyReq.userName || u?.name || "Unknown"}
@@ -2278,6 +2462,16 @@ const originalTotal = storedTotal > 0
                       <div className="text-xs text-gray-700">
                         Applied split: <b>Annual {originalAppliedA}</b> / <b>Off {originalAppliedO}</b>
                       </div>
+
+                      {modifyMode === "cancel" && expectedCancelSplit && (
+                        <div className="mt-2 text-[11px] text-gray-700">
+                          Cancellation order:{" "}
+                          <b>{expectedCancelSplit.order === "off_first" ? "Off first" : "Annual first"}</b>
+                          {" • "}
+                          Expected refund:{" "}
+                          <b>Annual {expectedCancelSplit.refundAnnual}</b> / <b>Off {expectedCancelSplit.refundOff}</b>
+                        </div>
+                      )}
 
                       <div className="mt-2 text-xs">
                         <div>
@@ -2296,12 +2490,101 @@ const originalTotal = storedTotal > 0
                     </div>
                   );
 
-                  return (
+                                return (
                     <>
-                      {headerCard}
+                      {modifyMode === "cancel" ? (
+                        <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+                          {/* Cancel UI (scrolls) */}
+                          <div>
+                            <Label>Return to work date</Label>
+                            <Input
+                              type="date"
+                              value={cancelReturnDate}
+                              onChange={(e) => setCancelReturnDate(e.target.value)}
+                            />
+                            <div className="text-xs text-gray-600 mt-1">
+                              Last leave day is the day before return date.
+                            </div>
+                          </div>
 
-                      {modifyMode === "edit" ? (
+                          <div className="rounded border p-2 text-xs text-gray-800">
+                            Total: <b>{toHalf(cancelStats.total, 0)}</b> • Used:{" "}
+                            <b>{toHalf(cancelStats.used, 0)}</b> • Unused (refund):{" "}
+                            <b>{cancelUnused}</b>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <Label>Refund to Annual</Label>
+                              <Input
+                                type="number"
+                                step={0.5}
+                                value={refundAnnual}
+                                onChange={(e) => setRefundAnnual(toHalf(e.target.value, 0))}
+                              />
+                            </div>
+                            <div>
+                              <Label>Refund to Off Days</Label>
+                              <Input
+                                type="number"
+                                step={0.5}
+                                value={refundOff}
+                                onChange={(e) => setRefundOff(toHalf(e.target.value, 0))}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="text-xs text-gray-600">
+                            Refund Annual + Refund Off must equal <b>{cancelUnused}</b>. Refund split follows the agreed
+                            order.
+                          </div>
+
+                          {expectedCancelSplit && (
+                            <div className="rounded bg-blue-50 border border-blue-200 p-2 text-xs text-blue-900 space-y-2">
+                              <div className="font-medium">Expected refund split (order-aware)</div>
+                              <div>
+                                Order:{" "}
+                                <b>{expectedCancelSplit.order === "off_first" ? "Off first" : "Annual first"}</b>
+                                {" • "}
+                                Annual <b>{expectedCancelSplit.refundAnnual}</b> / Off{" "}
+                                <b>{expectedCancelSplit.refundOff}</b>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => {
+                                    setRefundAnnual(expectedCancelSplit.refundAnnual);
+                                    setRefundOff(expectedCancelSplit.refundOff);
+                                  }}
+                                >
+                                  Use expected split
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+
+                          {!modifyValidation.ok && modifyValidation.errors.length > 0 && (
+                            <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800 space-y-1">
+                              {modifyValidation.errors.map((msg, i) => (
+                                <div key={i}>• {msg}</div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div>
+                            <Label>Note (optional)</Label>
+                            <Textarea
+                              value={modifyNote}
+                              onChange={(e) => setModifyNote(e.target.value)}
+                              placeholder="E.g., Leave changed due to emergency / flight reschedule."
+                            />
+                          </div>
+                        </div>
+                      ) : (
                         <>
+                          {/* Existing Edit UI (unchanged) */}
                           <div className="grid grid-cols-2 gap-3">
                             <div>
                               <Label>New start date</Label>
@@ -2326,17 +2609,20 @@ const originalTotal = storedTotal > 0
                               New total (workdays): <b>{newTotalPreview}</b>{" "}
                               <span className="text-gray-400">•</span>{" "}
                               {deltaDays < 0 ? (
-                                <span>Shorten by <b>{Math.abs(deltaDays)}</b></span>
+                                <span>
+                                  Shorten by <b>{Math.abs(deltaDays)}</b>
+                                </span>
                               ) : deltaDays > 0 ? (
-                                <span>Extend by <b>{deltaDays}</b></span>
+                                <span>
+                                  Extend by <b>{deltaDays}</b>
+                                </span>
                               ) : (
                                 <span>No change</span>
                               )}
                             </div>
 
-                                                     {deltaDays !== 0 && (
+                            {deltaDays !== 0 && (
                               <div className="mt-2 space-y-2">
-                                {/* ✅ One simple prompt: choose split method */}
                                 <div className="rounded border p-2 text-xs space-y-2">
                                   <div className="font-medium">
                                     {deltaDays < 0
@@ -2348,7 +2634,11 @@ const originalTotal = storedTotal > 0
                                     <Button
                                       type="button"
                                       size="sm"
-                                      variant={modifySplitMode === "auto" && modifySplitPreset === "annual" ? "default" : "secondary"}
+                                      variant={
+                                        modifySplitMode === "auto" && modifySplitPreset === "annual"
+                                          ? "default"
+                                          : "secondary"
+                                      }
                                       onClick={() => {
                                         setModifySplitMode("auto");
                                         setModifySplitPreset("annual");
@@ -2362,7 +2652,11 @@ const originalTotal = storedTotal > 0
                                     <Button
                                       type="button"
                                       size="sm"
-                                      variant={modifySplitMode === "auto" && modifySplitPreset === "off" ? "default" : "secondary"}
+                                      variant={
+                                        modifySplitMode === "auto" && modifySplitPreset === "off"
+                                          ? "default"
+                                          : "secondary"
+                                      }
                                       onClick={() => {
                                         setModifySplitMode("auto");
                                         setModifySplitPreset("off");
@@ -2376,7 +2670,11 @@ const originalTotal = storedTotal > 0
                                     <Button
                                       type="button"
                                       size="sm"
-                                      variant={modifySplitMode === "auto" && modifySplitPreset === "even" ? "default" : "secondary"}
+                                      variant={
+                                        modifySplitMode === "auto" && modifySplitPreset === "even"
+                                          ? "default"
+                                          : "secondary"
+                                      }
                                       onClick={() => {
                                         setModifySplitMode("auto");
                                         setModifySplitPreset("even");
@@ -2396,7 +2694,6 @@ const originalTotal = storedTotal > 0
                                       variant={modifySplitMode === "manual" ? "default" : "outline"}
                                       onClick={() => {
                                         setModifySplitMode("manual");
-                                        // Prefill with even split when going manual
                                         const total = toHalf(Math.abs(deltaDays), 0);
                                         const half1 = toHalf(total / 2, 0);
                                         const half2 = toHalf(total - half1, 0);
@@ -2408,7 +2705,6 @@ const originalTotal = storedTotal > 0
                                     </Button>
                                   </div>
 
-                                  {/* ✅ Only show inputs after Manual split is chosen */}
                                   {modifySplitMode === "manual" && (
                                     <div className="grid grid-cols-2 gap-3 pt-2">
                                       <div>
@@ -2441,7 +2737,6 @@ const originalTotal = storedTotal > 0
                                   </div>
                                 </div>
 
-                                {/* ✅ Inline red errors (instead of multiple “prompts”) */}
                                 {!modifyValidation.ok && modifyValidation.errors.length > 0 && (
                                   <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800 space-y-1">
                                     {modifyValidation.errors.map((msg, i) => (
@@ -2452,16 +2747,19 @@ const originalTotal = storedTotal > 0
                               </div>
                             )}
 
-                            {/* If selected totals don't match required, offer “extend end date” or “revert selection” */}
                             {mismatch !== 0 && (
                               <div className="mt-2 rounded bg-blue-50 border border-blue-200 p-2 text-xs text-blue-900 space-y-2">
                                 <div className="font-medium">Dates & split are out of sync</div>
                                 <div>
                                   Required: <b>{required}</b> • Selected: <b>{selected}</b>{" "}
                                   {mismatch > 0 ? (
-                                    <span>(<b>{mismatch}</b> too many)</span>
+                                    <span>
+                                      (<b>{mismatch}</b> too many)
+                                    </span>
                                   ) : (
-                                    <span>(<b>{Math.abs(mismatch)}</b> missing)</span>
+                                    <span>
+                                      (<b>{Math.abs(mismatch)}</b> missing)
+                                    </span>
                                   )}
                                 </div>
 
@@ -2483,7 +2781,12 @@ const originalTotal = storedTotal > 0
                                       <Button type="button" size="sm" variant="secondary" onClick={extendEndToMatchSelected}>
                                         Extend end date to match days
                                       </Button>
-                                      <Button type="button" size="sm" variant="secondary" onClick={revertSelectionToRequiredPreferAnnual}>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={revertSelectionToRequiredPreferAnnual}
+                                      >
                                         Revert extra selected days
                                       </Button>
                                       <Button type="button" size="sm" variant="outline" onClick={revertDates}>
@@ -2495,90 +2798,27 @@ const originalTotal = storedTotal > 0
                               </div>
                             )}
                           </div>
-                        </>
-                      ) : (
-                        <>
+
                           <div>
-                            <Label>Return to work date</Label>
-                            <Input
-                              type="date"
-                              value={cancelReturnDate}
-                              onChange={(e) => setCancelReturnDate(e.target.value)}
+                            <Label>Note (optional)</Label>
+                            <Textarea
+                              value={modifyNote}
+                              onChange={(e) => setModifyNote(e.target.value)}
+                              placeholder="E.g., Leave changed due to emergency / flight reschedule."
                             />
-                            <div className="text-xs text-gray-600 mt-1">
-                              Last leave day is the day before return date.
-                            </div>
                           </div>
-
-                          <div className="rounded border p-2 text-xs text-gray-800">
-                            Total: <b>{toHalf(cancelStats.total, 0)}</b> • Used: <b>{toHalf(cancelStats.used, 0)}</b> • Unused (refund):{" "}
-                            <b>{cancelUnused}</b>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <Label>Refund to Annual</Label>
-                              <Input
-                                type="number"
-                                step={0.5}
-                                value={refundAnnual}
-                                onChange={(e) => setRefundAnnual(toHalf(e.target.value, 0))}
-                              />
-                            </div>
-                            <div>
-                              <Label>Refund to Off Days</Label>
-                              <Input
-                                type="number"
-                                step={0.5}
-                                value={refundOff}
-                                onChange={(e) => setRefundOff(toHalf(e.target.value, 0))}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="text-xs text-gray-600">
-                            Refund Annual + Refund Off must equal <b>{cancelUnused}</b>.
-                          </div>
-
-                          {toHalf(Math.max(0, toHalf(refundAnnual, 0)) + Math.max(0, toHalf(refundOff, 0)), 0) !== cancelUnused && (
-                            <div className="rounded bg-amber-50 border border-amber-200 p-2 text-xs text-amber-800 space-y-2">
-                              <div className="font-medium">Mismatch detected</div>
-                              <div>
-                                You must refund exactly <b>{cancelUnused}</b> day(s).
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                <Button type="button" size="sm" variant="secondary" onClick={() => { setRefundAnnual(cancelUnused); setRefundOff(0); }}>
-                                  Refund all to Annual
-                                </Button>
-                                <Button type="button" size="sm" variant="secondary" onClick={() => { setRefundAnnual(0); setRefundOff(cancelUnused); }}>
-                                  Refund all to Off
-                                </Button>
-                              </div>
-                            </div>
-                          )}
                         </>
                       )}
-
-                      <div>
-                        <Label>Note (optional)</Label>
-                        <Textarea
-                          value={modifyNote}
-                          onChange={(e) => setModifyNote(e.target.value)}
-                          placeholder="E.g., Leave changed due to emergency / flight reschedule."
-                        />
-                      </div>
                     </>
                   );
-                })()}
+                         })()}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-                    {(() => {
-            // ✅ Live validation to prevent "stealing" + prevent saving when split is invalid
+          {(() => {
             const req = modifyReq;
 
-            // Applied split (what was originally deducted)
             const appliedA = toHalf(
               req?.__uiAppliedAnnual ?? req?.appliedAnnual ?? getReqAnnualAlloc(req) ?? 0,
               0
@@ -2605,15 +2845,19 @@ const originalTotal = storedTotal > 0
                 const originalStart = iso(getReqStart(req));
                 const originalEnd = iso(getReqEnd(req));
 
-                const originalTotal = calcTotalWeekdays(req, originalStart, originalEnd);
-                const newTotal = calcTotalWeekdays(req, startISO, endISO);
+                const storedTotal = toHalf(req?.totalWeekdays ?? getReqTotalDays(req) ?? 0, 0);
+                const originalTotal =
+                  storedTotal > 0
+                    ? storedTotal
+                    : toHalf(weekdaysBetween(originalStart, originalEnd, publicHolidays), 0);
+
+                const newTotal = toHalf(weekdaysBetween(startISO, endISO, publicHolidays), 0);
                 const delta = toHalf(newTotal - originalTotal, 0);
 
                 const adjA = Math.max(0, toHalf(refundAnnual, 0));
                 const adjO = Math.max(0, toHalf(refundOff, 0));
                 const adjSum = toHalf(adjA + adjO, 0);
 
-                // No change → must be 0/0
                 if (delta === 0) {
                   if (adjSum !== 0) {
                     return {
@@ -2624,7 +2868,6 @@ const originalTotal = storedTotal > 0
                   return { canSave: true, message: "" };
                 }
 
-                // Must allocate/refund exactly abs(delta)
                 const required = Math.abs(delta);
                 if (adjSum !== required) {
                   return {
@@ -2633,18 +2876,16 @@ const originalTotal = storedTotal > 0
                   };
                 }
 
-                // ✅ Shorten (refund) must not exceed what was deducted (prevents stealing / swapping)
                 if (delta < 0) {
                   if (adjA > appliedA || adjO > appliedO) {
                     return {
                       canSave: false,
                       message:
-                        "Stealing detected: you can’t refund into a bucket that wasn’t originally deducted. Reduce the refund split to match the original applied split.",
+                        "Refund too large: you can’t refund more than what was originally deducted from each bucket.",
                     };
                   }
                 }
 
-                // Final consistency (applied totals must equal new total)
                 let nextA = appliedA;
                 let nextO = appliedO;
                 if (delta < 0) {
@@ -2686,12 +2927,20 @@ const originalTotal = storedTotal > 0
                 };
               }
 
-              // ✅ The key rule you requested: NO bucket swapping / NO stealing
-              if (rA > appliedA || rO > appliedO) {
+              const expected = computeCancelRefundSplit(req, appliedA, appliedO, toHalf(cancelStats.used ?? 0, 0));
+
+              if (requiredUnused !== expected.unused) {
                 return {
                   canSave: false,
                   message:
-                    "Stealing detected: cancellation refunds must go back into the same bucket(s) originally deducted (Annual→Annual, Off→Off).",
+                    "Cannot cancel: leave record is inconsistent (unused does not match what was deducted).",
+                };
+              }
+
+              if (rA !== expected.refundAnnual || rO !== expected.refundOff) {
+                return {
+                  canSave: false,
+                  message: `Refund split must follow the agreed order (${expected.order.replace("_", " ")}). Expected: Annual ${expected.refundAnnual} / Off ${expected.refundOff}.`,
                 };
               }
 
@@ -2722,8 +2971,9 @@ const originalTotal = storedTotal > 0
               </>
             );
           })()}
-        </AlertDialogContent>
+           </AlertDialogContent>
       </AlertDialog>
     </div>
   );
 }
+

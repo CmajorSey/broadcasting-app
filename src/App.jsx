@@ -27,6 +27,7 @@ import MyProfile from "@/pages/MyProfile";
 import ChangelogDialog from "@/components/ChangelogDialog";
 import { requestPermission, onMessage } from "@/lib/firebase";
 import AdminGlobalToasts from "@/components/AdminGlobalToasts";
+import { playSoundFor, isSoundEnabled } from "@/lib/soundRouter";
 
 
 function AppWrapper() {
@@ -55,10 +56,33 @@ function App() {
     return stored ? JSON.parse(stored) : [];
   });
 
-  const location = useLocation();
+    const location = useLocation();
   const navigate = useNavigate();
   const hideLayout = location.pathname === "/login";
   const { toast } = useToast();
+
+  // 🔊 Small safe beep for notification sound (no asset needed)
+  const playBeep = () => {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = 880;
+      g.gain.value = 0.03;
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start();
+      setTimeout(() => {
+        o.stop();
+        ctx.close?.();
+      }, 140);
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     if (!loggedInUser && location.pathname !== "/login" && location.pathname !== "/set-password") {
@@ -129,13 +153,33 @@ function App() {
     })();
   }, []);
 
-  useEffect(() => {
+     useEffect(() => {
+    const tryPlayNotifySound = () => {
+      try {
+        // respect toggle (default = enabled unless explicitly "false")
+        const enabled = localStorage.getItem("notificationSoundsEnabled");
+        if (enabled === "false") return;
+
+        const a = new Audio("/sounds/lo_notify_new.mp3");
+        a.volume = 1;
+        const p = a.play();
+        if (p && typeof p.catch === "function") {
+          p.catch((e) => console.warn("[sound] play blocked:", e));
+        }
+      } catch (e) {
+        console.warn("[sound] play failed:", e);
+      }
+    };
+
     const unsubscribe = onMessage((payload) => {
       console.log("Foreground notification received:", payload);
 
       const { title, body } = payload?.notification || {};
 
       if (title && body) {
+        // 🔊 sound first (best effort)
+        tryPlayNotifySound();
+
         toast({
           title,
           description: body,
@@ -146,7 +190,7 @@ function App() {
     return () => {
       if (typeof unsubscribe === "function") unsubscribe();
     };
-  }, []);
+  }, [toast]);
 
   // Migrate users with legacy 'role' field
   useEffect(() => {
@@ -163,7 +207,7 @@ function App() {
   }, []);
   const firedTestPushOnceRef = useRef(false);
 
-  useEffect(() => {
+    useEffect(() => {
     if (firedTestPushOnceRef.current) return; // avoid double-fire in dev
     firedTestPushOnceRef.current = true;
 
@@ -200,8 +244,182 @@ function App() {
     testPush();
   }, []);
 
+  // ============================================================
+  // 🔔 Global notifications poller (ALL users)
+  // - updates navbar unread badge everywhere
+  // - optional toast + sound (respects user settings)
+  // - avoids StrictMode double-run with a singleton guard
+  // ============================================================
+  useEffect(() => {
+    if (!loggedInUser?.id || !loggedInUser?.name) return;
+
+    // 🚦 Singleton guard
+    if (window.__loBoardUserNotifPoller) return;
+
+    const controller = new AbortController();
+    const state = {
+      lastLatestISO: null,
+      bootstrapped: false, // don't beep/toast on first load
+    };
+
+    const getSectionFromUser = (u) => {
+      if (!u) return "N/A";
+      const name = u.name || "";
+      const desc = u.description?.toLowerCase() || "";
+
+      if (["clive camille", "jennifer arnephy", "gilmer philoe"].includes(name.toLowerCase())) {
+        return "Admin";
+      } else if (desc.includes("sports journalist")) {
+        return "Sports Section";
+      } else if (desc.includes("journalist")) {
+        return "Newsroom";
+      } else if (/cam ?op|camera ?operator|operations/i.test(desc)) {
+        return "Operations";
+      } else if (desc.includes("producer") || desc.includes("production")) {
+        return "Production";
+      }
+
+      return u.section || "Unspecified";
+    };
+
+    const normalizeDismissedSeconds = () => {
+      try {
+        const raw = JSON.parse(localStorage.getItem("dismissedNotifications") || "[]") || [];
+        const out = [];
+        for (const t of raw) {
+          try {
+            const d = new Date(t);
+            if (!isNaN(d)) out.push(d.toISOString().split(".")[0]);
+          } catch {
+            // ignore
+          }
+        }
+        return new Set(out);
+      } catch {
+        return new Set();
+      }
+    };
+
+    const computeRelevant = (allNotifications, allGroups) => {
+      const userName = loggedInUser.name;
+      const section = getSectionFromUser(loggedInUser);
+
+      const groups = Array.isArray(allGroups) ? allGroups : [];
+      const mine = groups.filter((g) => Array.isArray(g.userIds) && g.userIds.includes(loggedInUser.id));
+      const myGroupIds = mine.map((g) => g.id);
+
+      const dismissed = normalizeDismissedSeconds();
+
+      const list = Array.isArray(allNotifications) ? allNotifications : [];
+      const relevant = list.filter((note) => {
+        try {
+          const noteDate = new Date(note.timestamp);
+          if (isNaN(noteDate)) return false;
+          const noteTime = noteDate.toISOString().split(".")[0];
+
+          const recips = Array.isArray(note?.recipients) ? note.recipients : [];
+          const match =
+            recips.includes(userName) ||
+            recips.includes(section) ||
+            recips.some((r) => myGroupIds.includes(r));
+
+          return match && !dismissed.has(noteTime);
+        } catch {
+          return false;
+        }
+      });
+
+      relevant.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      return relevant;
+    };
+
+    const stampUnread = (count) => {
+      try {
+        localStorage.setItem("loBoard.unreadCount", String(count));
+        window.dispatchEvent(new CustomEvent("loBoard:unread"));
+      } catch {
+        // ignore
+      }
+    };
+
+    const poll = async () => {
+      if (document.hidden) return;
+
+      try {
+        const [nRes, gRes] = await Promise.all([
+          fetch(`${API_BASE}/notifications`, { signal: controller.signal }),
+          fetch(`${API_BASE}/notification-groups`, { signal: controller.signal }),
+        ]);
+
+        if (!nRes.ok || !gRes.ok) return;
+
+        const [allNotifications, allGroups] = await Promise.all([
+          nRes.json().catch(() => []),
+          gRes.json().catch(() => []),
+        ]);
+
+        const relevant = computeRelevant(allNotifications, allGroups);
+        stampUnread(relevant.length);
+
+        const latestISO = relevant[0]?.timestamp || null;
+
+        // Respect prefs
+        const toastPref = localStorage.getItem("notificationToastsEnabled");
+        const toastEnabled = toastPref !== "false";
+        const soundPref = localStorage.getItem("notificationSoundsEnabled");
+        const soundEnabled = soundPref !== "false";
+
+        // On first successful poll, do not toast/beep (bootstrap)
+        if (!state.bootstrapped) {
+          state.bootstrapped = true;
+          state.lastLatestISO = latestISO;
+          return;
+        }
+
+        // Only act if newest changed
+        if (latestISO && latestISO !== state.lastLatestISO) {
+          state.lastLatestISO = latestISO;
+
+          if (toastEnabled) {
+            toast({ title: relevant[0]?.title, description: relevant[0]?.message });
+          }
+          if (soundEnabled) {
+            playBeep();
+          }
+
+          // Keep compatibility with your existing marker
+          localStorage.setItem("lastNotificationSeen", latestISO);
+        }
+      } catch (e) {
+        if (e?.name !== "AbortError") {
+          // silent-ish
+          console.warn("[App] notifications poll error:", e);
+        }
+      }
+    };
+
+    poll();
+    const id = setInterval(poll, 30000);
+    window.__loBoardUserNotifPoller = { id, controller };
+
+    const onVis = () => {
+      if (document.visibilityState === "visible") poll();
+    };
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      if (window.__loBoardUserNotifPoller?.id === id) {
+        clearInterval(id);
+        controller.abort();
+        window.__loBoardUserNotifPoller = null;
+      }
+    };
+  }, [loggedInUser?.id, loggedInUser?.name, loggedInUser?.description, loggedInUser?.section, toast]);
+
   // ✅ NEW: Heartbeat that stamps "lastOnline" for the logged-in user
   const onlineHeartbeatRef = useRef(null);
+
   useEffect(() => {
     // Clear any existing timer first
     if (onlineHeartbeatRef.current) {

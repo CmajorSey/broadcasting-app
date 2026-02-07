@@ -1,29 +1,41 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import API_BASE from "@/api";
 import { nextWorkdayISO } from "@/utils/leaveDates";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import {
+  unlockSounds,
+  playSoundFor,
+  installSoundUnlockOnGesture,
+} from "@/lib/soundRouter";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+
 
 /** Single source of truth for Leave API endpoints */
 const LEAVE_ENDPOINT = `${API_BASE}/leave-requests`;
 
 
 
-export default function MyProfile() {
+export default function MyProfile({ loggedInUser }) {
   const [user, setUser] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [suggestion, setSuggestion] = useState("");
-  const [toastEnabled, setToastEnabled] = useState(true);
+  const [toastEnabled, setToastEnabled] = useState(() => localStorage.getItem("notificationToastsEnabled") !== "false");
+  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("notificationSoundsEnabled") !== "false");
   const { toast } = useToast();
 
-  // --- Leave Request state (dates+figures visible; half-day aware) ---
-const [localOrOverseas, setLocalOrOverseas] = useState("local"); // "local" | "overseas"
+  // ✅ Leave allocation rule (stored on the request)
+  const [consumptionOrder, setConsumptionOrder] = useState("annual_first");
 
+  // ✅ User must acknowledge the rule before submitting
+  const [leaveTermsAccepted, setLeaveTermsAccepted] = useState(false);
+
+  // --- Leave Request state (dates+figures visible; half-day aware) ---
+  const [localOrOverseas, setLocalOrOverseas] = useState("local");
 // Dates
 const [startDate, setStartDate] = useState(""); // "YYYY-MM-DD"
 const [endDate,   setEndDate]   = useState(""); // "YYYY-MM-DD"
@@ -204,62 +216,160 @@ useEffect(() => {
   setResumeOn(endDate ? nextWorkdayISO(endDate, publicHolidays) : "");
 }, [startDate, endDate, publicHolidays]);
 
-// ✅ Load user + notifications (one-time)
+// ✅ Load user + notifications + sound trigger (poll + focus refresh)
+const prevNotifSigRef = useRef("");
+
 useEffect(() => {
-  const override = localStorage.getItem("adminViewAs");
-  const fallback = localStorage.getItem("loggedInUser");
-  const parsed = override || fallback;
-  const parsedUser = parsed ? JSON.parse(parsed) : null;
+  // ✅ Ensure we attempt unlock on the first user gesture anywhere (per session)
+  // This fixes: "AudioContext was not allowed to start..."
+  installSoundUnlockOnGesture();
 
-  const toastPref = localStorage.getItem("notificationToastsEnabled");
-  setToastEnabled(toastPref !== "false");
+  // --- Resolve which user we're viewing ---
+  const overrideRaw = localStorage.getItem("adminViewAs");
+  let overrideUser = null;
 
-  if (!parsedUser) return;
+  try {
+    overrideUser = overrideRaw ? JSON.parse(overrideRaw) : null;
+  } catch {
+    overrideUser = null;
+  }
 
-  setUser(parsedUser);
+  const parsedUser = overrideUser || loggedInUser || null;
 
-  // Normalize dismissed timestamps to seconds precision
-  const rawDismissed = JSON.parse(localStorage.getItem("dismissedNotifications") || "[]") || [];
-  const hiddenTimestamps = rawDismissed.reduce((acc, t) => {
+  // ✅ Ensure user state is set (needed for leave balances + getSection default param)
+  if (parsedUser) setUser(parsedUser);
+
+  // If we still don't have a user, don’t attempt to fetch notifications.
+  if (!parsedUser?.id || !parsedUser?.name) {
+    setNotifications([]);
     try {
-      if (!t) return acc;
-      const date = new Date(t);
-      if (isNaN(date)) {
-        console.warn("Skipping invalid timestamp in localStorage:", t);
-        return acc;
-      }
-      acc.push(date.toISOString().split(".")[0]);
-    } catch (err) {
-      console.error("Error processing dismissed timestamp:", t, err);
+      localStorage.setItem("loBoard.unreadCount", "0");
+      window.dispatchEvent(new CustomEvent("loBoard:unread"));
+    } catch {
+      // ignore
     }
-    return acc;
-  }, []);
+    return;
+  }
 
-  Promise.all([
-  fetch(`${API_BASE}/notifications`).then((res) => res.json()),
-  fetch(`${API_BASE}/notification-groups`).then((res) => res.json()),
-])
-  .then(([allNotifications, allGroups]) => {
-    const userName = parsedUser.name;
-    const section = getSection(parsedUser); // ✅ use existing helper
-    const userGroups = allGroups.filter((group) => group.userIds.includes(parsedUser.id));
-    const groupIds = userGroups.map((g) => g.id);
+  // --- Normalize dismissed timestamps to a stable UTC key (seconds precision) ---
+  // Store and compare as: "YYYY-MM-DDTHH:mm:ssZ"
+  const rawDismissed =
+    JSON.parse(localStorage.getItem("dismissedNotifications") || "[]") || [];
 
-      const relevant = allNotifications.filter((note) => {
+  const toNotifKey = (ts) => {
+    try {
+      if (!ts) return null;
+      // Force UTC + seconds precision, always ending with "Z"
+      return new Date(ts).toISOString().split(".")[0] + "Z";
+    } catch {
+      return null;
+    }
+  };
+
+  // IMPORTANT:
+  // Old code stored timestamps WITHOUT "Z" (local-time parse drift on refresh).
+  // We normalize everything to a consistent UTC key so dismissed items stay dismissed.
+  const hiddenKeys = rawDismissed
+    .map((t) => toNotifKey(t))
+    .filter(Boolean);
+
+  // --- Helpers to safely normalize API payload shapes ---
+
+  const asArray = (value, fallback = []) => {
+    if (Array.isArray(value)) return value;
+    return fallback;
+  };
+
+  const normalizeNotificationsPayload = (payload) => {
+    // Accept: []  OR  { notifications: [] }  OR  { data: [] }
+    if (Array.isArray(payload)) return payload;
+    if (payload && Array.isArray(payload.notifications)) return payload.notifications;
+    if (payload && Array.isArray(payload.data)) return payload.data;
+    return [];
+  };
+
+  const normalizeGroupsPayload = (payload) => {
+    // Accept: []  OR  { groups: [] }  OR  { data: [] }
+    if (Array.isArray(payload)) return payload;
+    if (payload && Array.isArray(payload.groups)) return payload.groups;
+    if (payload && Array.isArray(payload.data)) return payload.data;
+    return [];
+  };
+
+  const safeJson = async (res) => {
+    try {
+      return await res.json();
+    } catch {
+      return null;
+    }
+  };
+
+  const load = async () => {
+    try {
+      const [nRes, gRes] = await Promise.all([
+        fetch(`${API_BASE}/notifications`),
+        fetch(`${API_BASE}/notification-groups`),
+      ]);
+
+      // If backend returns 500, don't crash the UI.
+      if (!nRes.ok || !gRes.ok) {
+        const nBody = await safeJson(nRes);
+        const gBody = await safeJson(gRes);
+        console.error("Notifications API failed:", {
+          notifications: { status: nRes.status, body: nBody },
+          groups: { status: gRes.status, body: gBody },
+        });
+        setNotifications([]);
         try {
-          const noteDate = new Date(note.timestamp);
+          localStorage.setItem("loBoard.unreadCount", "0");
+          window.dispatchEvent(new CustomEvent("loBoard:unread"));
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
+      const allNotificationsRaw = await safeJson(nRes);
+      const allGroupsRaw = await safeJson(gRes);
+
+      const allNotifications = normalizeNotificationsPayload(allNotificationsRaw);
+      const allGroups = normalizeGroupsPayload(allGroupsRaw);
+
+      const userName = parsedUser.name;
+      const section = getSection(parsedUser); // ✅ use existing helper
+
+      const groupsArr = asArray(allGroups, []);
+      const userGroups = groupsArr.filter(
+        (group) =>
+          group &&
+          Array.isArray(group.userIds) &&
+          group.userIds.includes(parsedUser.id)
+      );
+      const groupIds = userGroups.map((g) => g.id).filter(Boolean);
+
+      const notesArr = asArray(allNotifications, []);
+      const relevant = notesArr.filter((note) => {
+        try {
+          if (!note) return false;
+
+          const recipients = Array.isArray(note.recipients) ? note.recipients : [];
+          if (recipients.length === 0) return false;
+
+                const noteDate = new Date(note.timestamp);
           if (isNaN(noteDate)) {
-            console.warn("Skipping invalid notification timestamp:", note.timestamp);
+            console.warn("Skipping invalid notification timestamp:", note?.timestamp);
             return false;
           }
-          const noteTime = noteDate.toISOString().split(".")[0];
 
-          return (
-            (note.recipients.includes(userName) ||
-              note.recipients.includes(section) ||
-              note.recipients.some((r) => groupIds.includes(r))) &&
-            !hiddenTimestamps.includes(noteTime)
-          );
+          // Stable UTC key (seconds precision)
+          const noteKey = noteDate.toISOString().split(".")[0] + "Z";
+
+          const matches =
+            recipients.includes(userName) ||
+            recipients.includes(section) ||
+            recipients.some((r) => groupIds.includes(r));
+
+          return matches && !hiddenKeys.includes(noteKey);
         } catch (err) {
           console.error("Failed to process note:", note, err);
           return false;
@@ -267,20 +377,77 @@ useEffect(() => {
       });
 
       relevant.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+      // 🔔 Detect “new notifications” (signature of timestamps)
+      const sig = relevant
+        .map((n) => {
+          try {
+            return new Date(n.timestamp).toISOString().split(".")[0];
+          } catch {
+            return "";
+          }
+        })
+        .filter(Boolean)
+        .join("|");
+
+      const prevSig = prevNotifSigRef.current || "";
+      const hadPrev = !!prevSig;
+      const isNew = hadPrev && sig && sig !== prevSig;
+
       setNotifications(relevant);
 
-      const lastSeen = localStorage.getItem("lastNotificationSeen");
-      const latest = relevant[0]?.timestamp;
-      if (toastEnabled && latest && latest !== lastSeen) {
-        toast({ title: relevant[0].title, description: relevant[0].message });
-        localStorage.setItem("lastNotificationSeen", latest);
+      // ✅ Stamp unread count globally for the navbar badge
+      try {
+        localStorage.setItem("loBoard.unreadCount", String(relevant.length));
+        window.dispatchEvent(new CustomEvent("loBoard:unread"));
+      } catch {
+        // ignore
       }
-    })
-    .catch((err) => console.error("Failed to fetch notifications or groups", err));
-}, []); // do not include toastEnabled to avoid re-trigger
+
+      // 🔔 Only play sound if something NEW arrived after initial load
+      if (isNew && soundEnabled) {
+        // Play the most recent notification's mapped sound (fallback to notify_new)
+        const mostRecent = relevant?.[0] || { soundKey: "notify_new" };
+        await playSoundFor(mostRecent, { enabled: true });
+      }
+
+      prevNotifSigRef.current = sig;
+    } catch (err) {
+      console.error("Failed to fetch notifications or groups", err);
+      setNotifications([]);
+      try {
+        localStorage.setItem("loBoard.unreadCount", "0");
+        window.dispatchEvent(new CustomEvent("loBoard:unread"));
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  // initial load
+  load();
+
+  // Poll + focus refresh so new admin notifications appear while MyProfile is open
+  const onFocus = () => load();
+  const onVis = () => {
+    if (document.visibilityState === "visible") load();
+  };
+
+  window.addEventListener("focus", onFocus);
+  document.addEventListener("visibilitychange", onVis);
+
+  const t = setInterval(load, 15000); // 15s
+
+  return () => {
+    window.removeEventListener("focus", onFocus);
+    document.removeEventListener("visibilitychange", onVis);
+    clearInterval(t);
+  };
+}, [loggedInUser, soundEnabled]); // user identity can change via adminViewAs/loggedInUser
 
 // ✅ Enrich user with server copy (for balances) — fetch one user, normalize numeric fields
 useEffect(() => {
+
   // Need at least an id OR a name
   if (!user?.id && !user?.name) return;
 
@@ -408,27 +575,38 @@ useEffect(() => {
 
 
 const handleDismiss = async (timestamp) => {
-  const baseTimestamp = new Date(timestamp).toISOString().split(".")[0]; // seconds
-  const utcParam = `${baseTimestamp}Z`; // ensure UTC
+  // ✅ Stable UTC key (seconds precision) — prevents “reappears after refresh”
+  const notifKey = new Date(timestamp).toISOString().split(".")[0] + "Z";
 
   // Optimistic UI update
   const existing = JSON.parse(localStorage.getItem("dismissedNotifications") || "[]");
-  const updatedDismissed = [...new Set([...existing, baseTimestamp])];
+  const updatedDismissed = [...new Set([...existing, notifKey])];
   localStorage.setItem("dismissedNotifications", JSON.stringify(updatedDismissed));
 
-  setNotifications((prev) =>
-    prev.filter((n) => {
+  setNotifications((prev) => {
+    const next = prev.filter((n) => {
       try {
-        return new Date(n.timestamp).toISOString().split(".")[0] !== baseTimestamp;
+        const key = new Date(n.timestamp).toISOString().split(".")[0] + "Z";
+        return key !== notifKey;
       } catch {
         return true;
       }
-    })
-  );
+    });
+
+    // ✅ keep global unread count accurate
+    try {
+      localStorage.setItem("loBoard.unreadCount", String(next.length));
+      window.dispatchEvent(new CustomEvent("loBoard:unread"));
+    } catch {
+      // ignore
+    }
+
+    return next;
+  });
 
   // Attempt backend delete (best effort)
   try {
-    const res = await fetch(`${API_BASE}/notifications/${encodeURIComponent(utcParam)}`, {
+    const res = await fetch(`${API_BASE}/notifications/${encodeURIComponent(notifKey)}`, {
       method: "DELETE",
     });
     if (!res.ok) throw new Error("Failed to delete notification");
@@ -466,10 +644,10 @@ const handleSuggestionSubmit = async () => {
   }
 };
 
-const getSection = () => {
-  if (!user) return "N/A";
-  const name = user.name || "";
-  const desc = user.description?.toLowerCase() || "";
+const getSection = (u = user) => {
+  if (!u) return "N/A";
+  const name = u.name || "";
+  const desc = u.description?.toLowerCase() || "";
 
   if (["clive camille", "jennifer arnephy", "gilmer philoe"].includes(name.toLowerCase())) {
     return "Admin";
@@ -483,7 +661,7 @@ const getSection = () => {
     return "Production";
   }
 
-  return user.section || "Unspecified";
+  return u.section || "Unspecified";
 };
 
 // --- Submit new leave request (dates preferred; supports half-days; else figures) ---
@@ -665,20 +843,36 @@ const submitLeaveRequest = async () => {
       </Card>
 
       {/* Notification Settings */}
-      <Card>
+                 <Card>
         <CardHeader>
           <CardTitle>Notification Settings</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="flex items-center space-x-3">
             <Switch
               checked={toastEnabled}
               onCheckedChange={(checked) => {
                 setToastEnabled(checked);
-                localStorage.setItem("notificationToastsEnabled", checked);
+                localStorage.setItem("notificationToastsEnabled", checked ? "true" : "false");
               }}
             />
             <Label>Enable popup toasts for new notifications</Label>
+          </div>
+
+          <div className="flex items-center space-x-3">
+            <Switch
+              checked={soundEnabled}
+              onCheckedChange={async (checked) => {
+                setSoundEnabled(checked);
+                localStorage.setItem("notificationSoundsEnabled", checked ? "true" : "false");
+
+                // 🔓 Unlock audio on user gesture (best-effort)
+                if (checked) {
+                  await unlockSounds();
+                }
+              }}
+            />
+            <Label>Enable notification sound</Label>
           </div>
         </CardContent>
       </Card>
@@ -688,23 +882,34 @@ const submitLeaveRequest = async () => {
         <CardHeader className="flex items-center justify-between">
           <CardTitle>Notifications Inbox</CardTitle>
           {notifications.length > 0 && (
-            <Button
+                     <Button
               size="sm"
               variant="ghost"
-              onClick={() => {
+                            onClick={() => {
                 const dismissed = JSON.parse(localStorage.getItem("dismissedNotifications") || "[]");
-                const allTimestamps = notifications
+
+                // ✅ Store stable UTC keys (seconds precision)
+                const allKeys = notifications
                   .map((n) => {
                     try {
-                      return new Date(n.timestamp).toISOString().split(".")[0];
+                      return new Date(n.timestamp).toISOString().split(".")[0] + "Z";
                     } catch {
                       return null;
                     }
                   })
                   .filter(Boolean);
-                const updated = [...new Set([...dismissed, ...allTimestamps])];
+
+                const updated = [...new Set([...dismissed, ...allKeys])];
                 localStorage.setItem("dismissedNotifications", JSON.stringify(updated));
                 setNotifications([]);
+
+                // ✅ Keep navbar badge in sync
+                try {
+                  localStorage.setItem("loBoard.unreadCount", "0");
+                  window.dispatchEvent(new CustomEvent("loBoard:unread"));
+                } catch {
+                  // ignore
+                }
               }}
             >
               Clear All
@@ -740,7 +945,7 @@ const submitLeaveRequest = async () => {
         </CardContent>
       </Card>
 
-     {/* --- Leave Request (MANUAL ALLOC FIRST) --- */}
+     {/* --- Leave Request (MANUAL ALLOC + CONSUMPTION ORDER DISCLAIMER) --- */}
 {(() => {
   // ✅ Date formatting helpers (safe + timezone-stable for YYYY-MM-DD)
   const formatLeaveDate = (iso) => {
@@ -780,6 +985,16 @@ const submitLeaveRequest = async () => {
 
   const halfStartText = halfDayLabel("start", halfDayStart);
   const halfEndText = halfDayLabel("end", halfDayEnd);
+
+  // ✅ Safe guards
+  const balAnnual = Number(getAnnualBalance(user)) || 0;
+  const balOff = Number(getOffBalance(user)) || 0;
+
+  const sumAlloc =
+    Math.round((Number(annualAlloc) + Number(offAlloc)) * 2) / 2;
+
+  const orderLabel =
+    consumptionOrder === "off_first" ? "Off Days first" : "Annual first";
 
   return (
     <Card>
@@ -824,16 +1039,16 @@ const submitLeaveRequest = async () => {
               )}
 
               {holidaysInRange.length > 0 && (
-  <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
-    Public holidays excluded: {holidaysInRange.length}
-  </div>
-)}
+                <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
+                  Public holidays excluded: {holidaysInRange.length}
+                </div>
+              )}
 
-{resumeOn && (
-  <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
-    {formatResume(resumeOn)}
-  </div>
-)}
+              {resumeOn && (
+                <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
+                  {formatResume(resumeOn)}
+                </div>
+              )}
             </>
           ) : (
             <div className="px-2 py-1 rounded bg-muted text-muted-foreground">
@@ -844,6 +1059,70 @@ const submitLeaveRequest = async () => {
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {/* ✅ NEW: Disclaimer + user chooses which balance is consumed first */}
+        <div className="rounded border p-3 text-sm space-y-2">
+          <div className="font-medium">Balance usage rule</div>
+
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Important:</span>{" "}
+            whichever balance you choose first will be used first as your leave
+            progresses. This affects refunds if you cancel while the leave is in
+            progress.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="flex items-start gap-2 rounded border p-2 cursor-pointer">
+              <input
+                type="radio"
+                name="consumptionOrder"
+                value="annual_first"
+                checked={consumptionOrder === "annual_first"}
+                onChange={() => {
+                  setConsumptionOrder("annual_first");
+                  setLeaveTermsAccepted(false);
+                }}
+              />
+              <div>
+                <div className="text-sm font-medium">Annual first</div>
+                <div className="text-xs text-muted-foreground">
+                  Annual days are consumed before Off Days.
+                </div>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-2 rounded border p-2 cursor-pointer">
+              <input
+                type="radio"
+                name="consumptionOrder"
+                value="off_first"
+                checked={consumptionOrder === "off_first"}
+                onChange={() => {
+                  setConsumptionOrder("off_first");
+                  setLeaveTermsAccepted(false);
+                }}
+              />
+              <div>
+                <div className="text-sm font-medium">Off Days first</div>
+                <div className="text-xs text-muted-foreground">
+                  Off Days are consumed before Annual.
+                </div>
+              </div>
+            </label>
+          </div>
+
+          <label className="flex items-center gap-2 pt-1">
+            <input
+              type="checkbox"
+              checked={!!leaveTermsAccepted}
+              onChange={(e) => setLeaveTermsAccepted(e.target.checked)}
+            />
+            <span className="text-xs">
+              I understand and agree —{" "}
+              <span className="font-medium">{orderLabel}</span>.
+            </span>
+          </label>
+        </div>
+
         {/* 1) Dates & trip type first — with half-day selectors */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
@@ -922,29 +1201,29 @@ const submitLeaveRequest = async () => {
         <div className="rounded border p-3 text-sm">
           <span className="font-medium">Number of days requested:</span>{" "}
           <span>
-  {startDate && endDate ? (
-    totalWeekdays > 0 ? (
-      `${requestedDays} ${requestedDays === 1 ? "day" : "days"}`
-    ) : (
-      "— invalid range —"
-    )
-  ) : (
-    `${requestedDays} ${requestedDays === 1 ? "day" : "days"}`
-  )}
-</span>
+            {startDate && endDate ? (
+              totalWeekdays > 0 ? (
+                `${requestedDays} ${requestedDays === 1 ? "day" : "days"}`
+              ) : (
+                "— invalid range —"
+              )
+            ) : (
+              `${requestedDays} ${requestedDays === 1 ? "day" : "days"}`
+            )}
+          </span>
 
-{holidaysInRange.length > 0 && (
-  <div className="text-xs text-muted-foreground mt-1">
-    ℹ️ {holidaysInRange.length} public holiday
-    {holidaysInRange.length > 1 ? "s are" : " is"} excluded from this range.
-  </div>
-)}
+          {holidaysInRange.length > 0 && (
+            <div className="text-xs text-muted-foreground mt-1">
+              ℹ️ {holidaysInRange.length} public holiday
+              {holidaysInRange.length > 1 ? "s are" : " is"} excluded from this
+              range.
+            </div>
+          )}
 
           {startDate &&
             endDate &&
             totalWeekdays > 0 &&
-            Math.round((Number(annualAlloc) + Number(offAlloc)) * 2) / 2 !==
-              requestedDays && (
+            sumAlloc !== requestedDays && (
               <span className="text-xs ml-2 text-amber-600">
                 (allocations must equal {requestedDays})
               </span>
@@ -957,17 +1236,24 @@ const submitLeaveRequest = async () => {
             type="button"
             variant="secondary"
             onClick={() => {
-              const balAnnual = Number(getAnnualBalance(user)) || 0;
-              const balOff = Number(getOffBalance(user)) || 0;
-
               const target = Number(requestedDays) || 0;
 
-              const annual = Math.min(balAnnual, target);
-              const remaining = Math.max(0, target - annual);
-              const off = Math.min(balOff, remaining);
+              if (consumptionOrder === "off_first") {
+                const off = Math.min(balOff, target);
+                const remaining = Math.max(0, target - off);
+                const annual = Math.min(balAnnual, remaining);
 
-              setAnnualAlloc(Math.round(annual * 2) / 2);
-              setOffAlloc(Math.round(off * 2) / 2);
+                setOffAlloc(Math.round(off * 2) / 2);
+                setAnnualAlloc(Math.round(annual * 2) / 2);
+              } else {
+                // annual_first (default)
+                const annual = Math.min(balAnnual, target);
+                const remaining = Math.max(0, target - annual);
+                const off = Math.min(balOff, remaining);
+
+                setAnnualAlloc(Math.round(annual * 2) / 2);
+                setOffAlloc(Math.round(off * 2) / 2);
+              }
             }}
             disabled={submitting || !(Number(requestedDays) > 0)}
           >
@@ -975,8 +1261,12 @@ const submitLeaveRequest = async () => {
           </Button>
 
           <p className="text-xs text-muted-foreground flex items-center">
-            Fills <strong className="mx-1">Annual</strong> first, then{" "}
-            <strong className="mx-1">Off Days</strong>.
+            Fills <strong className="mx-1">{orderLabel.split(" ")[0]}</strong>{" "}
+            first, then{" "}
+            <strong className="mx-1">
+              {consumptionOrder === "off_first" ? "Annual" : "Off Days"}
+            </strong>
+            .
           </p>
         </div>
 
@@ -986,14 +1276,14 @@ const submitLeaveRequest = async () => {
             <Label>
               Annual Leave to use{" "}
               <span className="text-muted-foreground">
-                (you have {getAnnualBalance(user)})
+                (you have {balAnnual})
               </span>
             </Label>
             <Input
               type="number"
               min={0}
               step={0.5}
-              max={getAnnualBalance(user)}
+              max={balAnnual}
               value={annualAlloc}
               onChange={(e) => {
                 let val = Number(e.target.value);
@@ -1002,11 +1292,10 @@ const submitLeaveRequest = async () => {
                 setAnnualAlloc(val);
               }}
             />
-            {Math.max(0, annualAlloc - getAnnualBalance(user)) > 0 && (
+            {Math.max(0, annualAlloc - balAnnual) > 0 && (
               <p className="text-xs text-red-600 mt-1">
-                You selected {annualAlloc} but only have{" "}
-                {getAnnualBalance(user)} Annual. Reduce by{" "}
-                {annualAlloc - getAnnualBalance(user)} or move days to Off.
+                You selected {annualAlloc} but only have {balAnnual} Annual.
+                Reduce by {annualAlloc - balAnnual} or move days to Off.
               </p>
             )}
           </div>
@@ -1014,15 +1303,13 @@ const submitLeaveRequest = async () => {
           <div>
             <Label>
               Off Days to use{" "}
-              <span className="text-muted-foreground">
-                (you have {getOffBalance(user)})
-              </span>
+              <span className="text-muted-foreground">(you have {balOff})</span>
             </Label>
             <Input
               type="number"
               min={0}
               step={0.5}
-              max={getOffBalance(user)}
+              max={balOff}
               value={offAlloc}
               onChange={(e) => {
                 let val = Number(e.target.value);
@@ -1031,11 +1318,10 @@ const submitLeaveRequest = async () => {
                 setOffAlloc(val);
               }}
             />
-            {Math.max(0, offAlloc - getOffBalance(user)) > 0 && (
+            {Math.max(0, offAlloc - balOff) > 0 && (
               <p className="text-xs text-red-600 mt-1">
-                You selected {offAlloc} but only have {getOffBalance(user)} Off
-                Days. Reduce by {offAlloc - getOffBalance(user)} or move days to
-                Annual.
+                You selected {offAlloc} but only have {balOff} Off Days. Reduce
+                by {offAlloc - balOff} or move days to Annual.
               </p>
             )}
           </div>
@@ -1055,17 +1341,16 @@ const submitLeaveRequest = async () => {
         <div className="rounded border p-3 text-sm grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <span className="font-medium">Annual:</span>{" "}
-            <span>{getAnnualBalance(user)}</span>
+            <span>{balAnnual}</span>
             <span className="text-blue-600 ml-2">
-              → {Math.max(0, getAnnualBalance(user) - Number(annualAlloc))}
+              → {Math.max(0, balAnnual - Number(annualAlloc))}
             </span>{" "}
             <span className="text-muted-foreground">(provisional)</span>
           </div>
           <div>
-            <span className="font-medium">Off Days:</span>{" "}
-            <span>{getOffBalance(user)}</span>
+            <span className="font-medium">Off Days:</span> <span>{balOff}</span>
             <span className="text-blue-600 ml-2">
-              → {Math.max(0, getOffBalance(user) - Number(offAlloc))}
+              → {Math.max(0, balOff - Number(offAlloc))}
             </span>{" "}
             <span className="text-muted-foreground">(provisional)</span>
           </div>
@@ -1077,13 +1362,12 @@ const submitLeaveRequest = async () => {
             onClick={submitLeaveRequest}
             disabled={
               submitting ||
+              !leaveTermsAccepted ||
               (startDate && endDate
-                ? totalWeekdays <= 0 ||
-                  Math.round((Number(annualAlloc) + Number(offAlloc)) * 2) / 2 !==
-                    requestedDays
+                ? totalWeekdays <= 0 || sumAlloc !== requestedDays
                 : requestedDays <= 0) ||
-              annualAlloc > getAnnualBalance(user) ||
-              offAlloc > getOffBalance(user)
+              annualAlloc > balAnnual ||
+              offAlloc > balOff
             }
           >
             {submitting ? "Submitting…" : "Submit Request"}
@@ -1102,6 +1386,8 @@ const submitLeaveRequest = async () => {
               setOffAlloc(0);
               setResumeOn("");
               setReason("");
+              setLeaveTermsAccepted(false);
+              setConsumptionOrder("annual_first");
             }}
             disabled={submitting}
           >
@@ -1109,7 +1395,7 @@ const submitLeaveRequest = async () => {
           </Button>
         </div>
 
-             {/* 8) My Requests (clean + filters + pagination) */}
+        {/* 8) My Requests (clean + filters + pagination) */}
         <div className="mt-4 border rounded">
           <div className="px-3 py-2 bg-muted/40 flex flex-col gap-2">
             <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -1125,7 +1411,10 @@ const submitLeaveRequest = async () => {
                     const n = Number(e.target.value);
                     const safe = [4, 6, 8].includes(n) ? n : 6;
                     setMyReqPerPage(safe);
-                    localStorage.setItem("myProfile.requestsPerPage", String(safe));
+                    localStorage.setItem(
+                      "myProfile.requestsPerPage",
+                      String(safe)
+                    );
                     setMyReqPage(1);
                   }}
                 >
@@ -1143,6 +1432,7 @@ const submitLeaveRequest = async () => {
                 { key: "all", label: "All" },
                 { key: "approved", label: "Approved" },
                 { key: "cancelled", label: "Cancelled" },
+                { key: "denied", label: "Denied" },
                 { key: "none", label: "None" },
               ].map((f) => (
                 <Button
@@ -1176,9 +1466,7 @@ const submitLeaveRequest = async () => {
             };
 
             const normalizeStatus = (s) => {
-              const v = String(s || "pending").toLowerCase();
-              if (v === "denied") return "cancelled";
-              return v;
+              return String(s || "pending").toLowerCase();
             };
 
             const today = new Date();
@@ -1186,7 +1474,7 @@ const submitLeaveRequest = async () => {
 
             const isCurrentRequest = (r) => {
               const status = normalizeStatus(r?.status);
-              if (status === "cancelled") return false;
+              if (status === "cancelled" || status === "denied") return false;
 
               if (status === "pending") return true;
 
@@ -1207,12 +1495,15 @@ const submitLeaveRequest = async () => {
               if (myReqFilter === "all") return true;
               if (myReqFilter === "approved") return status === "approved";
               if (myReqFilter === "cancelled") return status === "cancelled";
+              if (myReqFilter === "denied") return status === "denied";
               if (myReqFilter === "current") return isCurrentRequest(r);
 
               return true;
             };
 
-            const filtered = Array.isArray(myRequests) ? myRequests.filter(matchesFilter) : [];
+            const filtered = Array.isArray(myRequests)
+              ? myRequests.filter(matchesFilter)
+              : [];
 
             const total = filtered.length;
             const totalPages = Math.max(1, Math.ceil(total / myReqPerPage));
@@ -1237,23 +1528,52 @@ const submitLeaveRequest = async () => {
 
             const statusPill = (r) => {
               const s = normalizeStatus(r?.status);
-              const base = "inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium border";
-              if (s === "approved") return <span className={`${base} bg-emerald-50 border-emerald-200 text-emerald-700`}>Approved</span>;
-              if (s === "cancelled") return <span className={`${base} bg-rose-50 border-rose-200 text-rose-700`}>Cancelled</span>;
-              return <span className={`${base} bg-amber-50 border-amber-200 text-amber-700`}>Pending</span>;
+              const base =
+                "inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium border";
+              if (s === "approved")
+                return (
+                  <span
+                    className={`${base} bg-emerald-50 border-emerald-200 text-emerald-700`}
+                  >
+                    Approved
+                  </span>
+                );
+              if (s === "cancelled")
+                return (
+                  <span
+                    className={`${base} bg-rose-50 border-rose-200 text-rose-700`}
+                  >
+                    Cancelled
+                  </span>
+                );
+              if (s === "denied")
+                return (
+                  <span
+                    className={`${base} bg-slate-50 border-slate-200 text-slate-700`}
+                  >
+                    Denied
+                  </span>
+                );
+              return (
+                <span
+                  className={`${base} bg-amber-50 border-amber-200 text-amber-700`}
+                >
+                  Pending
+                </span>
+              );
             };
 
             const typePill = (r) => {
               const t = String(r?.type || "").toLowerCase();
-              const base = "inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium border bg-muted/30";
+              const base =
+                "inline-flex items-center rounded px-2 py-0.5 text-[11px] font-medium border bg-muted/30";
               if (t === "annual") return <span className={base}>Annual</span>;
-              if (t === "offday" || t === "off_day") return <span className={base}>Off Day</span>;
+              if (t === "offday" || t === "off_day")
+                return <span className={base}>Off Day</span>;
               return <span className={base}>Leave</span>;
             };
 
             // ✅ Show server truth for days + allocations:
-            // - requestedDays/totalWeekdays/days as fallback
-            // - if approved and server wrote appliedAnnual/appliedOff, show those
             const showDays = (r) =>
               r?.requestedDays ??
               r?.daysRequested ??
@@ -1276,15 +1596,25 @@ const submitLeaveRequest = async () => {
             };
 
             if (reqLoading) {
-              return <div className="p-3 text-sm text-muted-foreground">Loading…</div>;
+              return (
+                <div className="p-3 text-sm text-muted-foreground">Loading…</div>
+              );
             }
 
             if (myReqFilter === "none") {
-              return <div className="p-3 text-sm text-muted-foreground">(None) — showing no requests.</div>;
+              return (
+                <div className="p-3 text-sm text-muted-foreground">
+                  (None) — showing no requests.
+                </div>
+              );
             }
 
             if (!Array.isArray(myRequests) || myRequests.length === 0) {
-              return <div className="p-3 text-sm text-muted-foreground">No requests yet.</div>;
+              return (
+                <div className="p-3 text-sm text-muted-foreground">
+                  No requests yet.
+                </div>
+              );
             }
 
             if (filtered.length === 0) {
@@ -1293,10 +1623,14 @@ const submitLeaveRequest = async () => {
                   ? "No approved requests yet."
                   : myReqFilter === "cancelled"
                   ? "No cancelled requests."
+                  : myReqFilter === "denied"
+                  ? "No denied requests."
                   : myReqFilter === "current"
                   ? "You have no current requests."
                   : "No requests found.";
-              return <div className="p-3 text-sm text-muted-foreground">{msg}</div>;
+              return (
+                <div className="p-3 text-sm text-muted-foreground">{msg}</div>
+              );
             }
 
             return (
@@ -1308,7 +1642,8 @@ const submitLeaveRequest = async () => {
                     const o = Number(allocOff(r)) || 0;
                     const hasAlloc = a > 0 || o > 0;
 
-                    const editedBy = r?.lastEditedByName || r?.editedByName || "";
+                    const editedBy =
+                      r?.lastEditedByName || r?.editedByName || "";
                     const editedAt = r?.lastEditedAt || r?.editedAt || "";
 
                     return (
@@ -1323,48 +1658,69 @@ const submitLeaveRequest = async () => {
                           </div>
 
                           <div className="text-xs text-muted-foreground">
-                            {r?.createdAt ? new Date(r.createdAt).toLocaleString() : "—"}
+                            {r?.createdAt
+                              ? new Date(r.createdAt).toLocaleString()
+                              : "—"}
                           </div>
                         </div>
 
                         <div className="mt-2 text-sm">
                           <div className="font-medium">
-                            {formatLeaveDate(r.startDate)} → {formatLeaveDate(r.endDate)}
+                            {formatLeaveDate(r.startDate)} →{" "}
+                            {formatLeaveDate(r.endDate)}
                           </div>
 
                           <div className="text-xs text-muted-foreground mt-1">
-                            Returns: <span className="font-medium">{formatLeaveDate(returnISO(r))}</span>
+                            Returns:{" "}
+                            <span className="font-medium">
+                              {formatLeaveDate(returnISO(r))}
+                            </span>
                           </div>
                         </div>
 
                         <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
                           <div>
-                            <span className="font-medium text-foreground">Days:</span> {showDays(r)}
+                            <span className="font-medium text-foreground">
+                              Days:
+                            </span>{" "}
+                            {showDays(r)}
                           </div>
                           <div>
-                            <span className="font-medium text-foreground">Alloc:</span>{" "}
+                            <span className="font-medium text-foreground">
+                              Alloc:
+                            </span>{" "}
                             {hasAlloc ? `${a} Annual / ${o} Off` : "—"}
                           </div>
                         </div>
 
-                        {status === "approved" && (r?.appliedAnnual != null || r?.appliedOff != null) && (
-                          <div className="mt-2 text-[11px] text-gray-600">
-                            ✅ Applied (server): Annual {Number(r?.appliedAnnual ?? 0)} • Off {Number(r?.appliedOff ?? 0)}
-                          </div>
-                        )}
+                        {status === "approved" &&
+                          (r?.appliedAnnual != null ||
+                            r?.appliedOff != null) && (
+                            <div className="mt-2 text-[11px] text-gray-600">
+                              ✅ Applied (server): Annual{" "}
+                              {Number(r?.appliedAnnual ?? 0)} • Off{" "}
+                              {Number(r?.appliedOff ?? 0)}
+                            </div>
+                          )}
 
                         {(editedBy || editedAt) && (
                           <div className="mt-2 text-[11px] text-gray-500">
-                            Edited by {editedBy || "—"} at {editedAt ? new Date(editedAt).toLocaleString() : "—"}
+                            Edited by {editedBy || "—"} at{" "}
+                            {editedAt
+                              ? new Date(editedAt).toLocaleString()
+                              : "—"}
                           </div>
                         )}
 
                         {r?.reason ? (
-                          <div className="mt-2 text-sm whitespace-pre-wrap">{r.reason}</div>
+                          <div className="mt-2 text-sm whitespace-pre-wrap">
+                            {r.reason}
+                          </div>
                         ) : null}
 
                         {/* Admin note (clean toggle) */}
-                        {["approved", "cancelled"].includes(status) && r?.decisionNote ? (
+                        {["approved", "cancelled"].includes(status) &&
+                        r?.decisionNote ? (
                           <div className="mt-2">
                             <Button
                               type="button"
@@ -1372,10 +1728,14 @@ const submitLeaveRequest = async () => {
                               variant="ghost"
                               className="h-7 px-2 text-xs"
                               onClick={() =>
-                                setExpandedRequestId((prev) => (prev === r.id ? null : r.id))
+                                setExpandedRequestId((prev) =>
+                                  prev === r.id ? null : r.id
+                                )
                               }
                             >
-                              {expandedRequestId === r.id ? "Hide admin note" : "View admin note"}
+                              {expandedRequestId === r.id
+                                ? "Hide admin note"
+                                : "View admin note"}
                             </Button>
 
                             {expandedRequestId === r.id && (
@@ -1393,7 +1753,8 @@ const submitLeaveRequest = async () => {
                 {/* Pagination */}
                 <div className="flex items-center justify-between pt-2">
                   <div className="text-xs text-muted-foreground">
-                    Showing {Math.min(total, startIdx + 1)}–{Math.min(total, startIdx + myReqPerPage)} of {total}
+                    Showing {Math.min(total, startIdx + 1)}–
+                    {Math.min(total, startIdx + myReqPerPage)} of {total}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -1417,10 +1778,12 @@ const submitLeaveRequest = async () => {
                       size="sm"
                       variant="outline"
                       className="h-7 px-2 text-xs"
-                      onClick={() => setMyReqPage((p) => Math.min(totalPages, p + 1))}
+                      onClick={() =>
+                        setMyReqPage((p) => Math.min(totalPages, p + 1))
+                      }
                       disabled={page >= totalPages}
                     >
-                      Next →
+                      Next →{" "}
                     </Button>
                   </div>
                 </div>
