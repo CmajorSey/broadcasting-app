@@ -77,17 +77,26 @@ function App() {
   const { toast } = useToast();
 
     // ✅ Install one global "unlock audio" handler (fixes Chrome autoplay restrictions)
-  useEffect(() => {
+    useEffect(() => {
+    // ✅ Install one global "unlock audio" handler (fixes Chrome autoplay restrictions)
     installSoundUnlockOnGesture();
+
+    // ✅ Load vehicles once so FleetPage gets real data
+    const loadVehicles = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/vehicles`);
+        if (!res.ok) throw new Error(`Failed to load vehicles (${res.status})`);
+
+        const data = await res.json().catch(() => []);
+        setVehicles(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("Failed to load vehicles:", err);
+        setVehicles([]);
+      }
+    };
+
+    loadVehicles();
   }, []);
-
-
-    // ============================================================
-  // 🔔 Global alert helper (single source of truth)
-  // - Dedupes across Push (onMessage) + Poll (/notifications) + Local Emits
-  // - Respects global toggles
-  // - Sound plays ONLY for global notifications
-  // ============================================================
 
   /* ===========================
      🔊 Global Toast/Sound starts here
@@ -118,14 +127,28 @@ function App() {
   async (note) => {
     if (!note) return;
 
-    // 🧪 DEBUG: mark that a GLOBAL notification fired
-    setDebugBanner({
-      title: note.title || "Untitled notification",
-      ts: new Date().toLocaleTimeString(),
-    });
-
-    // auto-clear after 3s
-    setTimeout(() => setDebugBanner(null), 3000);
+    // ✅ Hard gate: if we already know this doesn't match the logged-in user, never alert
+    if (note.__recipientMatch === false) {
+      try {
+        setDebugBanner({
+          at: new Date().toISOString(),
+          source: note.__source || "unknown",
+          key: "",
+          toastEnabled:
+            localStorage.getItem("notificationToastsEnabled") !== "false",
+          soundEnabled:
+            localStorage.getItem("notificationSoundsEnabled") !== "false",
+          urgent: !!note.urgent,
+          category: String(note.category || "admin").toLowerCase(),
+          title: note.title || "",
+          hasRecipientMatch: false,
+          note: "Skipped: recipient mismatch",
+        });
+      } catch {
+        // ignore
+      }
+      return;
+    }
 
     const toastEnabled =
       localStorage.getItem("notificationToastsEnabled") !== "false";
@@ -135,6 +158,15 @@ function App() {
     const urgent = !!note.urgent;
     const category = String(note.category || "admin").toLowerCase();
 
+    // ✅ Use the best timestamp available
+    const rawTs = note.timestamp || note._ts || note.ts;
+    const noteTs = new Date(rawTs || 0).getTime();
+
+    // ✅ Persistent “already alerted up to here” guard (survives refresh)
+    const LAST_SEEN_KEY = "loBoard.lastSeenNotifTs.global";
+    const lastSeen = Number(localStorage.getItem(LAST_SEEN_KEY) || 0);
+
+    // ✅ Build a stable key for per-session dedupe (poll + push + double events)
     const key = makeNotifKey({
       timestamp: note.timestamp,
       title: note.title,
@@ -142,648 +174,254 @@ function App() {
       fallbackTs: note._ts || note.ts,
     });
 
-    // ✅ Dedupes across poll + push + local emits
+    // ✅ Session dedupe first
     if (handledNotifKeysRef.current.has(key)) return;
-    handledNotifKeysRef.current.add(key);
 
-    // -----------------------------
-    // ✅ GLOBAL RULE: self action = toast only (no sound), regardless of role
-    // -----------------------------
-    const actorRaw =
-      note.actor ??
-      note.createdBy ??
-      note.sender ??
-      note.from ??
-      note.author ??
-      note.by;
-
-    const actor = String(actorRaw || "").trim().toLowerCase();
-    const me = String(loggedInUser?.name || "").trim().toLowerCase();
-
-    const isSelf = !!me && !!actor && actor === me;
-
-    // -----------------------------
-    // ✅ Ticket toast formatting (rich info when available)
-    // -----------------------------
-    const t = note.ticket || null;
-
-    const fmtTimeLine = () => {
-      const date = t?.date || t?.shootDate || t?.day || "";
-      const filming = t?.filmingTime || "";
-      const depart = t?.departureTime || "";
-      const bits = [];
-
-      if (date) bits.push(`📅 ${date}`);
-      if (filming && depart) bits.push(`⏱️ Film ${filming} • Depart ${depart}`);
-      else if (filming) bits.push(`⏱️ Film ${filming}`);
-      else if (depart) bits.push(`⏱️ Depart ${depart}`);
-
-      return bits.join("\n");
-    };
-
-    const fmtAssignments = () => {
-      const lines = [];
-
-      const loc = t?.location || t?.address || "";
-      if (loc) lines.push(`📍 ${loc}`);
-
-      const status = t?.status || t?.assignmentStatus || "";
-      if (status) lines.push(`✅ Status: ${status}`);
-
-      const camOps = Array.isArray(t?.assignedCamOps)
-        ? t.assignedCamOps.filter(Boolean)
-        : [];
-      if (camOps.length) lines.push(`🎥 Cam Ops: ${camOps.join(", ")}`);
-
-      const driver = t?.assignedDriver || "";
-      if (driver) lines.push(`🚗 Driver: ${driver}`);
-
-      const vehicleLabel =
-        typeof t?.vehicle === "string"
-          ? t.vehicle
-          : t?.vehicle?.name || t?.vehicle?.label || "";
-      const plate = t?.vehicle?.licensePlate || t?.licensePlate || "";
-      if (vehicleLabel || plate) {
-        lines.push(
-          `🚙 Vehicle: ${[vehicleLabel, plate ? `(${plate})` : ""]
-            .filter(Boolean)
-            .join(" ")}`
-        );
-      }
-
-      const reporter = t?.assignedReporter || "";
-      if (reporter) lines.push(`📰 ${reporter}`);
-
-      return lines.join("\n");
-    };
-
-    const ticketDetails =
-      category === "ticket" && t
-        ? [fmtTimeLine(), fmtAssignments()].filter(Boolean).join("\n")
-        : "";
-
-    // -----------------------------
-    // ✅ Auto-dismiss rules
-    // - Urgent ADMIN messages should NOT auto-disappear
-    // - Everything else auto-disappears
-    // -----------------------------
-    const stickyUrgentAdmin = urgent && category !== "ticket";
-    const duration = stickyUrgentAdmin ? 1000000 : category === "ticket" ? 6500 : 5000;
-
-    if (toastEnabled) {
-      toast({
-        title: note.title || (category === "ticket" ? "Ticket update" : "New notification"),
-        description:
-          ticketDetails ||
-          note.message ||
-          "",
-        variant: urgent ? "destructive" : undefined,
-        duration,
-      });
-    }
-
-    // ✅ Only play sound if it is NOT your own action
-    if (soundEnabled && !isSelf) {
+    // ✅ Refresh-safe guard second (prevents re-toast/re-sound after reload)
+    if (Number.isFinite(noteTs) && noteTs > 0 && noteTs <= lastSeen) {
       try {
-        await playSoundFor({
-          category: note.category || "admin",
+        setDebugBanner({
+          at: new Date().toISOString(),
+          source: note.__source || "unknown",
+          key,
+          toastEnabled,
+          soundEnabled,
           urgent,
-          scope: "global",
+          category,
+          title: note.title || "",
+          hasRecipientMatch: true,
+          note: `Skipped: <= lastSeen (${new Date(lastSeen).toISOString()})`,
         });
       } catch {
         // ignore
       }
-    }
-  },
-  [toast, loggedInUser?.name]
-);
-
-  // ============================================================
-  // 📡 Local Emit Listener (Tickets + any other feature emits)
-  // Listens for:
-  // - window CustomEvent("loBoard:notify", { detail: note })
-  // - BroadcastChannel "loBoard" messages: { type:"notify", note }
-  // Routes all incoming notes into fireGlobalAlert (dedupe stays inside helper)
-  // ============================================================
-  useEffect(() => {
-    const onNotifyEvent = (e) => {
-      const note = e?.detail;
-      if (!note) return;
-      fireGlobalAlert(note);
-    };
-
-    // 🎟️ TicketPage emits: window CustomEvent("loBoard:ticketEvent", { detail })
-    // Bridge ticketEvent detail → global "note" shape (so it reuses dedupe + toast + sound)
-    const onTicketEvent = (e) => {
-  const d = e?.detail;
-  if (!d) return;
-
-  // We accept either:
-  // - detail.ticket (recommended)
-  // - detail.payload / detail.data (fallback)
-  const ticket = d.ticket || d.payload || d.data || null;
-
-  // Build a better message fallback if ticket is not included
-  const fallbackMsgParts = [];
-  if (d.message) fallbackMsgParts.push(d.message);
-  if (!d.message && ticket?.location) fallbackMsgParts.push(`📍 ${ticket.location}`);
-  const fallbackMsg = fallbackMsgParts.join("\n");
-
-  fireGlobalAlert({
-    title: d.title || "Ticket update",
-    message: fallbackMsg || "",
-    category: "ticket",
-    urgent: !!d.urgent,
-    ticket, // ✅ this is what enables rich ticket toast details
-    actor: d.actor || ticket?.updatedBy || ticket?.createdBy || ticket?.actor,
-    // Prefer ISO timestamp for stable dedupe key
-    timestamp:
-      d.timestamp ||
-      (d.ts ? new Date(d.ts).toISOString() : new Date().toISOString()),
-    // Keep a fallback numeric ts too (optional)
-    ts: d.ts || Date.now(),
-  });
-};
-
-    window.addEventListener("loBoard:notify", onNotifyEvent);
-    window.addEventListener("loBoard:ticketEvent", onTicketEvent);
-
-    let ch = null;
-    if (typeof BroadcastChannel !== "undefined") {
-      try {
-        ch = new BroadcastChannel("loBoard");
-        ch.onmessage = (ev) => {
-          const data = ev?.data;
-          if (!data) return;
-
-          if (data.type === "notify" && data.note) {
-            fireGlobalAlert(data.note);
-          }
-        };
-      } catch {
-        // ignore
-      }
-    }
-
-      return () => {
-      window.removeEventListener("loBoard:notify", onNotifyEvent);
-      window.removeEventListener("loBoard:ticketEvent", onTicketEvent);
-      try {
-        if (ch) ch.close();
-      } catch {
-        // ignore
-      }
-    };
-  }, [fireGlobalAlert]);
-
-  /* =========================
-     🔊 Global Toast/Sound ends here
-     ========================= */
-
-
-    useEffect(() => {
-    if (
-      !loggedInUser &&
-      location.pathname !== "/login" &&
-      location.pathname !== "/set-password"
-    ) {
-      navigate("/login");
-    }
-  }, [loggedInUser, location.pathname, navigate]);
-
-  useEffect(() => {
-    fetch(`${API_BASE}/users`)
-      .then((res) => res.json())
-      .then((data) => setUsers(data))
-      .catch((err) => console.error("Failed to load users:", err));
-  }, []);
-
-  useEffect(() => {
-    fetch(`${API_BASE}/vehicles`)
-      .then((res) => res.json())
-      .then((data) => setVehicles(data))
-      .catch((err) => console.error("Failed to load vehicles:", err));
-  }, []);
-
-  useEffect(() => {
-    const fetchTickets = async () => {
-      try {
-        const response = await fetch(`${API_BASE}/tickets`);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        const data = await response.json();
-        setTickets(data);
-      } catch (error) {
-        console.error("Failed to fetch tickets from backend:", error);
-        setTickets([]);
-      }
-    };
-
-    fetchTickets();
-  }, []);
-
-   useEffect(() => {
-    localStorage.setItem("loggedInUser", JSON.stringify(loggedInUser));
-  }, [loggedInUser]);
-
-  // ✅ Persist adminViewAs when changed via UI (and clear it when not admin)
-  useEffect(() => {
-    if (!isAdmin) {
-      try {
-        localStorage.removeItem("adminViewAs");
-      } catch {
-        // ignore
-      }
-      if (adminViewAs) setAdminViewAs(null);
       return;
     }
 
+    // ✅ Mark as handled for this session immediately (prevents double fires)
+    handledNotifKeysRef.current.add(key);
+
+    // ✅ Debug stamp (always)
     try {
-      if (adminViewAs) localStorage.setItem("adminViewAs", JSON.stringify(adminViewAs));
-      else localStorage.removeItem("adminViewAs");
-    } catch {
-      // ignore
-    }
-  }, [adminViewAs, isAdmin]);
-
-  // ✅ Sync adminViewAs from localStorage (restores "testing prowess" even when you edit LS manually)
-  useEffect(() => {
-    if (!isAdmin) return;
-
-    let lastRaw = null;
-
-    const read = () => {
-      try {
-        const raw = localStorage.getItem("adminViewAs");
-        if (raw === lastRaw) return;
-        lastRaw = raw;
-
-        const parsed = raw ? JSON.parse(raw) : null;
-
-        // Only update state if it actually changed
-        const same =
-          (!!parsed && !!adminViewAs && parsed.id === adminViewAs.id) ||
-          (!parsed && !adminViewAs);
-
-        if (!same) setAdminViewAs(parsed);
-      } catch {
-        // If JSON is malformed during manual edits, don't crash the app
-      }
-    };
-
-    // read immediately, then poll lightly
-    read();
-    const t = setInterval(read, 800);
-
-    // also listen for cross-tab changes
-    const onStorage = (e) => {
-      if (e.key === "adminViewAs") read();
-    };
-    window.addEventListener("storage", onStorage);
-
-    return () => {
-      clearInterval(t);
-      window.removeEventListener("storage", onStorage);
-    };
-  }, [isAdmin, adminViewAs]);
-
-  useEffect(() => {
-    localStorage.setItem("archivedTickets", JSON.stringify(archivedTickets));
-  }, [archivedTickets]);
-
-  useEffect(() => {
-    localStorage.setItem("deletedTickets", JSON.stringify(deletedTickets));
-  }, [deletedTickets]);
-
-  const requestedPushOnceRef = useRef(false);
-
-  useEffect(() => {
-    if (requestedPushOnceRef.current) return; // avoid React 18 dev-mode double-call
-    requestedPushOnceRef.current = true;
-
-    (async () => {
-      try {
-        const token = await requestPermission();
-        if (token) {
-          console.log("🎯 FCM Token:", token);
-          // TODO: optionally POST token to backend to associate with loggedInUser
-        } else {
-          // Silent: user denied or unsupported; no warning spam
-        }
-      } catch (err) {
-        console.error("Failed to initialize notifications:", err);
-      }
-    })();
-  }, []);
-
-           useEffect(() => {
-    const unsubscribe = onMessage((payload) => {
-      const { title, body } = payload?.notification || {};
-      const data = payload?.data || {};
-
-      if (!title || !body) return;
-
-      const urgent =
-        data?.urgent === "true" ||
-        data?.urgent === true ||
-        data?.priority === "urgent";
-
-      const category = data?.category || "admin";
-
-      // Try to use a stable ts from push data if present
-      const ts = data?.ts || data?.timestamp || Date.now();
-
-      fireGlobalAlert({
-        title,
-        message: body,
+      setDebugBanner({
+        at: new Date().toISOString(),
+        source: note.__source || "unknown",
+        key,
+        toastEnabled,
+        soundEnabled,
         urgent,
         category,
-        // Push may not include a server timestamp; use push ts as dedupe key
-        _ts: `push:${ts}`,
+        title: note.title || "",
+        hasRecipientMatch: true,
+        note: note.__note || "",
       });
-    });
-
-    return () => {
-      if (typeof unsubscribe === "function") unsubscribe();
-    };
-  }, [toast, loggedInUser?.id]);
-
-   // Migrate users with legacy 'role' field
-  useEffect(() => {
-    if (!users?.length) return;
-
-    const migrated = users.map((user) => {
-      if (!user.roles && user.role) {
-        return { ...user, roles: [user.role], role: undefined };
-      }
-      return user;
-    });
-
-    const needsMigration = migrated.some((u, i) => users[i]?.role);
-
-    // Prevent useless setState loops
-    if (needsMigration) setUsers(migrated);
-  }, [users]);
-   const firedTestPushOnceRef = useRef(false);
-
-  // ✅ Optional: manual test push (DISABLED by default)
-  // Turn ON only when you are actively testing push delivery.
-  useEffect(() => {
-    const ENABLE_TEST_PUSH = false; // 👈 flip to true temporarily when needed
-    if (!ENABLE_TEST_PUSH) return;
-
-    if (firedTestPushOnceRef.current) return; // avoid double-fire in dev
-    firedTestPushOnceRef.current = true;
-
-    const testPush = async () => {
-      // ⚠️ Keep your test token here OR wire in the freshly obtained token.
-      const token =
-        "cZuEcPz4jfZHlZlJOuFhwm:APA91bGTDvUBe1VVEhu8ZlUWdFkTWHYFBzwa2G8bFWhwSDtrrz0INZSSVkUYrcfSXZps3MamCkp9ihXaiuBUXmu6Bx1VlCmqz2FnhWqpcATBbotYW1SNnA4";
-
-      try {
-        const response = await fetch(`${API_BASE}/send-push`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            token,
-            title: "🎬 New Ticket Assigned",
-            body: "You’ve been assigned to a ticket at Anse Royale!",
-            data: { source: "app-test", ts: String(Date.now()) },
-          }),
-        });
-
-        const result = await response.json().catch(() => ({}));
-
-        if (response.status === 207) {
-          console.warn("Push partial success:", result);
-        } else if (!response.ok) {
-          console.error("Push failed:", result);
-        } else {
-          console.log("Push OK:", result);
-        }
-      } catch (err) {
-        console.error("Push request error:", err);
-      }
-    };
-
-    testPush();
-  }, []);
-
-   // ============================================================
-  // 🔔 Global Notifications Controller (SINGLE SOURCE OF TRUTH)
-  // - Polls backend notifications
-  // - Respects user prefs from localStorage (set in MyProfile)
-  // - Fires toast + sound globally
-  // - Updates navbar unread badge
-  // ============================================================
-  useEffect(() => {
-    if (!loggedInUser?.id || !loggedInUser?.name) return;
-
-    // If a controller already exists (React 18 dev / hot reload / relogin),
-    // only keep it if it's for the SAME user. Otherwise, tear it down safely.
-    try {
-      const existing = window.__loBoardNotifController;
-      if (existing?.userId && existing.userId !== loggedInUser.id) {
-        existing.cleanup?.();
-        window.__loBoardNotifController = null;
-      }
     } catch {
       // ignore
     }
 
-    // 🚦 Singleton guard (prevents double polling in React 18 dev)
-    if (window.__loBoardNotifController?.userId === loggedInUser.id) return;
+    if (toastEnabled) {
+      toast({
+        title: note.title || "New notification",
+        description: note.message || "",
+        variant: urgent ? "destructive" : undefined,
+      });
+    }
 
-    const controller = new AbortController();
-    const state = {
-      bootstrapped: false, // suppress alerts on first successful load
-      lastSeenMs: 0,       // track newest notification timestamp we've handled
-    };
-
-    const getSectionFromUser = (u) => {
-      if (!u) return "N/A";
-      const name = (u.name || "").toLowerCase();
-      const desc = (u.description || "").toLowerCase();
-
-      if (["clive camille", "jennifer arnephy", "gilmer philoe"].includes(name)) return "Admin";
-      if (desc.includes("sports journalist")) return "Sports Section";
-      if (desc.includes("journalist")) return "Newsroom";
-      if (/cam ?op|camera ?operator|operations/.test(desc)) return "Operations";
-      if (desc.includes("producer") || desc.includes("production")) return "Production";
-
-      return u.section || "Unspecified";
-    };
-
-    const normalizeDismissed = () => {
+    if (soundEnabled) {
       try {
-        const raw = JSON.parse(localStorage.getItem("dismissedNotifications") || "[]");
-        return new Set(
-          raw
-            .map((t) => {
-              try {
-                return new Date(t).toISOString().split(".")[0] + "Z";
-              } catch {
-                return null;
-              }
-            })
-            .filter(Boolean)
-        );
+        await playSoundFor({
+          category,
+          urgent,
+          scope: "global",
+          label: note.action || note.label || note.state || note.eventLabel,
+        });
       } catch {
-        return new Set();
+        // ignore
+      }
+    }
+
+    // ✅ Advance persistent last-seen AFTER we’ve “processed” the note
+    try {
+      if (Number.isFinite(noteTs) && noteTs > 0) {
+        const next = Math.max(lastSeen, noteTs);
+        localStorage.setItem(LAST_SEEN_KEY, String(next));
+      }
+    } catch {
+      // ignore
+    }
+  },
+  [toast]
+);
+
+  // ✅ NEW: Global notifications wiring (POLL + PUSH) lives here
+  useEffect(() => {
+    const myName = String(loggedInUser?.name || "").trim();
+    if (!myName) {
+      setDebugBanner({
+        at: new Date().toISOString(),
+        source: "bootstrap",
+        key: "",
+        toastEnabled:
+          localStorage.getItem("notificationToastsEnabled") !== "false",
+        soundEnabled:
+          localStorage.getItem("notificationSoundsEnabled") !== "false",
+        urgent: false,
+        category: "admin",
+        title: "",
+        hasRecipientMatch: false,
+        note: "No loggedInUser.name – global alerts disabled",
+      });
+      return;
+    }
+
+    let cancelled = false;
+    let timer = null;
+
+    const syncUnread = (visibleList) => {
+      try {
+        const n = Array.isArray(visibleList) ? visibleList.length : 0;
+        localStorage.setItem("loBoard.unreadCount", String(n));
+        window.dispatchEvent(new CustomEvent("loBoard:unread"));
+      } catch {
+        // ignore
       }
     };
 
     const poll = async () => {
-      // Skip polling when tab is hidden (saves battery); will refresh on visibilitychange.
-      if (document.hidden) return;
-
       try {
-        const [nRes, gRes] = await Promise.all([
-          fetch(`${API_BASE}/notifications`, { signal: controller.signal }),
-          fetch(`${API_BASE}/notification-groups`, { signal: controller.signal }),
-        ]);
-
-        if (!nRes.ok || !gRes.ok) return;
-
-        const allNotifications = await nRes.json().catch(() => []);
-        const allGroups = await gRes.json().catch(() => []);
-
-        const dismissed = normalizeDismissed();
-        const section = getSectionFromUser(loggedInUser);
-
-        const myGroups = Array.isArray(allGroups)
-          ? allGroups.filter((g) => Array.isArray(g.userIds) && g.userIds.includes(loggedInUser.id))
-          : [];
-        const myGroupIds = myGroups.map((g) => g.id);
-
-        const relevant = (Array.isArray(allNotifications) ? allNotifications : [])
-          .filter((note) => {
-            try {
-              const ts = new Date(note.timestamp);
-              if (isNaN(ts)) return false;
-
-              const key = ts.toISOString().split(".")[0] + "Z";
-              if (dismissed.has(key)) return false;
-
-              const recips = Array.isArray(note.recipients) ? note.recipients : [];
-              const norm = (v) => String(v || "").trim().toLowerCase();
-              const rn = recips.map(norm);
-
-              const isAll = rn.includes("all") || rn.includes("*");
-
-              // ✅ Role buckets (global truth)
-              const rolesArr = Array.isArray(loggedInUser?.roles)
-                ? loggedInUser.roles
-                : loggedInUser?.role
-                ? [loggedInUser.role]
-                : [];
-              const myRoles = rolesArr.map(norm);
-
-              const isAdmin = myRoles.includes("admin");
-              const isDriver = myRoles.includes("driver") || myRoles.includes("driver_limited");
-
-              const adminBuckets = new Set(["admin", "admins", "admins:", "administrators", "administrator"]);
-              const driverBuckets = new Set(["driver", "drivers", "driver_limited"]);
-
-              const hitAdminBucket = rn.some((x) => adminBuckets.has(x));
-              const hitDriverBucket = rn.some((x) => driverBuckets.has(x));
-
-              return (
-                isAll ||
-
-                // Direct recipient targeting
-                rn.includes(norm(loggedInUser.name)) ||
-                rn.includes(norm(loggedInUser.id)) ||
-                rn.includes(norm(section)) ||
-
-                // Group targeting by group id
-                recips.some((r) => myGroupIds.includes(r)) ||
-
-                // ✅ Bucket targeting by role
-                (isAdmin && hitAdminBucket) ||
-                (isDriver && hitDriverBucket)
-              );
-            } catch {
-              return false;
-            }
-          })
-          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-        // 📌 Update navbar unread badge
-        try {
-          localStorage.setItem("loBoard.unreadCount", String(relevant.length));
-          window.dispatchEvent(new CustomEvent("loBoard:unread"));
-        } catch {
-          // ignore
-        }
-
-        // First successful load → DO NOT play sound / toast
-        if (!state.bootstrapped) {
-          state.bootstrapped = true;
-          state.lastSeenMs = relevant[0] ? new Date(relevant[0].timestamp).getTime() : 0;
+        const res = await fetch(`${API_BASE}/notifications`);
+        if (!res.ok) {
+          setDebugBanner((prev) => ({
+            ...(prev || {}),
+            at: new Date().toISOString(),
+            source: "poll",
+            note: `Fetch failed (${res.status})`,
+          }));
           return;
         }
 
-        const newest = relevant[0];
-        const newestMs = newest ? new Date(newest.timestamp).getTime() : 0;
+        const all = await res.json().catch(() => []);
+        const list = Array.isArray(all) ? all : [];
 
-        // No new notifications
-        if (!newestMs || newestMs <= state.lastSeenMs) return;
+        const mine = list.filter(
+          (n) => Array.isArray(n?.recipients) && n.recipients.includes(myName)
+        );
 
-        // Mark as seen first (prevents double-fire if toast() throws)
-        state.lastSeenMs = newestMs;
+        const dismissedRaw =
+          JSON.parse(localStorage.getItem("dismissedNotifications") || "[]") || [];
+        const dismissed = new Set(
+          Array.isArray(dismissedRaw) ? dismissedRaw.filter(Boolean) : []
+        );
 
-        const toastEnabled =
-          localStorage.getItem("notificationToastsEnabled") !== "false";
-        const soundEnabled =
-          localStorage.getItem("notificationSoundsEnabled") !== "false";
+        const visible = mine
+          .filter((n) => {
+            const k = makeNotifKey({
+              timestamp: n?.timestamp,
+              title: n?.title,
+              message: n?.message,
+              fallbackTs: n?._ts || n?.ts,
+            });
+            return !dismissed.has(k);
+          })
+          .sort((a, b) => {
+            const ta = new Date(a?.timestamp || 0).getTime();
+            const tb = new Date(b?.timestamp || 0).getTime();
+            return tb - ta;
+          });
 
-              // ✅ Single source of truth for alerts + dedupe
-        fireGlobalAlert({
-          title: newest?.title || "New notification",
-          message: newest?.message || "",
-          urgent: !!newest?.urgent,
-          category: newest?.category || "admin",
-          timestamp: newest?.timestamp,
-        });
-      } catch (err) {
-        if (err?.name !== "AbortError") {
-          console.warn("[App] Notification poll error:", err);
+        syncUnread(visible);
+
+        for (const n of visible) {
+          if (cancelled) break;
+          await fireGlobalAlert({
+            ...n,
+            __source: "poll",
+            __recipientMatch: true,
+          });
         }
+
+        setDebugBanner((prev) => ({
+          ...(prev || {}),
+          at: new Date().toISOString(),
+          source: "poll",
+          note: `OK (${visible.length} visible)`,
+        }));
+      } catch (err) {
+        setDebugBanner((prev) => ({
+          ...(prev || {}),
+          at: new Date().toISOString(),
+          source: "poll",
+          note: err?.message || "Poll error",
+        }));
       }
     };
 
-    // Run immediately and then frequently (so you don’t have to “wait 2 minutes”)
-    poll();
-    const interval = setInterval(poll, 15000); // ✅ 15s
-
-    const onVis = () => {
-      if (document.visibilityState === "visible") poll();
-    };
-    document.addEventListener("visibilitychange", onVis);
-
-    const cleanup = () => {
-      document.removeEventListener("visibilitychange", onVis);
-      clearInterval(interval);
-      controller.abort();
-    };
-
-    window.__loBoardNotifController = { userId: loggedInUser.id, cleanup };
-
-    return () => {
+    // 🔔 PUSH listener (foreground messages)
+    const unsubscribe = onMessage((payload) => {
       try {
-        window.__loBoardNotifController?.cleanup?.();
+        const title =
+          payload?.notification?.title ||
+          payload?.data?.title ||
+          "New notification";
+        const message =
+          payload?.notification?.body ||
+          payload?.data?.message ||
+          payload?.data?.body ||
+          "";
+
+        const category = payload?.data?.category || "admin";
+        const urgent =
+          payload?.data?.urgent === "true" || payload?.data?.urgent === true;
+
+        let recipients = [];
+        const rawRec = payload?.data?.recipients;
+        if (typeof rawRec === "string") {
+          try {
+            const parsed = JSON.parse(rawRec);
+            recipients = Array.isArray(parsed) ? parsed : [];
+          } catch {
+            recipients = rawRec
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+          }
+        } else if (Array.isArray(rawRec)) {
+          recipients = rawRec;
+        }
+
+        const matches = recipients.length === 0 ? true : recipients.includes(myName);
+
+        fireGlobalAlert({
+          title,
+          message,
+          category,
+          urgent,
+          timestamp: payload?.data?.timestamp || new Date().toISOString(),
+          recipients,
+          __source: "push",
+          __recipientMatch: matches,
+        });
       } catch {
         // ignore
       }
-      window.__loBoardNotifController = null;
+    });
+
+    // Optional: ensure permission/token setup (safe to call)
+    try {
+      requestPermission(loggedInUser);
+    } catch {
+      // ignore
+    }
+
+    poll();
+    timer = setInterval(poll, 15000);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+      if (typeof unsubscribe === "function") unsubscribe();
     };
-  }, [
-    loggedInUser?.id,
-    loggedInUser?.name,
-    loggedInUser?.description,
-    loggedInUser?.section,
-    toast,
-  ]);
+  }, [loggedInUser?.name, fireGlobalAlert]);
 
   // ✅ NEW: Heartbeat that stamps "lastOnline" for the logged-in user
   const onlineHeartbeatRef = useRef(null);
@@ -964,10 +602,9 @@ function App() {
       </div>
 
       {!hideLayout && <Footer />}
-      {showChangelog && <ChangelogDialog open={true} onClose={handleCloseChangelog} />}
-
-      {/* 🔔 Global admin toasts appear across the entire app */}
-      <AdminGlobalToasts loggedInUser={loggedInUser} />
+      {showChangelog && (
+        <ChangelogDialog open={true} onClose={handleCloseChangelog} />
+      )}
 
       <Toaster toastOptions={{ position: "top-center" }} />
     </>

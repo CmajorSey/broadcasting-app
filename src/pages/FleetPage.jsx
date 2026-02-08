@@ -412,7 +412,9 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
   // ---------------- UI ----------------
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold">Fleet Management</h1>
+      <div className="space-y-1">
+        <h1 className="text-2xl font-bold">Fleet Management</h1>
+      </div>
 
       {canEdit && (
         <div className="flex flex-wrap gap-2 justify-between items-center">
@@ -536,19 +538,17 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
                   )}
                 </div>
 
-                 {!(isAdmin || isDriver) && (
-    <span
-      className={`text-sm font-medium mt-1 sm:mt-0 ${
-        v.status === "Available"
-          ? "text-green-700"
-          : v.status === "In Garage"
-          ? "text-yellow-700"
-          : "text-red-700"
-      }`}
-    >
-      {v.status}
-    </span>
-  )}
+                        <span
+                  className={`text-sm font-medium mt-1 sm:mt-0 ${
+                    v.status === "Available"
+                      ? "text-green-700"
+                      : v.status === "In Garage"
+                      ? "text-yellow-700"
+                      : "text-red-700"
+                  }`}
+                >
+                  {v.status}
+                </span>
 
               </div>
 
@@ -584,11 +584,9 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
                 </div>
               )}
 
-                       {!(isAdmin || isDriver) && (
-            <p className="text-sm text-gray-600">
-              <strong>Note:</strong> {v.notes || "No notes"}
-            </p>
-          )}
+                          <p className="text-sm text-gray-600">
+                  <strong>Note:</strong> {v.notes || "No notes"}
+                </p>
 
 
               {(isAdmin || isDriver) ? (

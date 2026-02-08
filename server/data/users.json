@@ -7,8 +7,8 @@
       "admin"
     ],
     "offDayBalance": 5,
-    "updatedAt": "2026-02-08T15:12:37.446Z",
-    "lastOnline": "2026-02-08T15:12:37.414Z",
+    "updatedAt": "2026-02-08T17:03:17.069Z",
+    "lastOnline": "2026-02-08T17:03:17.056Z",
     "lastLoginAt": "2026-02-06T05:32:52.040Z",
     "lastLogin": "2026-02-06T05:32:52.051Z"
   },
@@ -338,8 +338,8 @@
     "hiddenRoles": [],
     "password": "123456789",
     "requiresPasswordReset": false,
-    "leaveBalance": 14,
-    "annualLeave": 14,
+    "leaveBalance": 19,
+    "annualLeave": 19,
     "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
     "offDays": 20,
     "fcmToken": "cZuEcPz4jfZHlZlJOuFhwm:APA91bGTDvUBe1VVEhu8ZlUWdFkTWHYFBzwa2G8bFWhwSDtrrz0INZSSVkUYrcfSXZps3MamCkp9ihXaiuBUXmu6Bx1VlCmqz2FnhWqpcATBbotYW1SNnA4",
@@ -347,8 +347,8 @@
     "forcePasswordChange": false,
     "lastLoginAt": "2026-02-08T13:00:07.084Z",
     "lastLogin": "2026-02-08T13:00:07.115Z",
-    "updatedAt": "2026-02-08T15:14:27.740Z",
-    "lastOnline": "2026-02-08T15:14:27.413Z",
+    "updatedAt": "2026-02-08T17:04:00.436Z",
+    "lastOnline": "2026-02-08T17:04:00.427Z",
     "offDayBalance": 20
   },
   {

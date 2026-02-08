@@ -259,15 +259,15 @@
     "type": "annual",
     "localOrOverseas": "local",
     "startDate": "2026-02-16",
-    "endDate": "2026-02-20",
-    "resumeOn": "2026-02-23",
-    "days": 5,
+    "endDate": "2026-02-19",
+    "resumeOn": "2026-02-20",
+    "days": 4,
     "allocations": {
       "annual": 5,
       "off": 0
     },
     "reason": "",
-    "status": "approved",
+    "status": "cancelled",
     "createdAt": "2026-02-08T14:01:53.658Z",
     "decidedAt": "2026-02-08T14:02:04.553Z",
     "decidedBy": "Admin",
@@ -275,7 +275,7 @@
     "halfDayStart": "none",
     "halfDayEnd": "none",
     "useOffDays": false,
-    "appliedAnnual": 5,
+    "appliedAnnual": 4,
     "appliedOff": 0,
     "applied": true,
     "appliedAt": "2026-02-08T14:02:04.553Z",
@@ -284,9 +284,13 @@
     "approverId": null,
     "approverName": "Admin",
     "decisionNote": "",
-    "lastEditedAt": "2026-02-08T14:14:25.592Z",
+    "lastEditedAt": "2026-02-08T16:58:40.455Z",
     "lastEditedById": null,
     "lastEditedByName": "Admin",
-    "editNote": ""
+    "editNote": "",
+    "cancelledAt": "2026-02-08T16:58:40.455Z",
+    "cancelledReturnDate": "2026-02-20",
+    "refundedAnnual": 4,
+    "refundedOff": 0
   }
 ]

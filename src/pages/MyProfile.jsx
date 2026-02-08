@@ -44,23 +44,6 @@ const getOffBalance = (u) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-// ✅ Small helper row used by Notification Preferences
-function PrefRow({ label, checked, onChange, disabled = false }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <Label className={disabled ? "opacity-60" : ""}>{label}</Label>
-      <Switch
-        checked={!!checked}
-        disabled={disabled}
-        onCheckedChange={(v) => {
-          if (disabled) return;
-          if (typeof onChange === "function") onChange(!!v);
-        }}
-      />
-    </div>
-  );
-}
-
 export default function MyProfile({
   loggedInUser,          // ✅ this is now the EFFECTIVE user from App (adminViewAs || loggedInUser)
   realLoggedInUser = null,
@@ -280,51 +263,12 @@ export default function MyProfile({
     run();
   }, [loggedInUser?.id]);
 
+    // -----------------------------
+  // Notification preferences (masters only)
   // -----------------------------
-  // Notification per-category prefs (MUST be top-level hook)
-  // -----------------------------
-  const PREF_KEY = "notificationPrefs";
+  // NOTE: Per-category prefs removed for now (future update)
 
-  const loadPrefs = () => {
-    try {
-      return (
-        JSON.parse(localStorage.getItem(PREF_KEY)) || {
-          leave: {},
-          admin: {},
-          suggestion: {},
-          fleet: {},
-          ticket: {},
-        }
-      );
-    } catch {
-      return {
-        leave: {},
-        admin: {},
-        suggestion: {},
-        fleet: {},
-        ticket: {},
-      };
-    }
-  };
-
-  const [prefs, setPrefs] = useState(loadPrefs);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
-    } catch {
-      // ignore storage errors
-    }
-  }, [prefs]);
-
-  const updatePref = (group, key, value) => {
-    setPrefs((prev) => ({
-      ...prev,
-      [group]: { ...(prev?.[group] || {}), [key]: value },
-    }));
-  };
-
-    const getSection = (u = user) => {
+  const getSection = (u = user) => {
     if (!u) return "N/A";
     const name = u.name || "";
     const desc = u.description?.toLowerCase() || "";
@@ -347,21 +291,6 @@ export default function MyProfile({
 
     return u.section || "Unspecified";
   };
-
-  const isAdmin = useMemo(() => {
-    return (
-      getSection(user) === "Admin" ||
-      String(user?.description || "").toLowerCase().includes("admin")
-    );
-  }, [user?.description, user?.name, user]);
-
-  const isDriver = useMemo(() => {
-    if (Array.isArray(user?.roles)) {
-      return user.roles.some((r) => String(r).toLowerCase().includes("driver"));
-    }
-    return String(user?.roles || "").toLowerCase().includes("driver");
-  }, [user?.roles]);
-
   // -----------------------------
   // Notifications Inbox (inbox-only: NO toast, NO sound)
   // -----------------------------
@@ -678,15 +607,18 @@ const handleSuggestionSubmit = async () => {
         </CardContent>
       </Card>
 
-           {/* Notification Settings (Collapsible) */}
-        <Collapsible
+        {/* Notification Settings (Collapsible) */}
+      <Collapsible
         defaultOpen={false}
         onOpenChange={(open) => {
-          localStorage.setItem("myProfile.notifPrefsOpen", open ? "true" : "false");
+          localStorage.setItem(
+            "myProfile.notifPrefsOpen",
+            open ? "true" : "false"
+          );
         }}
       >
         <Card>
-               <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Notification Preferences</CardTitle>
               <p className="text-xs text-muted-foreground mt-1">
@@ -716,9 +648,10 @@ const handleSuggestionSubmit = async () => {
               </button>
             </CollapsibleTrigger>
           </CardHeader>
+
           <CollapsibleContent>
             <CardContent className="space-y-6 text-sm">
-              {/* Global toggles */}
+              {/* Master toggles only */}
               <div className="space-y-3">
                 <div className="flex items-center space-x-3">
                   <Switch
@@ -731,106 +664,25 @@ const handleSuggestionSubmit = async () => {
                       );
                     }}
                   />
-                  <Label>
-                    Show pop-up messages anywhere in the app
-                  </Label>
+                  <Label>Show pop-up messages anywhere in the app</Label>
                 </div>
 
                 <div className="flex items-center space-x-3">
                   <Switch
                     checked={soundEnabled}
                     onCheckedChange={async (checked) => {
-                  setSoundEnabled(checked);
-                  setSoundEnabledStorage(checked);
-                  if (checked) await unlockSounds();
-                }}
+                      setSoundEnabled(checked);
+                      setSoundEnabledStorage(checked);
+                      if (checked) await unlockSounds();
+                    }}
                   />
-              <Label>
-                Play a sound when a new notification arrives
-              </Label>
-                </div>
-              </div>
-
-                           {/* Per-category preferences */}
-              <div className="space-y-6">
-                {/* Leave */}
-                <div className="space-y-2">
-                  <h4 className="font-medium">Leave Management</h4>
-                  <PrefRow
-                    label="My leave approved / denied"
-                    checked={prefs.leave?.decision}
-                    onChange={(v) => updatePref("leave", "decision", v)}
-                  />
-                  <PrefRow
-                    label="My leave edited or cancelled"
-                    checked={prefs.leave?.edit}
-                    onChange={(v) => updatePref("leave", "edit", v)}
-                  />
+                  <Label>Play a sound when a new notification arrives</Label>
                 </div>
 
-                {/* Fleet (role-gated) */}
-                {(isAdmin || isDriver) && (
-                  <div className="space-y-2">
-                    <h4 className="font-medium">Fleet</h4>
-
-                    <PrefRow
-                      label="Vehicle availability changes"
-                      checked={prefs.fleet?.availability}
-                      onChange={(v) => updatePref("fleet", "availability", v)}
-                    />
-
-                    {(isAdmin ||
-                      String(user?.roles || "")
-                        .toLowerCase()
-                        .includes("full")) && (
-                      <>
-                        <PrefRow
-                          label="License expiry warnings"
-                          checked={prefs.fleet?.license}
-                          onChange={(v) => updatePref("fleet", "license", v)}
-                        />
-                        <PrefRow
-                          label="Insurance expiry warnings"
-                          checked={prefs.fleet?.insurance}
-                          onChange={(v) => updatePref("fleet", "insurance", v)}
-                        />
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {/* Admin */}
-                <div className="space-y-2">
-                  <h4 className="font-medium">Admin & System</h4>
-                  <PrefRow
-                    label="Admin messages"
-                    checked={prefs.admin?.message}
-                    onChange={(v) => updatePref("admin", "message", v)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Urgent admin messages always notify globally.
-                  </p>
-                </div>
-
-                {/* Suggestions */}
-                <div className="space-y-2">
-                  <h4 className="font-medium">Suggestions</h4>
-                  <PrefRow
-                    label="Replies to my suggestions"
-                    checked={prefs.suggestion?.reply}
-                    onChange={(v) => updatePref("suggestion", "reply", v)}
-                  />
-                </div>
-
-                {/* Tickets */}
-                <div className="space-y-2">
-                  <h4 className="font-medium">Tickets</h4>
-                  <PrefRow
-                    label="Ticket assigned or state changed"
-                    checked={prefs.ticket?.state}
-                    onChange={(v) => updatePref("ticket", "state", v)}
-                  />
-                </div>
+                <p className="text-xs text-muted-foreground pt-2">
+                  More detailed notification controls will return in a future
+                  update.
+                </p>
               </div>
             </CardContent>
           </CollapsibleContent>

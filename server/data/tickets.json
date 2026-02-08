@@ -1136,5 +1136,89 @@
     "assignedDriverFrom": "Nelson Joseph",
     "additionalDrivers": [],
     "assignedBy": "Admin"
+  },
+  {
+    "id": "1770567583498",
+    "title": "agv",
+    "type": "News",
+    "category": "",
+    "subtype": "",
+    "date": "2026-02-08T20:20",
+    "location": "Town",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "20:20",
+    "filmingTime": "20:20",
+    "assignedCamOps": [
+      "Christopher Gabriel"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Naila D'acambra"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-08T16:19:43.498Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin"
+  },
+  {
+    "id": "1770569771107",
+    "title": "new",
+    "type": "News",
+    "category": "",
+    "subtype": "",
+    "date": "2026-02-08T20:55",
+    "location": "State House",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "20:55",
+    "filmingTime": "20:55",
+    "assignedCamOps": [
+      "Christopher Gabriel"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Clive Camille"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-08T16:56:11.107Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin"
   }
 ]

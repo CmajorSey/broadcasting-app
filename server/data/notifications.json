@@ -91,5 +91,417 @@
     "timestamp": "2026-02-08T15:09:13.971Z",
     "category": "admin",
     "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:16:45.351Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → In Garage",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:17:14.597Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:17:34.211Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → In Garage",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:18:15.895Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:18:45.653Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "🆕 New Request Created",
+    "message": "agv • 2026-02-08 20:20 • Town",
+    "recipients": [
+      "Admin",
+      "Christopher Gabriel",
+      "Naila D'acambra",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-08T16:19:44.512Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "agv",
+    "recipients": [
+      "Admin",
+      "Christopher Gabriel",
+      "Nelson Joseph",
+      "Naila D'acambra",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-08T16:20:01.874Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "123",
+    "recipients": [
+      "Admin",
+      "Christopher Gabriel",
+      "Nelson Joseph",
+      "Patsy Edmond",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-08T16:20:30.550Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → In Garage",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:30:11.667Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:31:43.939Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → In Garage",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:31:58.288Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:32:00.708Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → In Garage",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:43:50.996Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:44:18.293Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → In Garage",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:53:27.511Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:54:24.595Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → In Garage",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:55:25.854Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-08T16:55:49.011Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "🆕 New Request Created",
+    "message": "new • 2026-02-08 20:55 • State House",
+    "recipients": [
+      "Admin",
+      "Christopher Gabriel",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-08T16:56:12.132Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "new",
+    "recipients": [
+      "Admin",
+      "Christopher Gabriel",
+      "Nelson Joseph",
+      "Andy Henriette",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-08T16:56:43.031Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "new",
+    "recipients": [
+      "Admin",
+      "Christopher Gabriel",
+      "Nelson Joseph",
+      "Clive Camille",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-08T16:57:18.761Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "new",
+    "recipients": [
+      "Admin",
+      "Christopher Gabriel",
+      "Nelson Joseph",
+      "Andy Henriette",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-08T16:57:52.331Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "✏️ Leave updated",
+    "message": "Old: 2026-02-16 → 2026-02-20\nNew: 2026-02-16 → 2026-02-19\nChange: -1 day(s)\nApplied now: Annual 4 / Off 0\nBy: Admin",
+    "recipients": [
+      "1752899830269",
+      "Christopher Gabriel"
+    ],
+    "timestamp": "2026-02-08T16:58:27.184Z",
+    "category": "leave",
+    "urgent": false
+  },
+  {
+    "title": "🛑 Leave cancelled",
+    "message": "Return to work: 2026-02-20\nRefund: Annual 4 / Off 0\nBy: Admin",
+    "recipients": [
+      "1752899830269",
+      "Christopher Gabriel"
+    ],
+    "timestamp": "2026-02-08T16:58:40.530Z",
+    "category": "leave",
+    "urgent": true
+  },
+  {
+    "title": "test",
+    "message": "test",
+    "recipients": [
+      "Christopher Gabriel"
+    ],
+    "timestamp": "2026-02-08T16:59:04.007Z",
+    "category": "admin",
+    "urgent": true
+  },
+  {
+    "title": "Ticket updated",
+    "message": "new",
+    "recipients": [
+      "Admin",
+      "Christopher Gabriel",
+      "Nelson Joseph",
+      "Clive Camille",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-08T17:03:47.224Z",
+    "category": "admin",
+    "urgent": false
   }
 ]

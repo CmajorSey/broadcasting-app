@@ -107,32 +107,25 @@ export const unlockSounds = async () => {
  * }
  */
 const pickSoundUrl = (input = {}) => {
+  const category = String(input.category || "admin").toLowerCase();
+
   // 🔕 Inbox-only notifications never play sound
   if (input.scope !== "global") return null;
 
-  // 🔒 Urgent admin override
-  if (input.urgent) return SOUND.urgent;
+  // 🔒 Urgent admin/system override (ONLY)
+  if (input.urgent && (category === "admin" || category === "system")) return SOUND.urgent;
 
   // 🎟️ Tickets (all states, one sound for now)
-  // Future-ready: allow ticket emitters to pass a label like:
-  // { category:"ticket", action:"Postponed" } or { category:"ticket", label:"Assigned" }
-  if (input.category === "ticket") {
-    const label =
-      input.action ||
-      input.label ||
-      input.state ||
-      input.eventLabel ||
-      null;
-
+  if (category === "ticket") {
+    const label = input.action || input.label || input.state || input.eventLabel || null;
     if (label && TICKET_SOUND_MAP[label]) return TICKET_SOUND_MAP[label];
-
-    // Default ticket sound
     return SOUND.ticket;
   }
 
   // ✅ Everything else
   return SOUND.generic;
 };
+
 
 // -----------------------------
 // Playback
