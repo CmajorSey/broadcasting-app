@@ -650,7 +650,162 @@ console.log("✅ All users data (effective):", effectiveUsers);
   };
 
   // B) NEW — handleSubmit (no fallback; keeps reporter empty if not chosen)
+
+/* ===========================
+   🔊 Sound setting starts here
+   Ticket toast/sound triggers will be wired ONLY inside this section.
+   =========================== */
+
 const { toast } = useToast();
+
+/**
+ * Emit hooks for App-level listeners (toast/sound/push, etc.)
+ * - loBoard:ticketCreated → raw ticket detail
+ * - loBoard:notify → shaped note that matches fireGlobalAlert(note)
+ */
+const emitTicketCreated = (ticket) => {
+  try {
+    const urgent =
+      ticket?.priority === "Urgent" ||
+      ticket?.priority === "High" ||
+      ticket?.urgent === true;
+
+    const when =
+      typeof ticket?.date === "string" && ticket.date.includes("T")
+        ? ticket.date.replace("T", " ")
+        : ticket?.date || "";
+
+    const actor = loggedInUser?.name || "Unknown";
+
+    // ✅ IMPORTANT: App.jsx expects category === "ticket" (singular)
+    const note = {
+      title: "🆕 New Request Created",
+      message: `${ticket?.title || "Untitled"}${when ? ` • ${when}` : ""}${
+        ticket?.location ? ` • ${ticket.location}` : ""
+      }`,
+      category: "ticket",
+      urgent,
+      timestamp: new Date().toISOString(),
+      actor,
+      // helpful extras (ignored safely if your listener doesn’t use them)
+      ticketId: ticket?.id,
+      ticketType: ticket?.type,
+      ticket, // ✅ allows rich toast formatting
+    };
+
+    // Same-tab listeners (keep for compatibility)
+    window.dispatchEvent(
+      new CustomEvent("loBoard:ticketCreated", { detail: { ticket } })
+    );
+
+    // ✅ Main rich-ticket channel (App.jsx listens to this)
+    window.dispatchEvent(
+      new CustomEvent("loBoard:ticketEvent", {
+        detail: {
+          title: note.title,
+          message: note.message,
+          category: "ticket",
+          urgent,
+          actor,
+          ticketId: ticket?.id,
+          ticket,
+          ts: Date.now(),
+          timestamp: new Date().toISOString(),
+          action: "Created",
+        },
+      })
+    );
+
+    // ✅ Also emit shaped notify (App.jsx listens to this too)
+    window.dispatchEvent(new CustomEvent("loBoard:notify", { detail: note }));
+
+    // Optional cross-tab broadcast (safe no-op if unsupported)
+    if (typeof BroadcastChannel !== "undefined") {
+      const ch = new BroadcastChannel("loBoard");
+      ch.postMessage({ type: "notify", note });
+      ch.close();
+    }
+  } catch {
+    // never block submit flow
+  }
+};
+
+/**
+ * ✅ Backend notification emit (Fleet-style)
+ * This is what makes OTHER tabs (Admin view as X) react via App.jsx polling.
+ * Non-blocking by design.
+ */
+const sendTicketNotification = async (ticket) => {
+  try {
+    const actor = loggedInUser?.name || "Unknown";
+
+    const urgent =
+      ticket?.priority === "Urgent" ||
+      ticket?.priority === "High" ||
+      ticket?.urgent === true;
+
+    const when =
+      typeof ticket?.date === "string" && ticket.date.includes("T")
+        ? ticket.date.replace("T", " ")
+        : ticket?.date || "";
+
+    // Recipients (safe + flexible)
+    const recipients = new Set();
+
+    // Actor
+    recipients.add(actor);
+
+    // Assigned crew (if present)
+    if (Array.isArray(ticket?.assignedCamOps)) {
+      ticket.assignedCamOps.filter(Boolean).forEach((n) => recipients.add(n));
+    }
+    if (ticket?.assignedDriver) recipients.add(ticket.assignedDriver);
+
+    // Reporter field sometimes includes prefixes like "Journalist: Name"
+    if (ticket?.assignedReporter) {
+      const raw = String(ticket.assignedReporter);
+      const cleaned = raw.includes(":")
+        ? raw.split(":").slice(1).join(":").trim()
+        : raw.trim();
+      if (cleaned) recipients.add(cleaned);
+      else recipients.add(raw.trim());
+    }
+
+    // ✅ Admins (match Fleet behavior)
+    recipients.add("Admins");
+    recipients.add("admin");
+    recipients.add("admins");
+
+    const payload = {
+      title: "🆕 New Request Created",
+      message: `${ticket?.title || "Untitled"}${when ? ` • ${when}` : ""}${
+        ticket?.location ? ` • ${ticket.location}` : ""
+      }`,
+      recipients: Array.from(recipients),
+      timestamp: new Date().toISOString(),
+
+      // ✅ IMPORTANT: App.jsx expects category === "ticket" (singular)
+      category: "ticket",
+      urgent: !!urgent,
+
+      // ✅ enrich so App poller → fireGlobalAlert can show details
+      actor,
+      ticketId: ticket?.id,
+      ticketType: ticket?.type,
+      ticket, // safe to store in JSON backend; ignored if not used
+    };
+
+    await fetch(`${API_BASE}/notifications`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    // Never break TicketForm if notifications fail
+    console.warn("Ticket notification failed (non-blocking):", err);
+  }
+};
+
 const handleSubmit = async (e) => {
   e.preventDefault();
 
@@ -678,7 +833,10 @@ const handleSubmit = async (e) => {
       alert("Please select or enter a Scope of Work.");
       return;
     }
-    if (!Array.isArray(formData.assignedTechnicians) || formData.assignedTechnicians.length === 0) {
+    if (
+      !Array.isArray(formData.assignedTechnicians) ||
+      formData.assignedTechnicians.length === 0
+    ) {
       alert("Please assign at least one technician.");
       return;
     }
@@ -724,11 +882,16 @@ const handleSubmit = async (e) => {
       ? formData.date.split("T")[1]?.slice(0, 5)
       : "";
 
-    const isEfpOrLive = formData.shootType === "EFP" || formData.shootType === "Live";
+    const isEfpOrLive =
+      formData.shootType === "EFP" || formData.shootType === "Live";
+
     const safeCrew = Array.isArray(formData.crewAssignments)
       ? formData.crewAssignments
           .filter((r) => r && r.role && Array.isArray(r.assignees))
-          .map((r) => ({ role: String(r.role).trim(), assignees: r.assignees.filter(Boolean) }))
+          .map((r) => ({
+            role: String(r.role).trim(),
+            assignees: r.assignees.filter(Boolean),
+          }))
       : [];
 
     newTicket = {
@@ -778,16 +941,28 @@ const handleSubmit = async (e) => {
     setFormData(getInitialFormData(loggedInUser));
     console.log("✅ Ticket submitted to backend by:", name);
 
+      // ✅ 1) Write to backend notifications feed (so OTHER tabs can react via App.jsx poller)
+    await sendTicketNotification(savedTicket);
+
+    // ✅ 2) Same-tab + optional cross-tab emit (kept as-is)
+    emitTicketCreated(savedTicket);
+
     toast({
-      title: "✅ Request Created",
-      description: "Your request was successfully submitted.",
-      duration: 2000,
-    });
+  title: "✅ Request Created",
+  description: `${savedTicket?.title || "Untitled"}${
+    savedTicket?.date ? ` • ${String(savedTicket.date).replace("T", " ")}` : ""
+  }${savedTicket?.location ? ` • ${savedTicket.location}` : ""}`,
+  duration: 4500,
+});
   } catch (error) {
     console.error("❌ Error submitting request:", error);
     alert("Request submission failed. Please try again.");
   }
 };
+
+/* =========================
+   🔊 Sound setting ends here
+   ========================= */
 
 
   const removeFromList = (item, setList) => {

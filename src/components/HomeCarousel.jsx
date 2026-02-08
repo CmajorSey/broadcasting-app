@@ -111,7 +111,25 @@ visibleTickets.forEach((ticket) => {
 });
 
 const myTickets = tickets
-  .filter((t) => !t.deleted)
+  .filter((t) => {
+    // handle boolean OR "true"/"false" strings safely
+    const deletedLike =
+      t.deleted === true ||
+      t.deleted === 1 ||
+      t.deleted === "1" ||
+      (typeof t.deleted === "string" && t.deleted.toLowerCase() === "true") ||
+      !!t.deletedAt;
+
+    const archivedLike =
+      t.archived === true ||
+      t.archived === 1 ||
+      t.archived === "1" ||
+      (typeof t.archived === "string" && t.archived.toLowerCase() === "true") ||
+      !!t.archivedAt ||
+      t.assignmentStatus === "Archived";
+
+    return !deletedLike && !archivedLike;
+  })
   .filter(
     (t) =>
       (Array.isArray(t.assignedCamOps) &&

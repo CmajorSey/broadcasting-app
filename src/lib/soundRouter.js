@@ -1,172 +1,182 @@
 // src/lib/soundRouter.js
-// Single sound router + player (Vite public/ -> served from "/sounds/...")
+// Central sound router
+// SIMPLE RULES (for now):
+// - All NON-ticket notifications → lo_leave_approved.wav
+// - Urgent admin notifications → lo_notify_urgent.wav
+// - ALL ticket notifications → lo_ticket_assigned.wav
+// - Sound plays ONLY for global notifications
 
-const STORAGE_SOUNDS_ENABLED = "notificationSoundsEnabled"; // "true"/"false"
+const STORAGE_SOUNDS_ENABLED = "notificationSoundsEnabled"; // "true" / "false"
 
+// 🔊 Sound library
 const SOUND = {
-  notify_new: "/sounds/lo_notify_new.mp3",
-  notify_urgent: "/sounds/lo_notify_urgent.mp3",
+  generic: "/sounds/lo_leave_approved.wav",
+  urgent: "/sounds/lo_notify_urgent.wav",
+  // ✅ Tickets: single sound for now (per your rule)
+  ticket: "/sounds/lo_ticket_assigned.mp3",
+};
 
-  ticket_assigned: "/sounds/lo_ticket_assigned.mp3",
-  ticket_updated: "/sounds/lo_ticket_updated.mp3",
-  ticket_cancelled: "/sounds/lo_ticket_cancelled.mp3",
-  ticket_completed: "/sounds/lo_ticket_completed.mp3",
-
-  fleet_rental_warning: "/sounds/lo_fleet_rental_warning.mp3",
-  fleet_rental_expired: "/sounds/lo_fleet_rental_expired.mp3",
-
-  leave_submitted: "/sounds/lo_leave_submitted.mp3",
-  leave_approved: "/sounds/lo_leave_approved.mp3",
-  leave_denied: "/sounds/lo_leave_denied.mp3",
-
-  auth_password_reset_request: "/sounds/lo_auth_password_reset_request.mp3",
-
-  suggestion_new: "/sounds/lo_suggestion_new.mp3",
+// ✅ Ticket label → sound mapping (future-proof)
+// Later you can change only the right-hand side values per label.
+const TICKET_SOUND_MAP = {
+  Assigned: SOUND.ticket,
+  Updated: SOUND.ticket,
+  Modified: SOUND.ticket, // alias (optional but helpful)
+  Postponed: SOUND.ticket,
+  Cancelled: SOUND.ticket,
+  Completed: SOUND.ticket,
 };
 
 const audioCache = new Map(); // url -> Audio
 
-const safeLower = (v) => String(v || "").toLowerCase();
-
-// --- unlock state (per tab/session) ---
-let _unlockAttempted = false;
-let _unlocked = false;
-let _unlockInstalled = false;
-
-export const isSoundEnabled = () => {
-  // default ON unless explicitly set to "false"
-  return localStorage.getItem(STORAGE_SOUNDS_ENABLED) !== "false";
-};
+// -----------------------------
+// Preferences
+// -----------------------------
+export const isSoundEnabled = () =>
+  localStorage.getItem(STORAGE_SOUNDS_ENABLED) !== "false";
 
 export const setSoundEnabled = (enabled) => {
   localStorage.setItem(STORAGE_SOUNDS_ENABLED, enabled ? "true" : "false");
 };
 
-export const isAudioUnlocked = () => _unlocked;
+// -----------------------------
+// Audio unlock (browser autoplay)
+// -----------------------------
+let _unlockInstalled = false;
+let _unlocked = false;
 
-const pickSoundKey = (input = {}) => {
-  // Highest priority: explicit soundKey (future-proof)
-  const explicit = input?.soundKey || input?.data?.soundKey;
-  if (explicit && SOUND[explicit]) return explicit;
-
-  // Normalize common fields
-  const kind = safeLower(input?.kind);
-  const title = safeLower(input?.title);
-  const message = safeLower(input?.message || input?.body || input?.description);
-
-  // Password reset request (you already use kind on these)
-  if (kind === "password_reset_request") return "auth_password_reset_request";
-
-  // Suggestions
-  if (kind.includes("suggest") || title.includes("suggestion")) return "suggestion_new";
-
-  // Fleet rental notices
-  if (title.includes("rental") || message.includes("rental")) {
-    if (title.includes("expired") || message.includes("expired") || title.includes("yesterday")) {
-      return "fleet_rental_expired";
-    }
-    return "fleet_rental_warning";
-  }
-
-  // Leave decisions
-  if (title.includes("leave") || message.includes("leave")) {
-    if (title.includes("approved") || message.includes("approved")) return "leave_approved";
-    if (title.includes("denied") || message.includes("denied")) return "leave_denied";
-    if (title.includes("submitted") || message.includes("submitted")) return "leave_submitted";
-  }
-
-  // Tickets
-  if (title.includes("ticket") || message.includes("ticket")) {
-    if (title.includes("assigned") || message.includes("assigned")) return "ticket_assigned";
-    if (title.includes("cancel") || message.includes("cancel")) return "ticket_cancelled";
-    if (title.includes("complete") || message.includes("complete")) return "ticket_completed";
-    return "ticket_updated";
-  }
-
-  // Urgent
-  if (title.includes("urgent") || message.includes("urgent")) return "notify_urgent";
-
-  // Default
-  return "notify_new";
-};
-
-export const getSoundUrl = (input = {}) => {
-  const key = pickSoundKey(input);
-  return SOUND[key] || null;
-};
-
-// ✅ Install a one-time unlock attempt on the first user gesture anywhere.
-// Call this early (e.g., in MyProfile useEffect) — it won't play sound until the user taps/clicks.
 export const installSoundUnlockOnGesture = () => {
   if (_unlockInstalled) return;
   _unlockInstalled = true;
 
+  // IMPORTANT:
+  // Do NOT use { once:true } here, because the first user gesture might happen
+  // while sounds are disabled. If that happens, the listener is removed and
+  // sounds will NEVER unlock later even if the user enables them.
   const handler = async () => {
-    // Only try if sounds are enabled
+    if (_unlocked) return;
     if (!isSoundEnabled()) return;
 
     try {
       await unlockSounds();
     } catch {
-      // ignore
+      // keep listeners; user can try again on next gesture
+    }
+
+    // remove listeners ONLY after a successful unlock
+    if (_unlocked) {
+      window.removeEventListener("pointerdown", handler);
+      window.removeEventListener("keydown", handler);
     }
   };
 
-  // pointerdown covers mouse + touch; keydown covers keyboard navigation
-  window.addEventListener("pointerdown", handler, { once: true, passive: true });
-  window.addEventListener("keydown", handler, { once: true });
+  window.addEventListener("pointerdown", handler, { passive: true });
+  window.addEventListener("keydown", handler);
 };
 
 export const unlockSounds = async () => {
-  // Best-effort: try to unlock audio playback on user gesture
-  // IMPORTANT: this must run inside a user gesture (click/tap/keydown).
-  if (_unlockAttempted && _unlocked) return;
-
-  _unlockAttempted = true;
-
   try {
-    const url = SOUND.notify_new;
-    if (!url) return;
+    const a = new Audio(SOUND.generic);
 
-    const a = new Audio(url);
+    // Using muted warmup is more reliable than volume=0 in some setups
+    a.muted = true;
     a.preload = "auto";
-    a.volume = 0.0; // silent unlock
-    await a.play();
+
+    const p = a.play(); // must be called in the gesture chain
+    if (p && typeof p.then === "function") await p;
+
     a.pause();
     a.currentTime = 0;
 
     _unlocked = true;
   } catch {
-    // If we hit autoplay lock, keep unlocked=false (we'll retry on next gesture)
     _unlocked = false;
   }
 };
 
+
+// -----------------------------
+// Sound selection (INTENT ONLY)
+// -----------------------------
+/**
+ * Expected input shape:
+ * {
+ *   category: "ticket" | "leave" | "fleet" | "admin" | "suggestion" | "system",
+ *   urgent: boolean,
+ *   scope: "global" | "inbox"
+ * }
+ */
+const pickSoundUrl = (input = {}) => {
+  // 🔕 Inbox-only notifications never play sound
+  if (input.scope !== "global") return null;
+
+  // 🔒 Urgent admin override
+  if (input.urgent) return SOUND.urgent;
+
+  // 🎟️ Tickets (all states, one sound for now)
+  // Future-ready: allow ticket emitters to pass a label like:
+  // { category:"ticket", action:"Postponed" } or { category:"ticket", label:"Assigned" }
+  if (input.category === "ticket") {
+    const label =
+      input.action ||
+      input.label ||
+      input.state ||
+      input.eventLabel ||
+      null;
+
+    if (label && TICKET_SOUND_MAP[label]) return TICKET_SOUND_MAP[label];
+
+    // Default ticket sound
+    return SOUND.ticket;
+  }
+
+  // ✅ Everything else
+  return SOUND.generic;
+};
+
+// -----------------------------
+// Playback
+// -----------------------------
 export const playSoundFor = async (input = {}, opts = {}) => {
-  const enabled = typeof opts.enabled === "boolean" ? opts.enabled : isSoundEnabled();
+  const enabled =
+    typeof opts.enabled === "boolean" ? opts.enabled : isSoundEnabled();
+
   if (!enabled) return;
 
-  const url = getSoundUrl(input);
+  const url = pickSoundUrl(input);
   if (!url) return;
 
   try {
-    let a = audioCache.get(url);
-    if (!a) {
-      a = new Audio(url);
-      a.preload = "auto";
-      a.volume = 0.85;
-      audioCache.set(url, a);
+    // If browser still considers audio locked, try to unlock first.
+    // (This is safe; if already unlocked it’s basically a no-op.)
+    if (!_unlocked) {
+      await unlockSounds();
     }
 
-    // restart so repeated notifications still play
-    a.pause();
-    a.currentTime = 0;
+    let base = audioCache.get(url);
 
-    await a.play();
-    _unlocked = true; // if play succeeded, audio is definitely unlocked
+    // Create and cache the base audio element
+    if (!base) {
+      base = new Audio(url);
+      base.preload = "auto";
+      base.volume = 0.85;
+      audioCache.set(url, base);
+    }
+
+    // If the cached audio is already playing, clone a one-off instance
+    // so rapid notifications don't cancel each other / cause play() rejects.
+    const audio =
+      !base.paused && !base.ended ? new Audio(url) : base;
+
+    audio.volume = 0.85;
+    audio.pause?.();
+    audio.currentTime = 0;
+
+    const p = audio.play();
+    if (p && typeof p.then === "function") await p;
+
+    _unlocked = true;
   } catch {
-    // Autoplay lock or missing file — do NOT crash
-    // If autoplay locked, user needs to interact once; installSoundUnlockOnGesture helps that.
     _unlocked = false;
   }
 };

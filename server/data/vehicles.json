@@ -3,22 +3,10 @@
     "id": 102,
     "name": "Kia Niro",
     "licensePlate": "S32533",
-    "status": "Available",
+    "status": "In Garage",
     "notes": "Cleaned and Fueled",
-    "insuranceExpiry": "2025-10-15",
-    "patentExpiry": "2026-01-01",
+    "insuranceExpiry": "2026-10-15",
+    "patentExpiry": "2026-09-16",
     "permanent": true
-  },
-  {
-    "name": "Brezza",
-    "status": "Available",
-    "insuranceExpiry": "",
-    "patentExpiry": "",
-    "licensePlate": "S",
-    "permanent": false,
-    "rentStartISO": "2026-02-04",
-    "rentEndISO": "2026-02-09",
-    "notes": "Ready for Use",
-    "id": 1756581424778
   }
 ]

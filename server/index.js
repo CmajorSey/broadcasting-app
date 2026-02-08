@@ -719,7 +719,26 @@ const writeNotifsSafe = (arr) => {
   }
 };
 
-// ✉️ POST /notifications — create new notification
+// ✅ Normalize notification fields (category + urgent) at the backend
+const normalizeNotifMeta = (body = {}) => {
+  const allowedCategories = new Set([
+    "fleet",
+    "leave",
+    "admin",
+    "suggestion",
+    "ticket",
+    "system",
+  ]);
+
+  const rawCategory = String(body.category || body.kind || "").trim().toLowerCase();
+  const category = allowedCategories.has(rawCategory) ? rawCategory : "admin";
+
+  const urgent = body.urgent === true; // ONLY explicit true = urgent (no guessing)
+
+  return { category, urgent };
+};
+
+// ✉️ POST /notifications — create new notification (normalized meta)
 app.post("/notifications", (req, res) => {
   try {
     const body = req.body || {};
@@ -740,11 +759,18 @@ app.post("/notifications", (req, res) => {
 
     const all = readNotifsSafe();
 
+    // ✅ NEW: normalized fields used by frontend rules
+    const { category, urgent } = normalizeNotifMeta(body);
+
     const newNotification = {
       title,
       message,
       recipients,
       timestamp: createdAt,
+
+      // ✅ normalized meta (frontend can rely on these)
+      category, // "fleet" | "leave" | "admin" | "suggestion" | "ticket" | "system"
+      urgent,   // boolean
     };
 
     all.push(newNotification);
@@ -762,6 +788,7 @@ app.post("/notifications", (req, res) => {
     return res.status(200).json([]);
   }
 });
+
 
 // 🧭 GET /notifications  (polling supported via ?after=<ISO>)
 app.get("/notifications", (req, res) => {
@@ -834,7 +861,7 @@ app.patch("/notifications/:timestamp", (req, res) => {
     const idx = all.findIndex((n) => isoSec(n?.timestamp) === targetKey);
     if (idx === -1) return res.status(404).json({ error: "Notification not found" });
 
-    const body = req.body || {};
+      const body = req.body || {};
     const allowed = [
       "title",
       "message",
@@ -843,6 +870,10 @@ app.patch("/notifications/:timestamp", (req, res) => {
       "action",
       "displayRecipients",
       "status",
+
+      // ✅ NEW: normalized notification meta
+      "category",
+      "urgent",
     ];
 
     const current = all[idx];

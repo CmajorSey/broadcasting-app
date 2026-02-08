@@ -5,415 +5,418 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import {
-  unlockSounds,
-  playSoundFor,
-  installSoundUnlockOnGesture,
-} from "@/lib/soundRouter";
+import { unlockSounds, setSoundEnabled as setSoundEnabledStorage } from "@/lib/soundRouter";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 
 
 /** Single source of truth for Leave API endpoints */
 const LEAVE_ENDPOINT = `${API_BASE}/leave-requests`;
 
+// ✅ Balance helpers (match LeaveManager field fallbacks)
+const getAnnualBalance = (u) => {
+  if (!u) return 0;
+  const raw =
+    u.annualLeave ??
+    u.balances?.annualLeave ??
+    u.annualLeaveBalance ??
+    u.annual ??
+    0;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+};
 
+const getOffBalance = (u) => {
+  if (!u) return 0;
+  const raw =
+    u.offDays ??
+    u.balances?.offDays ??
+    u.offDayBalance ??
+    u.off ??
+    0;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+};
 
-export default function MyProfile({ loggedInUser }) {
+// ✅ Small helper row used by Notification Preferences
+function PrefRow({ label, checked, onChange, disabled = false }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <Label className={disabled ? "opacity-60" : ""}>{label}</Label>
+      <Switch
+        checked={!!checked}
+        disabled={disabled}
+        onCheckedChange={(v) => {
+          if (disabled) return;
+          if (typeof onChange === "function") onChange(!!v);
+        }}
+      />
+    </div>
+  );
+}
+
+export default function MyProfile({
+  loggedInUser,          // ✅ this is now the EFFECTIVE user from App (adminViewAs || loggedInUser)
+  realLoggedInUser = null,
+  adminViewAs = null,
+}) {
+
   const [user, setUser] = useState(null);
   const [notifications, setNotifications] = useState([]);
   const [suggestion, setSuggestion] = useState("");
-  const [toastEnabled, setToastEnabled] = useState(() => localStorage.getItem("notificationToastsEnabled") !== "false");
-  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem("notificationSoundsEnabled") !== "false");
-  const { toast } = useToast();
-
-  // ✅ Leave allocation rule (stored on the request)
-  const [consumptionOrder, setConsumptionOrder] = useState("annual_first");
-
-  // ✅ User must acknowledge the rule before submitting
-  const [leaveTermsAccepted, setLeaveTermsAccepted] = useState(false);
-
-  // --- Leave Request state (dates+figures visible; half-day aware) ---
-  const [localOrOverseas, setLocalOrOverseas] = useState("local");
-// Dates
-const [startDate, setStartDate] = useState(""); // "YYYY-MM-DD"
-const [endDate,   setEndDate]   = useState(""); // "YYYY-MM-DD"
-const [totalWeekdays, setTotalWeekdays] = useState(0); // computed from dates
-
-// Half-day flags on boundaries (none | am | pm)
-const [halfDayStart, setHalfDayStart] = useState("none");
-const [halfDayEnd,   setHalfDayEnd]   = useState("none");
-
-// User-controlled allocations (now allow halves)
-const [annualAlloc, setAnnualAlloc] = useState(0);
-const [offAlloc,    setOffAlloc]    = useState(0);
-
-const [resumeOn, setResumeOn] = useState(""); // "YYYY-MM-DD"
-const [reason, setReason] = useState("");
-const [submitting, setSubmitting] = useState(false);
-
-const [myRequests, setMyRequests] = useState([]);
-const [reqLoading, setReqLoading] = useState(false);
-const [expandedRequestId, setExpandedRequestId] = useState(null);
-
-// --- My Requests UI controls (filters + pagination) ---
-const [myReqFilter, setMyReqFilter] = useState("current"); // all | current | approved | cancelled | none
-const [myReqPage, setMyReqPage] = useState(1);
-const [myReqPerPage, setMyReqPerPage] = useState(() => {
-  const saved = Number(localStorage.getItem("myProfile.requestsPerPage"));
-  return [4, 6, 8].includes(saved) ? saved : 6; // default 6
-});
-
-// --- Public Holidays (fetched from backend) ---
-const [publicHolidays, setPublicHolidays] = useState([]); // ["YYYY-MM-DD"]
-
-useEffect(() => {
-  let mounted = true;
-
-  fetch(`${API_BASE}/holidays`)
-    .then((res) => res.json())
-    .then((data) => {
-      if (!mounted) return;
-      if (Array.isArray(data)) {
-        // Normalize to YYYY-MM-DD strings only
-        setPublicHolidays(
-          data
-            .map((h) => h?.date)
-            .filter((d) => typeof d === "string")
-        );
-      }
-    })
-    .catch((err) => {
-      console.error("Failed to load public holidays:", err);
-      setPublicHolidays([]);
-    });
-
-  return () => {
-    mounted = false;
-  };
-}, []);
-
-// Single source of truth for requested length:
-// - If valid dates => weekdays minus 0.5 for each valid half-day boundary
-// - Else => allocations sum
-const requestedDays = useMemo(() => {
-  const hasDates = !!(startDate && endDate && totalWeekdays > 0);
-  if (!hasDates) {
-    const sum = Number(annualAlloc) + Number(offAlloc);
-    return Number.isFinite(sum) ? sum : 0;
-  }
-
-  // Start from computed weekdays
-  let t = Number(totalWeekdays) || 0;
-
-  // Helpers to check if a given ISO date is a weekday inside the range
-  const isWeekday = (iso) => {
-    const d = new Date(iso);
-    const day = d.getDay();
-    return day !== 0 && day !== 6;
-  };
-
-  // Only subtract a half if that boundary day is a weekday we counted
-  if (halfDayStart !== "none" && isWeekday(startDate)) {
-    t -= 0.5;
-  }
-  if (halfDayEnd !== "none" && isWeekday(endDate)) {
-    if (startDate === endDate) {
-      // Same-day request with half-day -> cap to 0.5 day total
-      t = 0.5;
-    } else {
-      t -= 0.5;
-    }
-  }
-
-  // Guard against negative
-  if (t < 0) t = 0;
-  return t;
-}, [startDate, endDate, totalWeekdays, halfDayStart, halfDayEnd, annualAlloc, offAlloc]);
-
-// ✅ Balances helpers (pull from multiple possible fields)
-const getAnnualBalance = (u) =>
-  Number(u?.annualLeave ?? u?.balances?.annualLeave ?? 0);
-const getOffBalance = (u) =>
-  Number(u?.offDays ?? u?.balances?.offDays ?? u?.offDayBalance ?? 0);
-
-// helper: weekday counter (inclusive) — excludes weekends + public holidays
-function countWeekdaysInclusive(startISO, endISO, holidays = []) {
-  if (!startISO || !endISO) return 0;
-
-  const s = new Date(startISO);
-  const e = new Date(endISO);
-  if (isNaN(s) || isNaN(e)) return 0;
-  if (s > e) return 0;
-
-  // Fast lookup set for YYYY-MM-DD
-  const holidaySet = new Set(
-    Array.isArray(holidays) ? holidays : []
+  const [toastEnabled, setToastEnabled] = useState(
+    () => localStorage.getItem("notificationToastsEnabled") !== "false"
+  );
+  const [soundEnabled, setSoundEnabled] = useState(
+    () => localStorage.getItem("notificationSoundsEnabled") !== "false"
   );
 
-  let count = 0;
-
-  const d = new Date(s);
-  d.setHours(0, 0, 0, 0);
-
-  const e0 = new Date(e);
-  e0.setHours(0, 0, 0, 0);
-
-  while (d <= e0) {
-    const day = d.getDay(); // 0 = Sun, 6 = Sat
-
-    if (day !== 0 && day !== 6) {
-      const iso =
-        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-      // Only count if NOT a public holiday
-      if (!holidaySet.has(iso)) {
-        count++;
-      }
-    }
-
-    d.setDate(d.getDate() + 1);
-  }
-
-  return count;
-}
-
-// helper: first workday after a given date
-// (UNIVERSAL: weekend + public holiday aware)
-const nextWorkday = (dateISO) => nextWorkdayISO(dateISO, publicHolidays);
-
-// helper: public holidays inside selected range (weekdays only)
-const holidaysInRange = useMemo(() => {
-  if (!startDate || !endDate || !Array.isArray(publicHolidays)) return [];
-
-  const s = new Date(startDate);
-  const e = new Date(endDate);
-  if (isNaN(s) || isNaN(e) || s > e) return [];
-
-  const out = [];
-
-  for (const iso of publicHolidays) {
-    const d = new Date(iso);
-    if (isNaN(d)) continue;
-    if (d < s || d > e) continue;
-
-    const day = d.getDay();
-    if (day === 0 || day === 6) continue; // weekend already excluded
-
-    out.push(iso);
-  }
-
-  return out;
-}, [startDate, endDate, publicHolidays]);
-
-// ✅ Only recompute totals & resume date when dates change; DO NOT touch allocations.
-useEffect(() => {
-  const T = countWeekdaysInclusive(startDate, endDate, publicHolidays);
-  setTotalWeekdays(T);
-
-  // ✅ Resume must skip weekends AND public holidays
-  setResumeOn(endDate ? nextWorkdayISO(endDate, publicHolidays) : "");
-}, [startDate, endDate, publicHolidays]);
-
-// ✅ Load user + notifications + sound trigger (poll + focus refresh)
-const prevNotifSigRef = useRef("");
-
-useEffect(() => {
-  // ✅ Ensure we attempt unlock on the first user gesture anywhere (per session)
-  // This fixes: "AudioContext was not allowed to start..."
-  installSoundUnlockOnGesture();
-
-  // --- Resolve which user we're viewing ---
-  const overrideRaw = localStorage.getItem("adminViewAs");
-  let overrideUser = null;
-
-  try {
-    overrideUser = overrideRaw ? JSON.parse(overrideRaw) : null;
-  } catch {
-    overrideUser = null;
-  }
-
-  const parsedUser = overrideUser || loggedInUser || null;
-
-  // ✅ Ensure user state is set (needed for leave balances + getSection default param)
-  if (parsedUser) setUser(parsedUser);
-
-  // If we still don't have a user, don’t attempt to fetch notifications.
-  if (!parsedUser?.id || !parsedUser?.name) {
-    setNotifications([]);
+  const makeNotifKey = (note) => {
     try {
-      localStorage.setItem("loBoard.unreadCount", "0");
+      // ✅ Stable UTC key (seconds precision)
+      return new Date(note.timestamp).toISOString().split(".")[0] + "Z";
+    } catch {
+      return `${note?.timestamp || ""}-${note?.title || ""}-${note?.message || ""}`;
+    }
+  };
+
+  const syncUnreadCount = (nextList) => {
+    try {
+      const n = Array.isArray(nextList) ? nextList.length : 0;
+      localStorage.setItem("loBoard.unreadCount", String(n));
       window.dispatchEvent(new CustomEvent("loBoard:unread"));
     } catch {
       // ignore
     }
-    return;
-  }
+  };
 
-  // --- Normalize dismissed timestamps to a stable UTC key (seconds precision) ---
-  // Store and compare as: "YYYY-MM-DDTHH:mm:ssZ"
-  const rawDismissed =
-    JSON.parse(localStorage.getItem("dismissedNotifications") || "[]") || [];
+  const handleDismiss = (note) => {
+    if (!note) return;
 
-  const toNotifKey = (ts) => {
-    try {
-      if (!ts) return null;
-      // Force UTC + seconds precision, always ending with "Z"
-      return new Date(ts).toISOString().split(".")[0] + "Z";
-    } catch {
-      return null;
+    const dismissed = JSON.parse(
+      localStorage.getItem("dismissedNotifications") || "[]"
+    );
+
+    const key = makeNotifKey(note);
+    if (!key) return;
+
+    const updated = [...new Set([...dismissed, key])];
+    localStorage.setItem("dismissedNotifications", JSON.stringify(updated));
+
+    setNotifications((prev) => {
+      const next = (Array.isArray(prev) ? prev : []).filter((n) => makeNotifKey(n) !== key);
+      syncUnreadCount(next);
+      return next;
+    });
+  };
+
+  // ✅ Leave half-day selectors used by the Leave Request card
+  const [halfDayStart, setHalfDayStart] = useState("none"); // none | am | pm
+  const [halfDayEnd, setHalfDayEnd] = useState("none"); // none | am | pm
+
+  // ✅ Leave Request form state (required by your JSX + submitLeaveRequest)
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [localOrOverseas, setLocalOrOverseas] = useState("local"); // local | overseas
+  const [reason, setReason] = useState("");
+
+  const [annualAlloc, setAnnualAlloc] = useState(0);
+  const [offAlloc, setOffAlloc] = useState(0);
+
+  const [consumptionOrder, setConsumptionOrder] = useState("annual_first"); // annual_first | off_first
+  const [leaveTermsAccepted, setLeaveTermsAccepted] = useState(false);
+
+  const [submitting, setSubmitting] = useState(false);
+
+  // ✅ Holidays + derived range info (used by UI + submit payload)
+  const [publicHolidays, setPublicHolidays] = useState([]); // array of YYYY-MM-DD strings
+  const [holidaysInRange, setHolidaysInRange] = useState([]); // subset of publicHolidays within start/end
+
+  const [totalWeekdays, setTotalWeekdays] = useState(0);
+  const [resumeOn, setResumeOn] = useState("");
+
+  // ✅ My Requests state (pagination + filters + admin note expand)
+  const [myRequests, setMyRequests] = useState([]);
+  const [reqLoading, setReqLoading] = useState(false);
+
+  const [myReqFilter, setMyReqFilter] = useState("current"); // current | all | approved | cancelled | denied | none
+  const [myReqPage, setMyReqPage] = useState(1);
+  const [myReqPerPage, setMyReqPerPage] = useState(() => {
+    const raw = Number(localStorage.getItem("myProfile.requestsPerPage") || 6);
+    return [4, 6, 8].includes(raw) ? raw : 6;
+  });
+
+  const [expandedRequestId, setExpandedRequestId] = useState(null);
+
+  // ✅ Derived: requestedDays is used all over your Leave Request card
+  const requestedDays = totalWeekdays;
+
+  // ✅ Keep totals/holidays/resumeWorkOn in sync when dates or half-days change
+
+  useEffect(() => {
+    const s = startDate;
+    const e = endDate;
+
+    if (!s || !e) {
+      setHolidaysInRange([]);
+      setTotalWeekdays(0);
+      setResumeOn("");
+      return;
     }
-  };
 
-  // IMPORTANT:
-  // Old code stored timestamps WITHOUT "Z" (local-time parse drift on refresh).
-  // We normalize everything to a consistent UTC key so dismissed items stay dismissed.
-  const hiddenKeys = rawDismissed
-    .map((t) => toNotifKey(t))
-    .filter(Boolean);
+    const parseISO = (iso) => {
+      const [yy, mm, dd] = String(iso).split("-").map(Number);
+      if (!yy || !mm || !dd) return null;
+      const d = new Date(yy, mm - 1, dd);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    };
 
-  // --- Helpers to safely normalize API payload shapes ---
-
-  const asArray = (value, fallback = []) => {
-    if (Array.isArray(value)) return value;
-    return fallback;
-  };
-
-  const normalizeNotificationsPayload = (payload) => {
-    // Accept: []  OR  { notifications: [] }  OR  { data: [] }
-    if (Array.isArray(payload)) return payload;
-    if (payload && Array.isArray(payload.notifications)) return payload.notifications;
-    if (payload && Array.isArray(payload.data)) return payload.data;
-    return [];
-  };
-
-  const normalizeGroupsPayload = (payload) => {
-    // Accept: []  OR  { groups: [] }  OR  { data: [] }
-    if (Array.isArray(payload)) return payload;
-    if (payload && Array.isArray(payload.groups)) return payload.groups;
-    if (payload && Array.isArray(payload.data)) return payload.data;
-    return [];
-  };
-
-  const safeJson = async (res) => {
-    try {
-      return await res.json();
-    } catch {
-      return null;
+    const sd = parseISO(s);
+    const ed = parseISO(e);
+    if (!sd || !ed || sd > ed) {
+      setHolidaysInRange([]);
+      setTotalWeekdays(0);
+      setResumeOn("");
+      return;
     }
-  };
 
-  const load = async () => {
+    const holidaySet = new Set(
+      (Array.isArray(publicHolidays) ? publicHolidays : []).filter(Boolean)
+    );
+
+    // build holidaysInRange
+    const inRange = [];
+    for (const h of holidaySet) {
+      const hd = parseISO(h);
+      if (!hd) continue;
+      if (hd >= sd && hd <= ed) inRange.push(h);
+    }
+    inRange.sort();
+    setHolidaysInRange(inRange);
+
+    // compute weekdays (Mon-Fri) excluding public holidays
+    let count = 0;
+    const cur = new Date(sd.getTime());
+    while (cur <= ed) {
+      const day = cur.getDay(); // 0 Sun .. 6 Sat
+      const iso = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(
+        2,
+        "0"
+      )}-${String(cur.getDate()).padStart(2, "0")}`;
+
+      const isWeekend = day === 0 || day === 6;
+      const isHoliday = holidaySet.has(iso);
+
+      if (!isWeekend && !isHoliday) count += 1;
+
+      cur.setDate(cur.getDate() + 1);
+      cur.setHours(0, 0, 0, 0);
+    }
+
+    // apply half-day adjustments only if those endpoints are weekdays (not weekend/holiday)
+    const isWorkdayISO = (iso) => {
+      const d = parseISO(iso);
+      if (!d) return false;
+      const day = d.getDay();
+      const isWeekend = day === 0 || day === 6;
+      const isHoliday = holidaySet.has(iso);
+      return !isWeekend && !isHoliday;
+    };
+
+    let adjusted = count;
+
+    if (s && isWorkdayISO(s) && halfDayStart !== "none") adjusted -= 0.5;
+    if (e && isWorkdayISO(e) && halfDayEnd !== "none") adjusted -= 0.5;
+
+    if (!Number.isFinite(adjusted) || adjusted < 0) adjusted = 0;
+
+    // round to .0/.5
+    adjusted = Math.round(adjusted * 2) / 2;
+
+    setTotalWeekdays(adjusted);
+
+    // resume work day (next workday after endDate, skipping holidays/weekends)
     try {
-      const [nRes, gRes] = await Promise.all([
-        fetch(`${API_BASE}/notifications`),
-        fetch(`${API_BASE}/notification-groups`),
-      ]);
+      setResumeOn(nextWorkdayISO(e, publicHolidays));
+    } catch {
+      setResumeOn("");
+    }
+  }, [startDate, endDate, halfDayStart, halfDayEnd, publicHolidays]);
 
-      // If backend returns 500, don't crash the UI.
-      if (!nRes.ok || !gRes.ok) {
-        const nBody = await safeJson(nRes);
-        const gBody = await safeJson(gRes);
-        console.error("Notifications API failed:", {
-          notifications: { status: nRes.status, body: nBody },
-          groups: { status: gRes.status, body: gBody },
-        });
-        setNotifications([]);
-        try {
-          localStorage.setItem("loBoard.unreadCount", "0");
-          window.dispatchEvent(new CustomEvent("loBoard:unread"));
-        } catch {
-          // ignore
-        }
-        return;
-      }
+  const { toast } = useToast();
 
-      const allNotificationsRaw = await safeJson(nRes);
-      const allGroupsRaw = await safeJson(gRes);
+  // ============================================================
+  // ✅ SINGLE SOURCE OF TRUTH: hydrate "user" whenever View-As changes
+  // - If App passes an effective user, we set it immediately (no UI lag)
+  // - Then we fetch the latest full user record from backend by id
+  // ============================================================
+  useEffect(() => {
+    // Immediate UI fill (prevents N/A flashes)
+    if (loggedInUser?.id) setUser(loggedInUser);
+    else setUser(null);
 
-      const allNotifications = normalizeNotificationsPayload(allNotificationsRaw);
-      const allGroups = normalizeGroupsPayload(allGroupsRaw);
-
-      const userName = parsedUser.name;
-      const section = getSection(parsedUser); // ✅ use existing helper
-
-      const groupsArr = asArray(allGroups, []);
-      const userGroups = groupsArr.filter(
-        (group) =>
-          group &&
-          Array.isArray(group.userIds) &&
-          group.userIds.includes(parsedUser.id)
-      );
-      const groupIds = userGroups.map((g) => g.id).filter(Boolean);
-
-      const notesArr = asArray(allNotifications, []);
-      const relevant = notesArr.filter((note) => {
-        try {
-          if (!note) return false;
-
-          const recipients = Array.isArray(note.recipients) ? note.recipients : [];
-          if (recipients.length === 0) return false;
-
-                const noteDate = new Date(note.timestamp);
-          if (isNaN(noteDate)) {
-            console.warn("Skipping invalid notification timestamp:", note?.timestamp);
-            return false;
-          }
-
-          // Stable UTC key (seconds precision)
-          const noteKey = noteDate.toISOString().split(".")[0] + "Z";
-
-          const matches =
-            recipients.includes(userName) ||
-            recipients.includes(section) ||
-            recipients.some((r) => groupIds.includes(r));
-
-          return matches && !hiddenKeys.includes(noteKey);
-        } catch (err) {
-          console.error("Failed to process note:", note, err);
-          return false;
-        }
-      });
-
-      relevant.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-      // 🔔 Detect “new notifications” (signature of timestamps)
-      const sig = relevant
-        .map((n) => {
-          try {
-            return new Date(n.timestamp).toISOString().split(".")[0];
-          } catch {
-            return "";
-          }
-        })
-        .filter(Boolean)
-        .join("|");
-
-      const prevSig = prevNotifSigRef.current || "";
-      const hadPrev = !!prevSig;
-      const isNew = hadPrev && sig && sig !== prevSig;
-
-      setNotifications(relevant);
-
-      // ✅ Stamp unread count globally for the navbar badge
+    // Backend refresh (ensures balances/description/roles are latest)
+    const run = async () => {
       try {
-        localStorage.setItem("loBoard.unreadCount", String(relevant.length));
+        if (!loggedInUser?.id) return;
+
+        const res = await fetch(`${API_BASE}/users/${encodeURIComponent(loggedInUser.id)}`);
+        if (!res.ok) return;
+
+        const fresh = await res.json().catch(() => null);
+        if (fresh && fresh.id) setUser(fresh);
+      } catch {
+        // ignore (offline / network changed)
+      }
+    };
+
+    run();
+  }, [loggedInUser?.id]);
+
+  // -----------------------------
+  // Notification per-category prefs (MUST be top-level hook)
+  // -----------------------------
+  const PREF_KEY = "notificationPrefs";
+
+  const loadPrefs = () => {
+    try {
+      return (
+        JSON.parse(localStorage.getItem(PREF_KEY)) || {
+          leave: {},
+          admin: {},
+          suggestion: {},
+          fleet: {},
+          ticket: {},
+        }
+      );
+    } catch {
+      return {
+        leave: {},
+        admin: {},
+        suggestion: {},
+        fleet: {},
+        ticket: {},
+      };
+    }
+  };
+
+  const [prefs, setPrefs] = useState(loadPrefs);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
+    } catch {
+      // ignore storage errors
+    }
+  }, [prefs]);
+
+  const updatePref = (group, key, value) => {
+    setPrefs((prev) => ({
+      ...prev,
+      [group]: { ...(prev?.[group] || {}), [key]: value },
+    }));
+  };
+
+    const getSection = (u = user) => {
+    if (!u) return "N/A";
+    const name = u.name || "";
+    const desc = u.description?.toLowerCase() || "";
+
+    if (
+      ["clive camille", "jennifer arnephy", "gilmer philoe"].includes(
+        name.toLowerCase()
+      )
+    ) {
+      return "Admin";
+    } else if (desc.includes("sports journalist")) {
+      return "Sports Section";
+    } else if (desc.includes("journalist")) {
+      return "Newsroom";
+    } else if (/cam ?op|camera ?operator|operations/i.test(desc)) {
+      return "Operations";
+    } else if (desc.includes("producer") || desc.includes("production")) {
+      return "Production";
+    }
+
+    return u.section || "Unspecified";
+  };
+
+  const isAdmin = useMemo(() => {
+    return (
+      getSection(user) === "Admin" ||
+      String(user?.description || "").toLowerCase().includes("admin")
+    );
+  }, [user?.description, user?.name, user]);
+
+  const isDriver = useMemo(() => {
+    if (Array.isArray(user?.roles)) {
+      return user.roles.some((r) => String(r).toLowerCase().includes("driver"));
+    }
+    return String(user?.roles || "").toLowerCase().includes("driver");
+  }, [user?.roles]);
+
+  // -----------------------------
+  // Notifications Inbox (inbox-only: NO toast, NO sound)
+  // -----------------------------
+  const loadInboxNotifications = async () => {
+    if (!user?.name) {
+      setNotifications([]);
+      try {
+        localStorage.setItem("loBoard.unreadCount", "0");
         window.dispatchEvent(new CustomEvent("loBoard:unread"));
       } catch {
         // ignore
       }
+      return;
+    }
 
-      // 🔔 Only play sound if something NEW arrived after initial load
-      if (isNew && soundEnabled) {
-        // Play the most recent notification's mapped sound (fallback to notify_new)
-        const mostRecent = relevant?.[0] || { soundKey: "notify_new" };
-        await playSoundFor(mostRecent, { enabled: true });
+    try {
+      const res = await fetch(`${API_BASE}/notifications`);
+      if (!res.ok) throw new Error("Failed to load notifications");
+
+      const all = await res.json().catch(() => []);
+      const list = Array.isArray(all) ? all : [];
+
+      // Only notifications addressed to THIS user (by name)
+      const mine = list.filter((n) => {
+        const rec = n?.recipients;
+        if (!Array.isArray(rec)) return false;
+        return rec.includes(user.name);
+      });
+
+      // Apply dismiss filter (stable keys)
+      const dismissedRaw =
+        JSON.parse(localStorage.getItem("dismissedNotifications") || "[]") || [];
+      const dismissed = new Set(
+        Array.isArray(dismissedRaw) ? dismissedRaw.filter(Boolean) : []
+      );
+
+      const visible = mine
+        .filter((n) => !dismissed.has(makeNotifKey(n)))
+        .sort((a, b) => {
+          const ta = new Date(a?.timestamp || 0).getTime();
+          const tb = new Date(b?.timestamp || 0).getTime();
+          return tb - ta;
+        });
+
+      setNotifications(visible);
+
+      // Keep navbar unread badge in sync (inbox truth)
+      try {
+        localStorage.setItem("loBoard.unreadCount", String(visible.length));
+        window.dispatchEvent(new CustomEvent("loBoard:unread"));
+      } catch {
+        // ignore
       }
-
-      prevNotifSigRef.current = sig;
     } catch (err) {
-      console.error("Failed to fetch notifications or groups", err);
+      console.error("Failed to load inbox notifications:", err);
       setNotifications([]);
       try {
         localStorage.setItem("loBoard.unreadCount", "0");
@@ -424,254 +427,51 @@ useEffect(() => {
     }
   };
 
-  // initial load
-  load();
+  useEffect(() => {
+    // When user changes (including Admin View-As), refresh inbox
+    loadInboxNotifications();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.name]);
 
-  // Poll + focus refresh so new admin notifications appear while MyProfile is open
-  const onFocus = () => load();
-  const onVis = () => {
-    if (document.visibilityState === "visible") load();
-  };
-
-  window.addEventListener("focus", onFocus);
-  document.addEventListener("visibilitychange", onVis);
-
-  const t = setInterval(load, 15000); // 15s
-
-  return () => {
-    window.removeEventListener("focus", onFocus);
-    document.removeEventListener("visibilitychange", onVis);
-    clearInterval(t);
-  };
-}, [loggedInUser, soundEnabled]); // user identity can change via adminViewAs/loggedInUser
-
-// ✅ Enrich user with server copy (for balances) — fetch one user, normalize numeric fields
-useEffect(() => {
-
-  // Need at least an id OR a name
-  if (!user?.id && !user?.name) return;
-
-  const load = async () => {
-    try {
-      let fresh;
-
-      if (user?.id) {
-        // Prefer exact id (fast, up-to-date, no large payload)
-        const res = await fetch(`${API_BASE}/users/${encodeURIComponent(String(user.id))}`);
-        if (res.ok) {
-          fresh = await res.json();
-        } else {
-          // Fallback to /users list if direct fetch failed (rare)
-          const list = await fetch(`${API_BASE}/users`).then(r => r.json());
-          fresh = list.find(u => String(u.id) === String(user.id)) || list.find(u => u.name === user?.name);
-        }
-      } else {
-        // No id in localStorage; fallback match by name
-        const list = await fetch(`${API_BASE}/users`).then(r => r.json());
-        fresh = list.find(u => u.name === user?.name);
-      }
-
-      if (!fresh) return;
-
-      // 🔁 Normalize balances to numbers and prefer top-level keys
-      const norm = {
-        ...fresh,
-        annualLeave: Number(
-          fresh?.annualLeave ?? fresh?.balances?.annualLeave ?? 0
-        ),
-        offDays: Number(
-          fresh?.offDays ?? fresh?.balances?.offDays ?? fresh?.offDayBalance ?? 0
-        ),
-      };
-
-      // Only update if different (prevents render loops)
-      if (JSON.stringify(norm) !== JSON.stringify(user)) {
-        setUser(norm);
-      }
-    } catch (err) {
-      console.error("Failed to fetch user balances (direct):", err);
-    }
-  };
-
-  load();
-  // Re-run if id or name changes
-}, [user?.id, user?.name]);
-
-
-// --- Fetch my leave requests when user known (NEW) ---
-const loadMyRequests = useMemo(
-  () => async () => {
-    if (!user?.id) return;
-    setReqLoading(true);
-    try {
-      // Your backend uses /leave-requests with ?userId=
-      const res = await fetch(`${LEAVE_ENDPOINT}?userId=${encodeURIComponent(String(user.id))}`);
-      const data = (await res.json()) || [];
-      data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      setMyRequests(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setMyRequests([]);
-    } finally {
-      setReqLoading(false);
-    }
-  },
-  [user?.id]
-);
-
-useEffect(() => {
-  loadMyRequests();
-}, [loadMyRequests]);
-
-// ✅ Keep MyProfile aligned with Admin edits/cancels:
-// - refresh requests + user balances periodically
-// - refresh when the tab becomes active again
-useEffect(() => {
-  if (!user?.id) return;
-
-  const refresh = async () => {
-    // 1) refresh my requests
-    await loadMyRequests();
-
-    // 2) refresh my user balances (server truth)
-    try {
-      const res = await fetch(`${API_BASE}/users/${encodeURIComponent(String(user.id))}`);
-      if (res.ok) {
-        const fresh = await res.json();
-        setUser((prev) => {
-          const norm = {
-            ...fresh,
-            annualLeave: Number(fresh?.annualLeave ?? fresh?.balances?.annualLeave ?? 0),
-            offDays: Number(fresh?.offDays ?? fresh?.balances?.offDays ?? fresh?.offDayBalance ?? 0),
-          };
-          // prevent loops
-          return JSON.stringify(prev) === JSON.stringify(norm) ? prev : norm;
-        });
-      }
-    } catch {
-      // non-fatal
-    }
-  };
-
-  // refresh now (in case admin just edited something)
-  refresh();
-
-  const onFocus = () => refresh();
-  const onVis = () => {
-    if (document.visibilityState === "visible") refresh();
-  };
-
-  window.addEventListener("focus", onFocus);
-  document.addEventListener("visibilitychange", onVis);
-
-  // light polling (keeps it synced even if tab stays open)
-  const t = setInterval(refresh, 20000); // 20s
-
-  return () => {
-    window.removeEventListener("focus", onFocus);
-    document.removeEventListener("visibilitychange", onVis);
-    clearInterval(t);
-  };
-}, [user?.id, loadMyRequests]);
-
-
-const handleDismiss = async (timestamp) => {
-  // ✅ Stable UTC key (seconds precision) — prevents “reappears after refresh”
-  const notifKey = new Date(timestamp).toISOString().split(".")[0] + "Z";
-
-  // Optimistic UI update
-  const existing = JSON.parse(localStorage.getItem("dismissedNotifications") || "[]");
-  const updatedDismissed = [...new Set([...existing, notifKey])];
-  localStorage.setItem("dismissedNotifications", JSON.stringify(updatedDismissed));
-
-  setNotifications((prev) => {
-    const next = prev.filter((n) => {
-      try {
-        const key = new Date(n.timestamp).toISOString().split(".")[0] + "Z";
-        return key !== notifKey;
-      } catch {
-        return true;
-      }
-    });
-
-    // ✅ keep global unread count accurate
-    try {
-      localStorage.setItem("loBoard.unreadCount", String(next.length));
-      window.dispatchEvent(new CustomEvent("loBoard:unread"));
-    } catch {
-      // ignore
-    }
-
-    return next;
-  });
-
-  // Attempt backend delete (best effort)
-  try {
-    const res = await fetch(`${API_BASE}/notifications/${encodeURIComponent(notifKey)}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) throw new Error("Failed to delete notification");
-  } catch (err) {
-    console.error("Failed to delete notification from backend:", err);
-  }
-};
-
-const handleSuggestionSubmit = async () => {
-  if (!suggestion.trim()) return;
-
-  const payload = {
-    userId: user?.id ? String(user.id) : null,
-    userName: user?.name || "Anonymous",
-    section: getSection(),
-    message: suggestion.trim(),
-  };
-
-  try {
-    const res = await fetch(`${API_BASE}/suggestions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(text || "Failed to submit suggestion");
-    }
-
-    setSuggestion("");
-    toast({ title: "✅ Suggestion sent!" });
-  } catch (err) {
-    console.error("Error submitting suggestion:", err);
-    toast({ title: "Error", description: "Failed to submit suggestion" });
-  }
-};
-
-const getSection = (u = user) => {
-  if (!u) return "N/A";
-  const name = u.name || "";
-  const desc = u.description?.toLowerCase() || "";
-
-  if (["clive camille", "jennifer arnephy", "gilmer philoe"].includes(name.toLowerCase())) {
-    return "Admin";
-  } else if (desc.includes("sports journalist")) {
-    return "Sports Section";
-  } else if (desc.includes("journalist")) {
-    return "Newsroom";
-  } else if (/cam ?op|camera ?operator|operations/i.test(desc)) {
-    return "Operations";
-  } else if (desc.includes("producer") || desc.includes("production")) {
-    return "Production";
-  }
-
-  return u.section || "Unspecified";
-};
 
 // --- Submit new leave request (dates preferred; supports half-days; else figures) ---
+// 🔄 Load my leave requests (used after submit / refresh)
+// NO polling, NO sound, NO toast
+const loadMyRequests = async () => {
+  if (!user?.id) return;
+
+  setReqLoading(true);
+  try {
+    const res = await fetch(
+      `${LEAVE_ENDPOINT}?userId=${encodeURIComponent(user.id)}`
+    );
+    if (!res.ok) throw new Error("Failed to load requests");
+
+    const data = await res.json();
+    setMyRequests(Array.isArray(data) ? data : []);
+  } catch (err) {
+    console.error("Failed to load my requests:", err);
+    setMyRequests([]);
+  } finally {
+    setReqLoading(false);
+  }
+};
+
 const submitLeaveRequest = async () => {
   if (!user?.id || !user?.name) {
-    toast({ title: "Not logged in", description: "User not found.", variant: "destructive" });
+    toast({
+      title: "Not logged in",
+      description: "User not found.",
+      variant: "destructive",
+    });
     return;
   }
   if (!["local", "overseas"].includes(localOrOverseas)) {
-    toast({ title: "Invalid trip", description: "Choose Local or Overseas.", variant: "destructive" });
+    toast({
+      title: "Invalid trip",
+      description: "Choose Local or Overseas.",
+      variant: "destructive",
+    });
     return;
   }
 
@@ -696,13 +496,13 @@ const submitLeaveRequest = async () => {
   }
 
   const currentAnnual = Number(user?.annualLeave ?? 0);
-  const currentOff    = Number(user?.offDays ?? 0);
+  const currentOff = Number(user?.offDays ?? 0);
   let A = Number(annualAlloc);
   let O = Number(offAlloc);
   if (!Number.isFinite(A) || A < 0) A = 0;
   if (!Number.isFinite(O) || O < 0) O = 0;
 
-  if (haveDates && (A + O !== T)) {
+  if (haveDates && A + O !== T) {
     toast({
       title: "Allocation mismatch",
       description: `Annual + Off must equal ${T} day(s) from your date range.`,
@@ -719,11 +519,10 @@ const submitLeaveRequest = async () => {
     return;
   }
 
-  // Backend requires a single `type` and a positive `days`
   const hasAnnual = A > 0;
-  const hasOff    = O > 0;
+  const hasOff = O > 0;
   const type = hasAnnual ? "annual" : "offDay";
-  const days = hasAnnual ? A : O; // <-- EXACT FIELD NAME the backend wants
+  const days = hasAnnual ? A : O;
 
   if (!(Number(days) > 0)) {
     toast({
@@ -735,36 +534,22 @@ const submitLeaveRequest = async () => {
   }
 
   const payload = {
-    // required by backend validator
-    type,                 // "annual" | "offDay"
-    days: Number(days),   // <-- REQUIRED FIELD
-
-    // identity
+    type,
+    days: Number(days),
     userId: String(user.id),
     userName: user.name,
     section: getSection(),
-
-    // dates/meta
     startDate: haveDates ? startDate : null,
-    endDate:   haveDates ? endDate   : null,
-    resumeWorkOn: haveDates ? (resumeOn || nextWorkdayISO(endDate, publicHolidays)) : null,
+    endDate: haveDates ? endDate : null,
+    resumeWorkOn: haveDates
+      ? resumeOn || nextWorkdayISO(endDate, publicHolidays)
+      : null,
     localOrOverseas,
     reason: reason.trim(),
-
-    // reviewer metadata (ignored if server doesn’t use them)
     halfDayStart,
     halfDayEnd,
-
-    // compatibility fields your UI/history uses (server may ignore)
     totalWeekdays: T,
     allocations: { annual: A, off: O },
-
-    // optional client snapshot hints
-    annualBefore: type === "annual" ? currentAnnual : undefined,
-    annualAfter:  type === "annual" ? Math.max(0, currentAnnual - Number(days)) : undefined,
-    offBefore:    type === "offDay" ? currentOff    : undefined,
-    offAfter:     type === "offDay" ? Math.max(0, currentOff - Number(days))    : undefined,
-
     status: "pending",
     createdAt: new Date().toISOString(),
   };
@@ -777,16 +562,9 @@ const submitLeaveRequest = async () => {
       body: JSON.stringify(payload),
     });
 
-    if (!res.ok) {
-      let msg = "Failed to create leave request";
-      try {
-        const j = await res.json();
-        if (j?.error) msg = j.error;
-      } catch {}
-      throw new Error(msg);
-    }
+    if (!res.ok) throw new Error("Failed to create leave request");
 
-    // Reset fields and reload my requests
+    // Reset form
     setReason("");
     setLocalOrOverseas("local");
     setStartDate("");
@@ -799,7 +577,10 @@ const submitLeaveRequest = async () => {
     setResumeOn("");
 
     await loadMyRequests();
+
+    // App.jsx handles notifications globally
     toast({ title: "✅ Request submitted", description: "Awaiting approval." });
+
   } catch (err) {
     console.error(err);
     toast({
@@ -812,24 +593,79 @@ const submitLeaveRequest = async () => {
   }
 };
 
+// ✅ Suggestion submit (simple + safe; matches your existing Suggestion Box UI)
+const handleSuggestionSubmit = async () => {
+  const text = (suggestion || "").trim();
+  if (!text) {
+    toast({
+      title: "Empty suggestion",
+      description: "Please write something before submitting.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  if (!user?.id || !user?.name) {
+    toast({
+      title: "Not logged in",
+      description: "User not found.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/suggestions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: `sug_${Date.now()}`,
+        userId: String(user.id),
+        userName: user.name,
+        section: getSection(),
+        message: text,
+        createdAt: new Date().toISOString(),
+      }),
+    });
+
+    if (!res.ok) throw new Error("Failed to submit suggestion");
+
+    setSuggestion("");
+      toast({ title: "✅ Suggestion submitted", description: "Thank you!" });
+
+  } catch (err) {
+    console.error(err);
+    toast({
+      title: "Error",
+      description: err?.message || "Could not submit suggestion",
+      variant: "destructive",
+    });
+  }
+};
+
 
   return (
     <div className="p-6 space-y-6 max-w-4xl mx-auto">
       <h1 className="text-3xl font-bold">My Profile</h1>
 
-      {/* User Info */}
+         {/* User Info */}
       <Card>
         <CardHeader>
           <CardTitle>User Info</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          {localStorage.getItem("adminViewAs") && (
+                   {!!adminViewAs && realLoggedInUser?.roles?.includes("admin") && (
             <p className="text-sm italic text-muted-foreground mb-2">
-              Viewing as: <strong>{user?.name}</strong>
+              Viewing as: <strong>{user?.name || "N/A"}</strong>
             </p>
           )}
-          <p><strong>Full Name:</strong> {user?.name || "N/A"}</p>
-          <p><strong>Role(s):</strong> {Array.isArray(user?.roles) ? user.roles.join(", ") : user?.roles}</p>
+                 <p><strong>Full Name:</strong> {user?.name || "N/A"}</p>
+          <p>
+            <strong>Role(s):</strong>{" "}
+            {Array.isArray(user?.roles)
+              ? (user.roles.length ? user.roles.join(", ") : "N/A")
+              : (user?.roles || "N/A")}
+          </p>
           <p><strong>Description:</strong> {user?.description || "N/A"}</p>
           <p><strong>Section:</strong> {getSection()}</p>
 
@@ -842,108 +678,253 @@ const submitLeaveRequest = async () => {
         </CardContent>
       </Card>
 
-      {/* Notification Settings */}
-                 <Card>
-        <CardHeader>
-          <CardTitle>Notification Settings</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center space-x-3">
-            <Switch
-              checked={toastEnabled}
-              onCheckedChange={(checked) => {
-                setToastEnabled(checked);
-                localStorage.setItem("notificationToastsEnabled", checked ? "true" : "false");
-              }}
-            />
-            <Label>Enable popup toasts for new notifications</Label>
-          </div>
+           {/* Notification Settings (Collapsible) */}
+        <Collapsible
+        defaultOpen={false}
+        onOpenChange={(open) => {
+          localStorage.setItem("myProfile.notifPrefsOpen", open ? "true" : "false");
+        }}
+      >
+        <Card>
+               <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Notification Preferences</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                These settings affect the whole app
+              </p>
+            </div>
 
-          <div className="flex items-center space-x-3">
-            <Switch
-              checked={soundEnabled}
-              onCheckedChange={async (checked) => {
-                setSoundEnabled(checked);
-                localStorage.setItem("notificationSoundsEnabled", checked ? "true" : "false");
-
-                // 🔓 Unlock audio on user gesture (best-effort)
-                if (checked) {
-                  await unlockSounds();
-                }
-              }}
-            />
-            <Label>Enable notification sound</Label>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Notifications Inbox */}
-      <Card>
-        <CardHeader className="flex items-center justify-between">
-          <CardTitle>Notifications Inbox</CardTitle>
-          {notifications.length > 0 && (
-                     <Button
-              size="sm"
-              variant="ghost"
-                            onClick={() => {
-                const dismissed = JSON.parse(localStorage.getItem("dismissedNotifications") || "[]");
-
-                // ✅ Store stable UTC keys (seconds precision)
-                const allKeys = notifications
-                  .map((n) => {
-                    try {
-                      return new Date(n.timestamp).toISOString().split(".")[0] + "Z";
-                    } catch {
-                      return null;
-                    }
-                  })
-                  .filter(Boolean);
-
-                const updated = [...new Set([...dismissed, ...allKeys])];
-                localStorage.setItem("dismissedNotifications", JSON.stringify(updated));
-                setNotifications([]);
-
-                // ✅ Keep navbar badge in sync
-                try {
-                  localStorage.setItem("loBoard.unreadCount", "0");
-                  window.dispatchEvent(new CustomEvent("loBoard:unread"));
-                } catch {
-                  // ignore
-                }
-              }}
-            >
-              Clear All
-            </Button>
-          )}
-        </CardHeader>
-        <CardContent>
-          <div className="border rounded p-2 max-h-[300px] overflow-y-auto space-y-3">
-            {notifications.length === 0 ? (
-              <p className="text-muted-foreground text-sm">No notifications yet.</p>
-            ) : (
-              notifications.map((note) => (
-                <div
-                  key={`${note.timestamp}-${note.title}-${note.message}`}
-                  className="relative border p-3 rounded bg-muted pr-10"
+            <CollapsibleTrigger asChild>
+              <button
+                aria-label="Toggle notification preferences"
+                className="p-1 rounded hover:bg-muted transition"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="text-muted-foreground"
                 >
-                  <button
-                    className="absolute top-1 right-1 text-gray-500 hover:text-red-500 text-xs"
-                    onClick={() => handleDismiss(note.timestamp)}
-                  >
-                    ✕
-                  </button>
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+            </CollapsibleTrigger>
+          </CardHeader>
+          <CollapsibleContent>
+            <CardContent className="space-y-6 text-sm">
+              {/* Global toggles */}
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <Switch
+                    checked={toastEnabled}
+                    onCheckedChange={(checked) => {
+                      setToastEnabled(checked);
+                      localStorage.setItem(
+                        "notificationToastsEnabled",
+                        checked ? "true" : "false"
+                      );
+                    }}
+                  />
+                  <Label>
+                    Show pop-up messages anywhere in the app
+                  </Label>
+                </div>
 
-                  <p className="font-semibold">{note.title}</p>
-                  <p className="text-sm">{note.message}</p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {new Date(note.timestamp).toLocaleString()}
+                <div className="flex items-center space-x-3">
+                  <Switch
+                    checked={soundEnabled}
+                    onCheckedChange={async (checked) => {
+                  setSoundEnabled(checked);
+                  setSoundEnabledStorage(checked);
+                  if (checked) await unlockSounds();
+                }}
+                  />
+              <Label>
+                Play a sound when a new notification arrives
+              </Label>
+                </div>
+              </div>
+
+                           {/* Per-category preferences */}
+              <div className="space-y-6">
+                {/* Leave */}
+                <div className="space-y-2">
+                  <h4 className="font-medium">Leave Management</h4>
+                  <PrefRow
+                    label="My leave approved / denied"
+                    checked={prefs.leave?.decision}
+                    onChange={(v) => updatePref("leave", "decision", v)}
+                  />
+                  <PrefRow
+                    label="My leave edited or cancelled"
+                    checked={prefs.leave?.edit}
+                    onChange={(v) => updatePref("leave", "edit", v)}
+                  />
+                </div>
+
+                {/* Fleet (role-gated) */}
+                {(isAdmin || isDriver) && (
+                  <div className="space-y-2">
+                    <h4 className="font-medium">Fleet</h4>
+
+                    <PrefRow
+                      label="Vehicle availability changes"
+                      checked={prefs.fleet?.availability}
+                      onChange={(v) => updatePref("fleet", "availability", v)}
+                    />
+
+                    {(isAdmin ||
+                      String(user?.roles || "")
+                        .toLowerCase()
+                        .includes("full")) && (
+                      <>
+                        <PrefRow
+                          label="License expiry warnings"
+                          checked={prefs.fleet?.license}
+                          onChange={(v) => updatePref("fleet", "license", v)}
+                        />
+                        <PrefRow
+                          label="Insurance expiry warnings"
+                          checked={prefs.fleet?.insurance}
+                          onChange={(v) => updatePref("fleet", "insurance", v)}
+                        />
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Admin */}
+                <div className="space-y-2">
+                  <h4 className="font-medium">Admin & System</h4>
+                  <PrefRow
+                    label="Admin messages"
+                    checked={prefs.admin?.message}
+                    onChange={(v) => updatePref("admin", "message", v)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Urgent admin messages always notify globally.
                   </p>
                 </div>
-              ))
-            )}
-          </div>
-        </CardContent>
-      </Card>
+
+                {/* Suggestions */}
+                <div className="space-y-2">
+                  <h4 className="font-medium">Suggestions</h4>
+                  <PrefRow
+                    label="Replies to my suggestions"
+                    checked={prefs.suggestion?.reply}
+                    onChange={(v) => updatePref("suggestion", "reply", v)}
+                  />
+                </div>
+
+                {/* Tickets */}
+                <div className="space-y-2">
+                  <h4 className="font-medium">Tickets</h4>
+                  <PrefRow
+                    label="Ticket assigned or state changed"
+                    checked={prefs.ticket?.state}
+                    onChange={(v) => updatePref("ticket", "state", v)}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+
+     {/* Notifications Inbox */}
+<Card>
+  <CardHeader className="flex items-center justify-between">
+    <CardTitle>Notifications Inbox</CardTitle>
+
+    {notifications.length > 0 && (
+      <Button
+        size="sm"
+        variant="ghost"
+               onClick={() => {
+          const dismissed = JSON.parse(
+            localStorage.getItem("dismissedNotifications") || "[]"
+          );
+
+          const allKeys = notifications
+            .map((n) => {
+              try {
+                return new Date(n.timestamp).toISOString().split(".")[0] + "Z";
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean);
+
+          localStorage.setItem(
+            "dismissedNotifications",
+            JSON.stringify([...new Set([...dismissed, ...allKeys])])
+          );
+
+          setNotifications([]);
+
+          // ✅ Inbox-truth: stamp inbox empty so Navbar can read length === 0
+          // ✅ Also keep legacy unreadCount in sync as fallback
+          try {
+            localStorage.setItem("loBoard.inbox", "[]");
+            localStorage.setItem("loBoard.unreadCount", "0");
+            window.dispatchEvent(new CustomEvent("loBoard:inbox"));
+            window.dispatchEvent(new CustomEvent("loBoard:unread"));
+          } catch {
+            // ignore
+          }
+        }}
+      >
+        Clear All
+      </Button>
+    )}
+  </CardHeader>
+
+  <CardContent>
+    <div className="border rounded p-2 max-h-[300px] overflow-y-auto space-y-3">
+      {notifications.length === 0 ? (
+        <p className="text-muted-foreground text-sm">No notifications yet.</p>
+      ) : (
+        notifications.map((note) => {
+          const stableKey = (() => {
+            try {
+              return new Date(note.timestamp).toISOString().split(".")[0] + "Z";
+            } catch {
+              return `${note.timestamp || ""}-${note.title || ""}-${note.message || ""}`;
+            }
+          })();
+
+          return (
+            <div
+              key={stableKey}
+              className="relative border p-3 rounded bg-muted pr-10"
+            >
+              <button
+                className="absolute top-1 right-1 text-gray-500 hover:text-red-500 text-xs"
+                onClick={() => handleDismiss(note)}
+                type="button"
+                aria-label="Dismiss notification"
+              >
+                ✕
+              </button>
+
+              <p className="font-semibold">{note.title}</p>
+              <p className="text-sm">{note.message}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {note.timestamp ? new Date(note.timestamp).toLocaleString() : ""}
+              </p>
+            </div>
+          );
+        })
+      )}
+    </div>
+  </CardContent>
+</Card>
 
      {/* --- Leave Request (MANUAL ALLOC + CONSUMPTION ORDER DISCLAIMER) --- */}
 {(() => {

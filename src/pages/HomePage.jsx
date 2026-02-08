@@ -47,7 +47,16 @@ export default function HomePage() {
     async function fetchTickets() {
       try {
         const res = await fetch(`${API_BASE}/tickets`);
+        if (!res.ok) throw new Error(`Tickets fetch failed: ${res.status}`);
+
         const allTickets = await res.json();
+
+        // Normalize "true"/"false" strings and other truthy forms
+        const isTruthy = (v) =>
+          v === true ||
+          v === 1 ||
+          v === "1" ||
+          (typeof v === "string" && v.toLowerCase() === "true");
 
         const grouped = {};
 
@@ -65,15 +74,23 @@ export default function HomePage() {
           if (!dateStr) return;
 
           const dateObj = new Date(dateStr);
-dateObj.setHours(12, 0, 0, 0); // Prevent timezone shift to previous day
-const diff = Math.floor((dateObj - start) / 86400000);
+          dateObj.setHours(12, 0, 0, 0); // Prevent timezone shift to previous day
+          const diff = Math.floor((dateObj - start) / 86400000);
 
+          // ✅ HARD EXCLUDE archived/deleted (covers boolean, string, and timestamp styles)
+          const archivedLike =
+            isTruthy(ticket.archived) ||
+            !!ticket.archivedAt ||
+            ticket.assignmentStatus === "Archived";
+
+          const deletedLike =
+            isTruthy(ticket.deleted) || !!ticket.deletedAt;
 
           const isInRange =
             dateObj >= start &&
             dateObj <= end &&
-            !ticket.archived &&
-            !ticket.deleted &&
+            !archivedLike &&
+            !deletedLike &&
             ticket.assignmentStatus !== "Postponed";
 
           if (!isInRange || diff < 0 || diff > 13) return;
@@ -89,7 +106,6 @@ const diff = Math.floor((dateObj - start) / 86400000);
 
     fetchTickets();
   }, [weekStartDate]);
-
   const currentDate = new Date(
     weekStartDate.getTime() + currentDayIndex * 86400000
   );

@@ -4,6 +4,14 @@ import API_BASE from "@/api";
 import { nextWorkdayISO } from "@/utils/leaveDates";
 import { useToast } from "@/hooks/use-toast";
 
+// 🔊 sound system (shared with TicketPage / TicketForm / MyProfile)
+import {
+  unlockSounds,
+  playSoundFor,
+  installSoundUnlockOnGesture,
+  setSoundEnabled as setSoundEnabledStorage,
+} from "@/lib/soundRouter";
+
 // ✅ shared reconciliation helpers (date/alloc alignment)
 // Import as a module so missing named exports don't crash Vite.
 import * as LR from "@/lib/leaveReconcile";
@@ -24,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 
 // icons
 import { Pencil, X } from "lucide-react";
@@ -474,7 +483,23 @@ const getReqType = (r) =>
     "local");
 
 const getReqTotalDays = (r) =>
-  toInt(pick(r, ["totalDays", "days", "weekdayCount", "totalWeekdays", "duration"]) ?? 0, 0);
+  toInt(
+    pick(r, [
+      "newTotalDays",
+      "updatedTotalDays",
+      "finalTotalDays",
+      "lastTotalDays",
+      "modifiedTotalDays",
+      "payload.newTotalDays",
+      "payload.totalDays",
+      "totalDays",
+      "days",
+      "weekdayCount",
+      "totalWeekdays",
+      "duration",
+    ]) ?? 0,
+    0
+  );
 
 const getReqAnnualAlloc = (r) => {
   const explicit =
@@ -525,6 +550,42 @@ const getReqOffAlloc = (r) => {
   const days = getReqTotalDays(r);
   if (t.includes("off")) return days;
   return 0;
+};
+// ✅ Applied totals helpers (always use the LATEST values)
+// After edits, backend may store newAppliedAnnual/newAppliedOff (or similar).
+// These functions prevent cancel/edit logic from accidentally using the old applied values.
+const getAppliedAnnual = (r) => {
+  const v =
+    pick(r, [
+      "__uiAppliedAnnual",
+      "newAppliedAnnual",
+      "appliedAnnual",
+      "applied_annual",
+      "finalAppliedAnnual",
+      "lastAppliedAnnual",
+      "modifiedAppliedAnnual",
+      "payload.newAppliedAnnual",
+      "payload.appliedAnnual",
+    ]) ?? getReqAnnualAlloc(r) ?? 0;
+
+  return toHalf(v, 0);
+};
+
+const getAppliedOff = (r) => {
+  const v =
+    pick(r, [
+      "__uiAppliedOff",
+      "newAppliedOff",
+      "appliedOff",
+      "applied_off",
+      "finalAppliedOff",
+      "lastAppliedOff",
+      "modifiedAppliedOff",
+      "payload.newAppliedOff",
+      "payload.appliedOff",
+    ]) ?? getReqOffAlloc(r) ?? 0;
+
+  return toHalf(v, 0);
 };
 
 // ✅ Workday count is now weekend + public-holiday aware
@@ -603,9 +664,202 @@ const getReturnISO = (leaveReq, publicHolidays = []) => {
 export default function LeaveManager({ users, setUsers, currentAdmin }) {
   const { toast } = useToast();
 
-    // ✅ Public holidays (YYYY-MM-DD) used for universal "return to work" + calculations
+  // =========================
+  // 🔊 SOUND SETTING START HERE
+  // =========================
+  const [toastEnabled, setToastEnabled] = useState(
+    localStorage.getItem("notificationToastsEnabled") !== "false"
+  );
+  const [soundEnabled, setSoundEnabled] = useState(
+    localStorage.getItem("notificationSoundsEnabled") !== "false"
+  );
+
+  // unlock-on-gesture (safe to call repeatedly)
+  useEffect(() => {
+    try {
+      installSoundUnlockOnGesture();
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // persist toggles (shared keys used elsewhere)
+  useEffect(() => {
+    localStorage.setItem("notificationToastsEnabled", String(toastEnabled));
+  }, [toastEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem("notificationSoundsEnabled", String(soundEnabled));
+
+    // keep router in sync (some pages read it from there)
+    try {
+      setSoundEnabledStorage(soundEnabled);
+    } catch {
+      // ignore
+    }
+
+    // try to unlock immediately when enabling
+    if (soundEnabled) {
+      unlockSounds().catch(() => {});
+    }
+  }, [soundEnabled]);
+
+  // Use this for “admin-side” actions (approve/deny/edit/cancel)
+  const fireLeaveAdminSound = async ({ urgent = false } = {}) => {
+    if (!soundEnabled) return;
+    try {
+      await playSoundFor({
+        category: "leave",
+        urgent: !!urgent,
+        scope: "admin",
+      });
+    } catch {
+      // ignore
+    }
+  };
+  // 🔊 SOUND SETTING ENDS HERE
+  // =========================
+
+  // =========================
+  // ✅ Notifications helper (Leave -> User)
+  // =========================
+  const postNotification = async ({
+    title,
+    message,
+    recipients,
+    category = "leave",
+    urgent = false,
+    kind = "leave_update",
+    action,
+    displayRecipients,
+  }) => {
+    try {
+      const cleanRecipients = Array.from(
+        new Set(
+          (Array.isArray(recipients) ? recipients : [])
+            .flat()
+            .filter((x) => x !== undefined && x !== null && String(x).trim() !== "")
+            .map((x) => String(x).trim())
+        )
+      );
+
+      if (cleanRecipients.length === 0) return;
+
+      const payload = {
+        title,
+        message,
+        recipients: cleanRecipients,
+        category,
+        urgent: !!urgent,
+        kind,
+      };
+
+      if (Array.isArray(displayRecipients) && displayRecipients.length) {
+        payload.displayRecipients = displayRecipients;
+      }
+      if (action && typeof action === "object") {
+        payload.action = action; // { type, id, url }
+      }
+
+      // Backend should add timestamp, but we don’t rely on it.
+      await fetch(`${API_BASE}/notifications`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      // non-fatal: leave actions must still succeed even if notification fails
+      console.warn("Leave notification failed:", e);
+    }
+  };
+
+  const notifyLeaveUser = async (req, userObj, { title, message, urgent = false, action }) => {
+    const userId = req?.userId ?? userObj?.id;
+    const userName = req?.userName ?? userObj?.name;
+
+    // ✅ Important: include BOTH id + name to match your current mixed recipient matching
+    const recipients = [
+      userId ? String(userId) : null,
+      userName ? String(userName) : null,
+    ];
+
+    await postNotification({
+      title,
+      message,
+      recipients,
+      category: "leave",
+      urgent,
+      kind: "leave_update",
+      displayRecipients: userName ? [String(userName)] : undefined,
+      action: action || {
+        type: "open_profile_leave",
+        id: String(req?.id || ""),
+        url: "/profile#leave",
+      },
+    });
+  };
+
+  // =========================
+  // ✅ Leave → Notifications helper
+  // =========================
+
+  // Non-fatal: if notifications API isn't enabled/available, leave actions still succeed.
+  const sendLeaveNotification = async ({
+    userId,
+    title,
+    message,
+    urgent = false,
+    extra = {},
+  }) => {
+    const uid = userId ? String(userId) : "";
+    if (!uid) return false;
+
+    const payload = {
+      // common shapes (server can ignore extras)
+      userId: uid,
+      userIds: [uid],
+      title: String(title || "Leave update"),
+      message: String(message || ""),
+      urgent: !!urgent,
+      category: "leave",
+      type: "leave",
+      createdAt: new Date().toISOString(),
+      createdById: currentAdmin?.id ? String(currentAdmin.id) : null,
+      createdByName: currentAdmin?.name || "Admin",
+      ...extra,
+    };
+
+    const tryPost = async (url) => {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(txt || `HTTP ${res.status}`);
+      }
+      return true;
+    };
+
+    try {
+      // Most common
+      return await tryPost(`${API_BASE}/notifications`);
+    } catch (e1) {
+      try {
+        // Fallback (some builds expose /notifications/send)
+        return await tryPost(`${API_BASE}/notifications/send`);
+      } catch (e2) {
+        console.warn("Leave notification failed (non-fatal):", e2?.message || e2);
+        return false;
+      }
+    }
+  };
+
+  // ✅ Public holidays (YYYY-MM-DD) used for universal "return to work" + calculations
   const [publicHolidays, setPublicHolidays] = useState([]);
   const [holidaysLoaded, setHolidaysLoaded] = useState(false);
+
 
   useEffect(() => {
     (async () => {
@@ -798,9 +1052,14 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   const [modifyNote, setModifyNote] = useState("");
   const [savingModify, setSavingModify] = useState(false);
 
+  // ✅ CANCEL: track whether admin manually edited refund fields.
+  // If false, we auto-sync refund split when return-to-work date changes.
+  const cancelRefundManualRef = useRef(false);
+
   // ✅ Split UI: manual split only shows inputs after button press
   const [modifySplitMode, setModifySplitMode] = useState("auto"); // "auto" | "manual"
   const [modifySplitPreset, setModifySplitPreset] = useState("annual"); // "annual" | "off" | "even"
+
 
   // =========================
   // ✅ NEW: Consumption order helpers (MyProfile → LeaveManager understanding)
@@ -954,10 +1213,15 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     // ✅ NEW: Order-aware cancellation split (prevents false “stealing”)
     // Instead of forcing "refund back to what was approved", we refund based on what was USED,
     // respecting the user's agreed order (annual_first / off_first).
-    const appliedA = toHalf(req.__uiAppliedAnnual ?? req.appliedAnnual ?? getReqAnnualAlloc(req) ?? 0, 0);
-    const appliedO = toHalf(req.__uiAppliedOff ?? req.appliedOff ?? getReqOffAlloc(req) ?? 0, 0);
+      const appliedA = toHalf(getAppliedAnnual(req), 0);
+    const appliedO = toHalf(getAppliedOff(req), 0);
 
-    const expected = computeCancelRefundSplit(req, appliedA, appliedO, toHalf(cancelStats.used ?? 0, 0));
+    const expected = computeCancelRefundSplit(
+      req,
+      appliedA,
+      appliedO,
+      toHalf(cancelStats.used ?? 0, 0)
+    );
 
     if (cancelUnused !== expected.unused) {
       // Data inconsistency guard
@@ -1202,109 +1466,143 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     return iso(startV) < minStart;
   };
 
-  const applyDecision = async () => {
-    if (!activeReq) return;
-    const req = activeReq;
-    const u = userById(req.userId);
+   const applyDecision = async () => {
+  if (!activeReq) return;
+  const req = activeReq;
+  const u = userById(req.userId);
 
-    setSavingDecision(true);
+  setSavingDecision(true);
 
-    try {
-      if (decisionType === "deny") {
-        const patch = {
-          status: "denied",
-          decisionNote,
-          approverId: currentAdmin?.id || null,
-          approverName: currentAdmin?.name || "Admin",
-          decidedAt: new Date().toISOString(),
-        };
-
-        const res = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
-        });
-        if (!res.ok) throw new Error("Failed to deny request");
-
-        const saved = await res.json();
-        setRequests((prev) =>
-          prev.map((r) => (String(r.id) === String(req.id) ? { ...r, ...saved } : r))
-        );
-
-        toast({
-          title: "Request denied",
-          description: `Reason noted${decisionNote ? `: ${decisionNote}` : ""}.`,
-        });
-
-        closeDecision();
-        return;
-      }
-
-      // ---------- Approve ----------
-      const total = Math.max(toInt(req?.totalWeekdays ?? 0, 0), getReqTotalDays(req));
-
-      if (twoWeekRuleViolated(req) && !overrideTwoWeekRule) {
-        setSavingDecision(false);
-        toast({
-          title: "Two-week rule",
-          description:
-            "This request starts in less than 14 days. Toggle 'Override 2-week rule' to proceed, or deny with a note.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      if (!u?.id) throw new Error("User has no ID — cannot approve request.");
-
-      // ✅ DO NOT PATCH /users here — backend deducts once on approval
+  try {
+    if (decisionType === "deny") {
       const patch = {
-        status: "approved",
+        status: "denied",
         decisionNote,
         approverId: currentAdmin?.id || null,
         approverName: currentAdmin?.name || "Admin",
         decidedAt: new Date().toISOString(),
-        appliedAnnual: toInt(adjAnnual, 0),
-        appliedOff: toInt(adjOff, 0),
       };
 
-      const res2 = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
+      const res = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
-      if (!res2.ok) throw new Error("Failed to approve request");
+      if (!res.ok) throw new Error("Failed to deny request");
 
-      const savedReq = await res2.json();
+      const saved = await res.json();
       setRequests((prev) =>
-        prev.map((r) => (String(r.id) === String(req.id) ? { ...r, ...savedReq } : r))
+        prev.map((r) => (String(r.id) === String(req.id) ? { ...r, ...saved } : r))
       );
 
-      // refresh users so balances display correctly immediately
-      try {
-        const uRes = await fetch(`${API_BASE}/users`);
-        if (uRes.ok) {
-          const usersData = await uRes.json();
-          setUsers(Array.isArray(usersData) ? usersData : usersData?.users || []);
-        }
-      } catch {
-        // non-fatal
-      }
+          toast({
+        title: "Request denied",
+        description: `Reason noted${decisionNote ? `: ${decisionNote}` : ""}.`,
+      });
 
-      toast({
-        title: "Request approved",
-        description: `Applied Annual: ${toInt(adjAnnual, 0)}, Off days: ${toInt(adjOff, 0)}.`,
+      // 🔊 action sound (non-blocking)
+      fireLeaveAdminSound({ urgent: true });
+
+      // ✅ Notify the user (non-fatal if it fails)
+      await notifyLeaveUser(req, u, {
+        title: "❌ Leave request denied",
+        urgent: true,
+        message: [
+          `Dates: ${iso(getReqStart(req)) || "—"} → ${iso(getReqEnd(req)) || "—"}`,
+          decisionNote ? `Reason: ${decisionNote}` : "Reason: Not provided",
+          `By: ${currentAdmin?.name || "Admin"}`,
+        ].join("\n"),
+        action: { type: "open_profile_leave", id: String(req?.id || ""), url: "/profile#leave" },
       });
 
       closeDecision();
-    } catch (e) {
+      return;
+    }
+
+    // ---------- Approve ----------
+    const total = Math.max(toInt(req?.totalWeekdays ?? 0, 0), getReqTotalDays(req));
+
+    if (twoWeekRuleViolated(req) && !overrideTwoWeekRule) {
       setSavingDecision(false);
       toast({
-        title: "Action failed",
-        description: e?.message || "Please try again.",
+        title: "Two-week rule",
+        description:
+          "This request starts in less than 14 days. Toggle 'Override 2-week rule' to proceed, or deny with a note.",
         variant: "destructive",
       });
+      return;
     }
-  };
+
+    if (!u?.id) throw new Error("User has no ID — cannot approve request.");
+
+    // ✅ DO NOT PATCH /users here — backend deducts once on approval
+    const patch = {
+      status: "approved",
+      decisionNote,
+      approverId: currentAdmin?.id || null,
+      approverName: currentAdmin?.name || "Admin",
+      decidedAt: new Date().toISOString(),
+      appliedAnnual: toInt(adjAnnual, 0),
+      appliedOff: toInt(adjOff, 0),
+    };
+
+    const res2 = await fetch(`${API_BASE}/leave-requests/${req.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res2.ok) throw new Error("Failed to approve request");
+
+    const savedReq = await res2.json();
+    setRequests((prev) =>
+      prev.map((r) => (String(r.id) === String(req.id) ? { ...r, ...savedReq } : r))
+    );
+
+    // refresh users so balances display correctly immediately
+    try {
+      const uRes = await fetch(`${API_BASE}/users`);
+      if (uRes.ok) {
+        const usersData = await uRes.json();
+        setUsers(Array.isArray(usersData) ? usersData : usersData?.users || []);
+      }
+    } catch {
+      // non-fatal
+    }
+
+    toast({
+      title: "Request approved",
+      description: `Applied Annual: ${toInt(adjAnnual, 0)}, Off days: ${toInt(adjOff, 0)}.`,
+    });
+
+    // 🔊 action sound (non-blocking)
+    fireLeaveAdminSound({ urgent: false });
+
+    // ✅ Notify the user
+    await notifyLeaveUser(req, u, {
+      title: "✅ Leave approved",
+      urgent: false,
+      message: [
+        `Dates: ${iso(getReqStart(req)) || "—"} → ${iso(getReqEnd(req)) || "—"}`,
+        `Resume on: ${getReturnISO(savedReq, publicHolidays) || iso(getReqResumeOn(req)) || "—"}`,
+        `Applied: Annual ${toInt(adjAnnual, 0)} / Off ${toInt(adjOff, 0)}`,
+        decisionNote ? `Note: ${decisionNote}` : null,
+        `By: ${currentAdmin?.name || "Admin"}`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      action: { type: "open_profile_leave", id: String(req?.id || ""), url: "/profile#leave" },
+    });
+
+    closeDecision();
+  } catch (e) {
+    setSavingDecision(false);
+    toast({
+      title: "Action failed",
+      description: e?.message || "Please try again.",
+      variant: "destructive",
+    });
+  }
+};
 
   // =========================
   // ✅ NEW: Edit/Cancel helpers
@@ -1330,7 +1628,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     setModifySplitPreset("annual");
   };
 
-  const openModify = (req, mode) => {
+   const openModify = (req, mode) => {
     // ✅ Never mutate the request object that lives inside React state
     const safeReq = { ...(req || {}) };
 
@@ -1348,15 +1646,9 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
       e ? nextWorkdayISO(e, publicHolidays) || addDaysISO(e, 1) : "";
     setCancelReturnDate(defaultReturn);
 
-    // ✅ Prefill applied split from what was actually applied on approval
-    const appliedA = toHalf(
-      safeReq.appliedAnnual ?? getReqAnnualAlloc(safeReq) ?? 0,
-      0
-    );
-    const appliedO = toHalf(
-      safeReq.appliedOff ?? getReqOffAlloc(safeReq) ?? 0,
-      0
-    );
+       // ✅ Prefill applied split from what was actually applied (LATEST values after edits)
+    const appliedA = toHalf(getAppliedAnnual(safeReq), 0);
+    const appliedO = toHalf(getAppliedOff(safeReq), 0);
 
     // ✅ Default split UI behavior
     setModifySplitMode("auto");
@@ -1365,6 +1657,9 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     // ✅ Store UI-only values on the safe clone only
     safeReq.__uiAppliedAnnual = appliedA;
     safeReq.__uiAppliedOff = appliedO;
+
+    // ✅ Reset cancel manual override every time you open the modal
+    cancelRefundManualRef.current = false;
 
     // ✅ Default split values
     // - Edit: start at 0/0 and force explicit allocation if delta exists
@@ -1395,26 +1690,42 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   // Simple weekday-only estimate (holidays come later)
   // ✅ Supports half-day explicit fields if they exist in request payload
   function calcTotalWeekdays(req, startISO, endISO) {
+    // ✅ If the request has an explicit/edited total stored anywhere, prefer it
     const maybeHalf =
       req?.requestedDays ??
       req?.daysRequested ??
       req?.totalRequestedDays ??
+      req?.newTotalDays ??
+      req?.updatedTotalDays ??
+      req?.finalTotalDays ??
+      req?.lastTotalDays ??
       null;
 
     const explicitHalf = toHalf(maybeHalf, 0);
     if (explicitHalf > 0) return explicitHalf;
 
-    const explicit = Math.max(toInt(req?.totalWeekdays ?? 0, 0), getReqTotalDays(req));
+    const explicit = Math.max(
+      toInt(req?.totalWeekdays ?? 0, 0),
+      getReqTotalDays(req)
+    );
     if (explicit > 0) return toHalf(explicit, 0);
 
+    // fallback: compute from dates (holiday/weekend aware)
     return toHalf(weekdaysBetween(startISO, endISO, publicHolidays), 0);
   }
 
   // ✅ Cancel logic fix:
   // Used must be 0 if leave is upcoming (has not started yet).
   // Used = weekdays from start -> min(today, lastLeaveDay)
-  function calcCancelUsedUnused(req, startISO, endISO, returnISO) {
-    const total = calcTotalWeekdays(req, startISO, endISO);
+   function calcCancelUsedUnused(req, startISO, endISO, returnISO) {
+    // ✅ True total for cancellation should be what was actually DEDUCTED (latest applied totals),
+    // because cancellation refunds unused deducted days (not “requested days” if they drifted).
+    const appliedA = toHalf(getAppliedAnnual(req), 0);
+    const appliedO = toHalf(getAppliedOff(req), 0);
+    const appliedTotal = toHalf(appliedA + appliedO, 0);
+
+    const computedTotal = calcTotalWeekdays(req, startISO, endISO);
+    const total = appliedTotal > 0 ? appliedTotal : computedTotal;
 
     if (!startISO || !endISO || !returnISO) return { total, used: 0, unused: total };
 
@@ -1426,7 +1737,8 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     lastLeaveDay.setDate(lastLeaveDay.getDate() - 1);
     const lastISO = iso(lastLeaveDay);
 
-    const todayISO = iso(new Date());
+    // ✅ LOCAL today (prevents UTC drift causing "already started" when it's not)
+    const todayISO = toISOLocal(new Date());
 
     // ✅ If leave hasn't started yet, nothing is used
     if (todayISO < startISO) {
@@ -1457,6 +1769,41 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     return { total, used, unused };
   }
 
+  // ✅ CANCEL: if admin changes return-to-work date, re-sync refund split automatically,
+  // unless they manually edited the refund fields.
+  useEffect(() => {
+    if (!modifyOpen) return;
+    if (modifyMode !== "cancel") return;
+    if (!modifyReq) return;
+
+    if (cancelRefundManualRef.current) return;
+
+    const oStart = iso(getReqStart(modifyReq));
+    const oEnd = iso(getReqEnd(modifyReq));
+    const returnISO = iso(cancelReturnDate);
+    if (!oStart || !oEnd || !returnISO) return;
+
+    const appliedA = toHalf(
+      modifyReq.__uiAppliedAnnual ?? modifyReq.appliedAnnual ?? getReqAnnualAlloc(modifyReq) ?? 0,
+      0
+    );
+    const appliedO = toHalf(
+      modifyReq.__uiAppliedOff ?? modifyReq.appliedOff ?? getReqOffAlloc(modifyReq) ?? 0,
+      0
+    );
+
+    const stats = calcCancelUsedUnused(modifyReq, oStart, oEnd, returnISO);
+    const expected = computeCancelRefundSplit(
+      modifyReq,
+      appliedA,
+      appliedO,
+      toHalf(stats?.used ?? 0, 0)
+    );
+
+    setRefundAnnual(expected.refundAnnual);
+    setRefundOff(expected.refundOff);
+  }, [modifyOpen, modifyMode, modifyReq, cancelReturnDate, publicHolidays]);
+
   const submitModify = async () => {
     if (!modifyReq) return;
 
@@ -1467,10 +1814,9 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     const endISO = iso(modifyEnd);
     const returnISO = iso(cancelReturnDate);
 
-    // ✅ Half-safe applied values
-    const appliedA = toHalf(req.appliedAnnual ?? getReqAnnualAlloc(req) ?? 0, 0);
-    const appliedO = toHalf(req.appliedOff ?? getReqOffAlloc(req) ?? 0, 0);
-
+      // ✅ Always use LATEST applied values (post-edit compatible)
+    const appliedA = toHalf(getAppliedAnnual(req), 0);
+    const appliedO = toHalf(getAppliedOff(req), 0);
     const originalStart = iso(getReqStart(req));
     const originalEnd = iso(getReqEnd(req));
 
@@ -1495,7 +1841,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         : { total: 0, used: 0, unused: 0 };
 
     // =========================
-    // ✅ VALIDATION
+    // ✅ VALIDATION (unchanged logic)
     // =========================
     if (mode === "edit") {
       if (!startISO || !endISO) {
@@ -1532,7 +1878,8 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         if (adjA > appliedA || adjO > appliedO) {
           toast({
             title: "Refund too large",
-            description: "Refund cannot exceed what was originally deducted from that bucket. Adjust split.",
+            description:
+              "Refund cannot exceed what was originally deducted from that bucket. Adjust split.",
             variant: "destructive",
           });
           return;
@@ -1573,11 +1920,11 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
       let nextO = appliedO;
 
       if (delta < 0) {
-        nextA = toHalf(appliedA - adjA, 0);
-        nextO = toHalf(appliedO - adjO, 0);
+        nextA = toHalf(appliedA - Math.max(0, toHalf(refundAnnual, 0)), 0);
+        nextO = toHalf(appliedO - Math.max(0, toHalf(refundOff, 0)), 0);
       } else if (delta > 0) {
-        nextA = toHalf(appliedA + adjA, 0);
-        nextO = toHalf(appliedO + adjO, 0);
+        nextA = toHalf(appliedA + Math.max(0, toHalf(refundAnnual, 0)), 0);
+        nextO = toHalf(appliedO + Math.max(0, toHalf(refundOff, 0)), 0);
       }
 
       if (toHalf(nextA + nextO, 0) !== newTotal) {
@@ -1616,7 +1963,12 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
       }
 
       // ✅ NEW: Order-aware cancellation split (prevents false “stealing”)
-      const expected = computeCancelRefundSplit(req, appliedA, appliedO, toHalf(cancelStats.used ?? 0, 0));
+      const expected = computeCancelRefundSplit(
+        req,
+        appliedA,
+        appliedO,
+        toHalf(cancelStats.used ?? 0, 0)
+      );
 
       if (requiredUnused !== expected.unused) {
         toast({
@@ -1631,7 +1983,10 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
       if (rA !== expected.refundAnnual || rO !== expected.refundOff) {
         toast({
           title: "Invalid refund split",
-          description: `This cancellation must follow the agreed order (${expected.order.replace("_", " ")}). Expected: Annual ${expected.refundAnnual} / Off ${expected.refundOff}.`,
+          description: `This cancellation must follow the agreed order (${expected.order.replace(
+            "_",
+            " "
+          )}). Expected: Annual ${expected.refundAnnual} / Off ${expected.refundOff}.`,
           variant: "destructive",
         });
         return;
@@ -1723,7 +2078,68 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         // non-fatal
       }
 
-      toast({
+      // ✅ Notify user (non-fatal)
+      {
+        const u = userById(req.userId);
+        const who = req.userName || u?.name || "Unknown";
+
+        if (mode === "edit") {
+          await sendLeaveNotification({
+            userId: req.userId,
+            urgent: false,
+            title: "Your approved leave was updated",
+            message: [
+              `Hi ${who}, your approved leave was updated by ${currentAdmin?.name || "Admin"}.`,
+              originalStart && originalEnd ? `Original: ${originalStart} → ${originalEnd}` : null,
+              startISO && endISO ? `New: ${startISO} → ${endISO}` : null,
+              `Change: ${delta === 0 ? "No day change" : delta > 0 ? `+${delta} day(s)` : `${delta} day(s)`}`,
+              modifyNote ? `Note: ${modifyNote}` : null,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            extra: {
+              leaveRequestId: String(req.id),
+              status: "approved",
+              editMode: "edit",
+              originalStartDate: originalStart || null,
+              originalEndDate: originalEnd || null,
+              newStartDate: startISO || null,
+              newEndDate: endISO || null,
+              newTotalDays: newTotal,
+              deltaDays: delta,
+            },
+          });
+        } else {
+          await sendLeaveNotification({
+            userId: req.userId,
+            urgent: false,
+            title: "Your approved leave was cancelled",
+            message: [
+              `Hi ${who}, your approved leave was cancelled by ${currentAdmin?.name || "Admin"}.`,
+              originalStart && originalEnd ? `Leave: ${originalStart} → ${originalEnd}` : null,
+              returnISO ? `Return to work: ${returnISO}` : null,
+              `Refund: Annual ${toHalf(refundAnnual, 0)} / Off ${toHalf(refundOff, 0)}`,
+              modifyNote ? `Note: ${modifyNote}` : null,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            extra: {
+              leaveRequestId: String(req.id),
+              status: "cancelled",
+              editMode: "cancel",
+              originalStartDate: originalStart || null,
+              originalEndDate: originalEnd || null,
+              cancelReturnDate: returnISO || null,
+              refundAnnual: toHalf(refundAnnual, 0),
+              refundOff: toHalf(refundOff, 0),
+              cancelUsedDays: toHalf(cancelStats.used, 0),
+              cancelUnusedDays: toHalf(cancelStats.unused, 0),
+            },
+          });
+        }
+      }
+
+          toast({
         title: mode === "edit" ? "Leave updated" : "Leave cancelled",
         description:
           mode === "edit"
@@ -1731,7 +2147,48 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
             : "Refund applied and balances adjusted.",
       });
 
-      closeModify();
+      // 🔊 action sound (non-blocking)
+      fireLeaveAdminSound({ urgent: mode !== "edit" });
+
+      // ✅ Notify the user
+      const u = userById(req.userId);
+
+      if (mode === "edit") {
+  const oStart = iso(getReqStart(req));
+  const oEnd = iso(getReqEnd(req));
+
+  await notifyLeaveUser(req, u, {
+    title: "✏️ Leave updated",
+    urgent: false,
+    message: [
+      `Old: ${oStart || "—"} → ${oEnd || "—"}`,
+      `New: ${startISO || "—"} → ${endISO || "—"}`,
+      `Change: ${delta > 0 ? `+${delta}` : `${delta}`} day(s)`,
+      `Applied now: Annual ${Math.max(0, toHalf(savedReq?.appliedAnnual ?? savedReq?.newAppliedAnnual ?? 0, 0))} / Off ${Math.max(0, toHalf(savedReq?.appliedOff ?? savedReq?.newAppliedOff ?? 0, 0))}`,
+      modifyNote ? `Note: ${modifyNote}` : null,
+      `By: ${currentAdmin?.name || "Admin"}`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    action: { type: "open_profile_leave", id: String(req?.id || ""), url: "/profile#leave" },
+  });
+} else {
+  await notifyLeaveUser(req, u, {
+    title: "🛑 Leave cancelled",
+    urgent: true,
+    message: [
+      `Return to work: ${returnISO || "—"}`,
+      `Refund: Annual ${toHalf(refundAnnual, 0)} / Off ${toHalf(refundOff, 0)}`,
+      modifyNote ? `Note: ${modifyNote}` : null,
+      `By: ${currentAdmin?.name || "Admin"}`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    action: { type: "open_profile_leave", id: String(req?.id || ""), url: "/profile#leave" },
+  });
+}
+
+closeModify();
     } catch (e) {
       setSavingModify(false);
       toast({
@@ -1972,13 +2429,16 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   return (
     <div className="space-y-10">
       {/* ===================== Leave Requests Admin ===================== */}
-      <section>
+            <section>
         <h2 className="text-2xl font-bold mb-3">Leave Requests</h2>
+
+        
 
         {/* Filters */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4">
           <div>
             <Label className="text-xs">Status</Label>
+
             <select
               className="w-full border rounded px-2 py-2 text-sm"
               value={statusFilter}
@@ -2514,22 +2974,28 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
                           </div>
 
                           <div className="grid grid-cols-2 gap-3">
-                            <div>
+                                                  <div>
                               <Label>Refund to Annual</Label>
                               <Input
                                 type="number"
                                 step={0.5}
                                 value={refundAnnual}
-                                onChange={(e) => setRefundAnnual(toHalf(e.target.value, 0))}
+                                onChange={(e) => {
+                                  cancelRefundManualRef.current = true;
+                                  setRefundAnnual(toHalf(e.target.value, 0));
+                                }}
                               />
                             </div>
-                            <div>
+                                                 <div>
                               <Label>Refund to Off Days</Label>
                               <Input
                                 type="number"
                                 step={0.5}
                                 value={refundOff}
-                                onChange={(e) => setRefundOff(toHalf(e.target.value, 0))}
+                                onChange={(e) => {
+                                  cancelRefundManualRef.current = true;
+                                  setRefundOff(toHalf(e.target.value, 0));
+                                }}
                               />
                             </div>
                           </div>
@@ -2819,14 +3285,8 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
           {(() => {
             const req = modifyReq;
 
-            const appliedA = toHalf(
-              req?.__uiAppliedAnnual ?? req?.appliedAnnual ?? getReqAnnualAlloc(req) ?? 0,
-              0
-            );
-            const appliedO = toHalf(
-              req?.__uiAppliedOff ?? req?.appliedOff ?? getReqOffAlloc(req) ?? 0,
-              0
-            );
+                       const appliedA = toHalf(getAppliedAnnual(req), 0);
+            const appliedO = toHalf(getAppliedOff(req), 0);
 
             const guard = (() => {
               if (!req) return { canSave: false, message: "No request selected." };

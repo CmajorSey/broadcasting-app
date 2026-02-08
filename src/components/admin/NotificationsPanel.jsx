@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import MultiSelectCombobox from "@/components/MultiSelectCombobox";
 import GroupsManager from "@/components/admin/GroupsManager";
@@ -35,11 +37,17 @@ export default function NotificationsPanel({ loggedInUser }) {
   // compose tab state (kept)
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
+
+   // ✅ NEW: urgent notifications (forces sound later in user rules)
+  const [urgent, setUrgent] = useState(false);
+
   const [selectedUsers, setSelectedUsers] = useState([]);
+
   const [selectedSections, setSelectedSections] = useState([]);
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
   const [history, setHistory] = useState([]);
+
 
   // suggestions (kept)
   const [suggestions, setSuggestions] = useState([]);
@@ -221,12 +229,16 @@ export default function NotificationsPanel({ loggedInUser }) {
       return;
     }
 
-    const payload = {
+      const payload = {
       title,
       message,
       recipients,
       createdAt: new Date().toISOString(),
+
+      // ✅ NEW
+      urgent: urgent === true,
     };
+
 
     try {
       const res = await fetch(`${API_BASE}/notifications`, {
@@ -237,11 +249,15 @@ export default function NotificationsPanel({ loggedInUser }) {
 
       if (!res.ok) throw new Error("Failed to send notification");
 
-      toast({ title: "Notification sent!" });
+         toast({ title: "Notification sent!" });
       setTitle("");
       setMessage("");
       setSelectedUsers([]);
       setSelectedSections([]);
+
+        // ✅ reset meta
+      setUrgent(false);
+
       fetchHistory();
     } catch (err) {
       console.error("Notification error:", err);
@@ -431,7 +447,7 @@ export default function NotificationsPanel({ loggedInUser }) {
         <div className="space-y-6">
           <h2 className="text-2xl font-bold">📢 Send Notification</h2>
 
-          <div className="grid gap-4">
+                 <div className="grid gap-4">
             <div>
               <label className="text-sm font-medium block mb-1">Title</label>
               <Input
@@ -441,6 +457,15 @@ export default function NotificationsPanel({ loggedInUser }) {
                 className="w-full"
               />
             </div>
+
+              {/* ✅ NEW: urgent */}
+            <div className="flex items-center gap-3">
+              <Switch checked={urgent} onCheckedChange={(v) => setUrgent(!!v)} />
+              <Label className="text-sm">
+                Mark as <span className="font-medium">Urgent</span> (Forces sound notification)
+              </Label>
+            </div>
+
 
             <div>
               <label className="text-sm font-medium block mb-1">Message</label>
@@ -533,8 +558,17 @@ export default function NotificationsPanel({ loggedInUser }) {
                           return "Invalid date";
                         }
                       })()}
+                                     </td>
+                                  <td className="py-1 px-2 font-medium">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span>{notif.title}</span>
+
+                        {notif?.urgent === true ? (
+                          <Badge>URGENT</Badge>
+                        ) : null}
+
+                      </div>
                     </td>
-                    <td className="py-1 px-2 font-medium">{notif.title}</td>
                     <td className="py-1 px-2 max-w-sm break-words">{notif.message}</td>
                     <td className="py-1 px-2 flex flex-wrap gap-1">
                       {recipientsToShow.map((r, i) => (

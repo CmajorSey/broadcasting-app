@@ -133,17 +133,17 @@ function toast({
 }
 
 function useToast() {
-  const [state, setState] = React.useState(memoryState)
+  const [state, setState] = React.useState(memoryState);
 
+  // ✅ Register exactly once
   React.useEffect(() => {
-    listeners.push(setState)
+    listeners.push(setState);
+
     return () => {
-      const index = listeners.indexOf(setState)
-      if (index > -1) {
-        listeners.splice(index, 1)
-      }
+      const index = listeners.indexOf(setState);
+      if (index > -1) listeners.splice(index, 1);
     };
-  }, [state])
+  }, []);
 
   return {
     ...state,
@@ -151,5 +151,4 @@ function useToast() {
     dismiss: (toastId) => dispatch({ type: "DISMISS_TOAST", toastId }),
   };
 }
-
 export { useToast, toast }

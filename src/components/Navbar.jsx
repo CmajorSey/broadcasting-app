@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
   Home,
   Users,
@@ -14,39 +14,138 @@ import API_BASE from "@/api";
 
 const CLOCK_STORAGE_KEY = "navbar.clock.format"; // "12h" | "24h"
 
-export default function Navbar({ loggedInUser, setLoggedInUser, users }) {
+export default function Navbar({
+  loggedInUser,
+  setLoggedInUser,
+  users,
+  adminViewAs = null,
+  setAdminViewAs = () => {},
+  effectiveUser = null,
+}) {
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const handleLogout = () => {
+  // ✅ Auto-clear unread badge when user opens My Profile
+  // This keeps Navbar synced even if MyProfile clears items or App.jsx updates the count.
+  useEffect(() => {
+    const path = location?.pathname || "";
+
+    // Add any aliases you may use for the profile route here
+    const isProfileRoute =
+      path === "/profile" || path === "/my-profile" || path.startsWith("/profile/");
+
+    if (!isProfileRoute) return;
+
+    // Only write when needed (avoid extra events)
+    const current = Number(localStorage.getItem("loBoard.unreadCount") || "0");
+    if (!Number.isFinite(current) || current <= 0) return;
+
+    try {
+      localStorage.setItem("loBoard.unreadCount", "0");
+      window.dispatchEvent(new CustomEvent("loBoard:unread"));
+    } catch {
+      // ignore
+    }
+  }, [location?.pathname]);
+
+    const handleLogout = () => {
     localStorage.removeItem("loggedInUser");
-    localStorage.removeItem("rememberedUser");
-    localStorage.removeItem("adminViewAs");
+    localStorage.removeItem("rememberedUser");    localStorage.removeItem("adminViewAs");
+
+    // 🔴 clear unread badge
+    try {
+      localStorage.setItem("loBoard.unreadCount", "0");
+      window.dispatchEvent(new CustomEvent("loBoard:unread"));
+    } catch {
+      // ignore
+    }
+
     setLoggedInUser(null);
     navigate("/login");
   };
 
-  const [adminViewAs, setAdminViewAs] = useState(() => {
-    const stored = localStorage.getItem("adminViewAs");
-    return stored ? JSON.parse(stored) : null;
-  });
+  // ✅ storage listener: keep clock format in sync (View As is controlled by App state now)
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      const key = e?.key;
 
-useEffect(() => {
-  const handleStorageChange = (e) => {
-  const key = e?.key;
+      // If storage event is generic (manual dispatch) OR clock key changed, refresh clock format
+      if (!key || key === CLOCK_STORAGE_KEY) {
+        setIs12h(localStorage.getItem(CLOCK_STORAGE_KEY) === "12h");
+      }
+    };
 
-  if (!key || key === "adminViewAs") {
-    const updated = localStorage.getItem("adminViewAs");
-    setAdminViewAs(updated ? JSON.parse(updated) : null);
-  }
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
+    // 🔴 Unread notifications badge (Inbox-driven)
+  // Goal: badge reflects how many items are actually in the user's inbox.
+  // Fallback: if inbox is not stamped into localStorage yet, use loBoard.unreadCount.
+  const readInboxCountFromStorage = () => {
+    const tryKeys = [
+      "loBoard.inbox",                 // ✅ preferred (array of inbox items)
+      "loBoard.notificationsInbox",     // ✅ alternate (if you used a different key)
+      "loBoard.inboxNotifications",     // ✅ alternate (if you used a different key)
+    ];
 
-  if (!key || key === CLOCK_STORAGE_KEY) {
-    setIs12h(localStorage.getItem(CLOCK_STORAGE_KEY) === "12h");
-  }
-};
-  window.addEventListener("storage", handleStorageChange);
-  return () => window.removeEventListener("storage", handleStorageChange);
-}, []);
+    for (const k of tryKeys) {
+      const raw = localStorage.getItem(k);
+      if (!raw) continue;
 
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.length;
+      } catch {
+        // ignore bad json
+      }
+    }
+
+    // Fallback: controller-based count (may include non-inbox events)
+    const n = Number(localStorage.getItem("loBoard.unreadCount") || "0");
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const [unreadCount, setUnreadCount] = useState(() => readInboxCountFromStorage());
+
+  useEffect(() => {
+    const refreshUnread = () => {
+      setUnreadCount(readInboxCountFromStorage());
+    };
+
+    // ✅ When inbox changes (MyProfile clears, inbox refresh, etc.)
+    const onInbox = () => refreshUnread();
+
+    // ✅ Legacy/controller signal (still supported, but we compute from inbox first)
+    const onUnread = () => refreshUnread();
+
+    // ✅ Also update when storage changes (other tabs / manual updates)
+    const onStorage = (e) => {
+      const key = e?.key;
+
+      // If generic storage event OR one of our keys changed, refresh
+      const watched =
+        !key ||
+        key === "loBoard.unreadCount" ||
+        key === "loBoard.inbox" ||
+        key === "loBoard.notificationsInbox" ||
+        key === "loBoard.inboxNotifications";
+
+      if (watched) refreshUnread();
+    };
+
+    window.addEventListener("loBoard:inbox", onInbox);
+    window.addEventListener("loBoard:unread", onUnread);
+    window.addEventListener("storage", onStorage);
+
+    // bootstrap once
+    refreshUnread();
+
+    return () => {
+      window.removeEventListener("loBoard:inbox", onInbox);
+      window.removeEventListener("loBoard:unread", onUnread);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
 
   // --- ⏰ NAVBAR CLOCK (GMT+4, Seychelles) with seconds + persistence ---
   const [now, setNow] = useState(() => new Date());
@@ -165,10 +264,18 @@ useEffect(() => {
           size="xs"
           variant="secondary"
           className={`text-xs ${u.name === adminViewAs?.name ? "bg-primary text-white" : ""}`}
-          onClick={() => {
-            localStorage.setItem("adminViewAs", JSON.stringify(u));
-            window.dispatchEvent(new Event("storage"));
+                 onClick={() => {
+            // ✅ App state drives the UI/fetches
             setAdminViewAs(u);
+
+            // ✅ Keep your existing local testing workflow working too
+            try {
+              localStorage.setItem("adminViewAs", JSON.stringify(u));
+              // best-effort "storage" signal (App also polls adminViewAs)
+              window.dispatchEvent(new Event("storage"));
+            } catch {
+              // ignore
+            }
           }}
         >
           {u.name}
@@ -178,10 +285,17 @@ useEffect(() => {
         size="xs"
         variant="ghost"
         className="text-[10px] ml-2"
-        onClick={() => {
-          localStorage.removeItem("adminViewAs");
-          window.dispatchEvent(new Event("storage"));
+             onClick={() => {
+          // ✅ App state drives the UI/fetches
           setAdminViewAs(null);
+
+          // ✅ Keep dev workflow consistent
+          try {
+            localStorage.removeItem("adminViewAs");
+            window.dispatchEvent(new Event("storage"));
+          } catch {
+            // ignore
+          }
         }}
       >
         Reset View
@@ -212,7 +326,7 @@ useEffect(() => {
           <div className="flex items-center gap-4 flex-wrap justify-start md:justify-end">
             {AdminDevPanel}
             {ClockBox}
-            {loggedInUser && (
+                       {loggedInUser && (
               <ProfileDropdown loggedInUser={loggedInUser} onLogout={handleLogout} />
             )}
           </div>

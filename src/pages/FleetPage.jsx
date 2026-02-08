@@ -24,6 +24,56 @@ const isLimitedDriver = roles.includes("driver_limited"); // limited access
 // Single flag to control ALL edits on this page
 const canEdit = isAdmin || isDriver;
 
+// ---------------- Notifications (match notifications.json schema) ----------------
+const sendFleetNotification = async ({ title, message, urgent = false }) => {
+  try {
+    const actor = loggedInUser?.name || "Unknown";
+
+    /**
+     * ✅ RECIPIENT STRATEGY (SAFE + GLOBAL)
+     * - Actor (so they get a toast confirmation)
+     * - ALL Drivers (driver + driver_limited) via role buckets
+     * - ALL Admins via role buckets
+     *
+     * App.jsx will decide:
+     * - actor === loggedInUser → toast only, no sound
+     * - others → toast + sound (if enabled)
+     */
+    const payload = {
+      title,
+      message,
+      recipients: [
+        actor,
+
+        // Driver buckets
+        "Drivers",
+        "drivers",
+        "driver",
+        "driver_limited",
+
+        // Admin buckets
+        "Admins",
+        "admins",
+        "admin",
+      ],
+      timestamp: new Date().toISOString(),
+      category: "fleet",
+      urgent: !!urgent,
+
+      // ✅ lets App.jsx apply global “self = no sound” rule
+      actor,
+    };
+
+    await fetch(`${API_BASE}/notifications`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    // Never break Fleet if notifications fail
+    console.warn("Fleet notification failed (non-blocking):", err);
+  }
+};
 
   // ---------------- Helpers (rental/dates) ----------------
   const fmtShort = (dateLike) => {
@@ -78,7 +128,7 @@ const canEdit = isAdmin || isDriver;
   const [noteOptions, setNoteOptions] = useState([
     "Cleaned and Fueled",
     "Needs Cleaning",
-    "Refueled",
+    "Low on Fuel",
     "Maintenance Scheduled",
     "Ready for Use",
     "Issue Reported",
@@ -105,16 +155,28 @@ const canEdit = isAdmin || isDriver;
  const handleStatusChange = async (id, newStatus) => {
   if (!canEdit) return;
 
+  const before = vehicles.find((v) => v.id === id);
+
   const updated = vehicles.map((v) =>
     v.id === id ? { ...v, status: newStatus } : v
   );
   setVehicles(updated);
+
   try {
     const updatedVehicle = updated.find((v) => v.id === id);
-    await fetch(`${API_BASE}/vehicles/${id}`, {
+    const res = await fetch(`${API_BASE}/vehicles/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedVehicle),
+    });
+
+    if (!res.ok) throw new Error("Failed to update vehicle status");
+
+    const name = updatedVehicle?.name || "Vehicle";
+    await sendFleetNotification({
+      title: "Fleet updated",
+      message: `${name} status changed: ${before?.status || "Unknown"} → ${newStatus}`,
+      urgent: newStatus === "Issue Reported",
     });
   } catch (err) {
     console.error("Failed to update vehicle status:", err);
@@ -125,44 +187,66 @@ const canEdit = isAdmin || isDriver;
  const handleNoteSelect = async (id, note) => {
   if (!canEdit) return;
 
+  const before = vehicles.find((v) => v.id === id);
+
   const updated = vehicles.map((v) =>
     v.id === id ? { ...v, notes: note } : v
   );
   setVehicles(updated);
   setOpenDropdownId(null);
+
   try {
     const updatedVehicle = updated.find((v) => v.id === id);
-    await fetch(`${API_BASE}/vehicles/${id}`, {
+    const res = await fetch(`${API_BASE}/vehicles/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedVehicle),
+    });
+
+    if (!res.ok) throw new Error("Failed to update note");
+
+    const name = updatedVehicle?.name || "Vehicle";
+    await sendFleetNotification({
+      title: "Fleet note updated",
+      message: `${name} note changed: ${before?.notes || "No note"} → ${note}`,
+      urgent: false,
     });
   } catch (err) {
     console.error("Failed to update note:", err);
   }
 };
 
-
  const handleDeleteNote = async (id) => {
   if (!canEdit) return;
+
+  const before = vehicles.find((v) => v.id === id);
 
   const updated = vehicles.map((v) =>
     v.id === id ? { ...v, notes: "" } : v
   );
   setVehicles(updated);
   setOpenDropdownId(null);
+
   try {
     const updatedVehicle = updated.find((v) => v.id === id);
-    await fetch(`${API_BASE}/vehicles/${id}`, {
+    const res = await fetch(`${API_BASE}/vehicles/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedVehicle),
+    });
+
+    if (!res.ok) throw new Error("Failed to delete note");
+
+    const name = updatedVehicle?.name || "Vehicle";
+    await sendFleetNotification({
+      title: "Fleet note cleared",
+      message: `${name} note cleared (was: ${before?.notes || "No note"})`,
+      urgent: false,
     });
   } catch (err) {
     console.error("Failed to delete note:", err);
   }
 };
-
 
   const handleDeleteOption = (note) => {
     setNoteToDelete(note);
@@ -204,12 +288,14 @@ const canEdit = isAdmin || isDriver;
 };
 
 
-  const handleDateChange = async (id, field, value) => {
+   const handleDateChange = async (id, field, value) => {
   if (!canEdit) return;
 
   try {
     const updatedVehicle = vehicles.find((v) => v.id === id);
     if (!updatedVehicle) return;
+
+    const beforeValue = updatedVehicle?.[field] || "";
 
     const updated = { ...updatedVehicle, [field]: value };
 
@@ -223,11 +309,22 @@ const canEdit = isAdmin || isDriver;
 
     const newList = vehicles.map((v) => (v.id === id ? updated : v));
     setVehicles(newList);
+
+    const name = updated?.name || "Vehicle";
+
+    // urgency only for near-due key docs
+    const isDocExpiry = field === "insuranceExpiry" || field === "patentExpiry";
+    const urgent = isDocExpiry ? !!getWarning(value, field === "insuranceExpiry" ? "Insurance" : "Patent") : false;
+
+    await sendFleetNotification({
+      title: "Fleet date updated",
+      message: `${name} ${field} changed: ${beforeValue || "Not set"} → ${value || "Cleared"}`,
+      urgent,
+    });
   } catch (err) {
     console.error("Error updating vehicle date:", err);
   }
 };
-
 
   // Snooze rental end by +1 day
   const handleSnoozeRental = async (id) => {
@@ -259,10 +356,20 @@ const canEdit = isAdmin || isDriver;
   };
 
   // Single delete (used by “Delete Today” chip)
-  const handleDeleteOne = async (id) => {
+   const handleDeleteOne = async (id) => {
+    const before = vehicles.find((v) => v.id === id);
+
     try {
-      await fetch(`${API_BASE}/vehicles/${id}`, { method: "DELETE" });
+      const res = await fetch(`${API_BASE}/vehicles/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete vehicle");
+
       setVehicles((prev) => prev.filter((v) => v.id !== id));
+
+      await sendFleetNotification({
+        title: "Vehicle removed",
+        message: `${before?.name || "Vehicle"} was deleted from Fleet.`,
+        urgent: true,
+      });
     } catch (e) {
       console.error("Failed to delete vehicle:", e);
     }
@@ -496,8 +603,7 @@ const canEdit = isAdmin || isDriver;
                     >
                       <option value="Available">Available</option>
                       <option value="In Garage">In Garage</option>
-                      <option value="Issue Reported">Issue Reported</option>
-                      <option value="Rental">Rental</option>
+                      <option value="Not To Be Used">Not To Be Used</option>
                     </select>
                   </div>
 
@@ -685,7 +791,6 @@ const canEdit = isAdmin || isDriver;
                     <option value="Available">Available</option>
                     <option value="In Garage">In Garage</option>
                     <option value="Issue Reported">Issue Reported</option>
-                    <option value="Rental">Rental</option>
                   </select>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -802,7 +907,7 @@ const canEdit = isAdmin || isDriver;
                           delete payload.rentEndISO;
                         }
 
-                        const res = await fetch(`${API_BASE}/vehicles`, {
+                                             const res = await fetch(`${API_BASE}/vehicles`, {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify(payload),
@@ -820,6 +925,12 @@ const canEdit = isAdmin || isDriver;
                             permanent: true,
                             rentStartISO: "",
                             rentEndISO: "",
+                          });
+
+                          await sendFleetNotification({
+                            title: "New vehicle added",
+                            message: `${created?.name || payload.name} was added to Fleet${created?.licensePlate ? ` (${created.licensePlate})` : ""}.`,
+                            urgent: false,
                           });
                         } else {
                           alert("Failed to create vehicle");

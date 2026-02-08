@@ -4,6 +4,7 @@ import StatusBadge from "../components/StatusBadge";
 import MultiSelectCombobox from "@/components/MultiSelectCombobox";
 import DutyBadge from "@/components/DutyBadge";
 import API_BASE from "@/api";
+import { useToast } from "@/hooks/use-toast";
 
 import {
   AlertDialog,
@@ -56,12 +57,92 @@ function getHourForBadges(dateISO, filmingTime) {
 export default function TicketPage({ users, vehicles, loggedInUser }) {
   const [tickets, setTickets] = useState([]);
 
-// Sorting state for "Filming Date & Time"
-// true = ascending (oldest → newest), false = descending (newest → oldest)
-const [filmSortAsc, setFilmSortAsc] = useState(true);
+  const { toast } = useToast();
+
+  /* ===========================
+     🔔 TicketPage local alerts
+     RULES:
+     - TicketPage edits (the actor = you) -> toast confirmation only, NO sound here.
+     - Still emit the ticket event so App.jsx can notify other users (toast/sound) as needed.
+     - Global preferences (toasts/sounds) are controlled elsewhere (App / Settings / MyProfile).
+     =========================== */
+
+ const emitTicketEvent = (payload) => {
+  try {
+    // Normalize shape so App.jsx can reliably read:
+    // - detail.ticket
+    // - detail.actor
+    // - detail.ts / detail.timestamp
+    const detail = {
+      ...payload,
+      category: payload?.category || "ticket",
+      ts: payload?.ts || Date.now(),
+      timestamp:
+        payload?.timestamp ||
+        (payload?.ts ? new Date(payload.ts).toISOString() : new Date().toISOString()),
+    };
+
+    window.dispatchEvent(
+      new CustomEvent("loBoard:ticketEvent", { detail })
+    );
+  } catch {
+    // ignore (older browsers / safety)
+  }
+};
+
+  const fireTicketAlert = async ({
+  title,
+  message,
+  urgent = false,
+  action = "Updated",
+  ticketId,
+  extra = {},
+}) => {
+  const actor = loggedInUser?.name || "Unknown";
+
+  // ✅ Prefer a ticket object from extra (caller should pass { ticket })
+  // Fallbacks: { updatedTicket } / { newTicket } if your handlers use those names
+  const ticket =
+    extra?.ticket ||
+    extra?.updatedTicket ||
+    extra?.newTicket ||
+    null;
+
+  // ✅ Always emit (so App.jsx can alert OTHER users)
+  emitTicketEvent({
+    category: "ticket",
+    action,
+    title,
+    message,
+    ticketId,
+    actor,
+    ticket, // ✅ enables rich ticket toast in App.jsx
+    ts: Date.now(),
+    ...extra,
+  });
+
+  // ✅ Local confirmation toast ONLY (no sound on TicketPage actions)
+  const toastEnabled =
+    localStorage.getItem("notificationToastsEnabled") !== "false";
+
+  if (toastEnabled) {
+    // Auto-dismiss local ticket confirmations
+    toast({
+      title: title || "Ticket update",
+      description: message || "",
+      variant: urgent ? "destructive" : undefined,
+      duration: 4500,
+    });
+  }
+};
+// 🔊 Sound settings ends here
+
+  // Sorting state for "Filming Date & Time"
+  // true = ascending (oldest → newest), false = descending (newest → oldest)
+  const [filmSortAsc, setFilmSortAsc] = useState(true);
   const rosterCache = useRef({});
 
-    async function fetchRosterForDate(dateISO) {
+  async function fetchRosterForDate(dateISO) {
     const weekStart = getWeekStart(dateISO);
     if (!weekStart) return [];
     if (rosterCache.current[weekStart]) {
@@ -270,6 +351,18 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
   const canAddNotes = isAdmin || isDriver;
 
   const handleStatusChange = async (ticketId, newStatus) => {
+    const before = tickets.find((t) => String(t.id) === String(ticketId));
+    const beforeStatus = before?.assignmentStatus || "Unassigned";
+
+    // ✅ Optimistic UI
+    setTickets((prev) =>
+      prev.map((t) =>
+        String(t.id) === String(ticketId)
+          ? { ...t, assignmentStatus: newStatus }
+          : t
+      )
+    );
+
     try {
       const res = await fetch(`${API_BASE}/tickets/${ticketId}`, {
         method: "PATCH",
@@ -280,9 +373,35 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
       if (!res.ok) throw new Error("Failed to update status");
 
       const updated = await res.json();
-      setTickets((prev) => prev.map((t) => (t.id === ticketId ? updated : t)));
+      setTickets((prev) =>
+        prev.map((t) => (String(t.id) === String(ticketId) ? updated : t))
+      );
+
+      await fireTicketAlert({
+        title: "Ticket status updated",
+        message: `${before?.title || "Ticket"}: ${beforeStatus} → ${newStatus}`,
+        action: "StatusChanged",
+        ticketId,
+      });
     } catch (err) {
       console.error("Error updating status:", err);
+
+      // rollback
+      setTickets((prev) =>
+        prev.map((t) =>
+          String(t.id) === String(ticketId)
+            ? { ...t, assignmentStatus: beforeStatus }
+            : t
+        )
+      );
+
+      await fireTicketAlert({
+        title: "Could not update status",
+        message: "Please try again.",
+        urgent: true,
+        action: "StatusChangeFailed",
+        ticketId,
+      });
     }
   };
 
@@ -412,6 +531,77 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
   }, []);
 
   // ===== Editing helpers (by ID) =====
+
+  /**
+   * ✅ Backend notification emit (Fleet-style)
+   * This is what makes OTHER tabs (Admin view as X) react via App.jsx polling.
+   * Non-blocking by design.
+   */
+  const sendTicketPageNotification = async ({
+    title,
+    message,
+    urgent = false,
+    ticket,
+    category = "tickets",
+  }) => {
+    try {
+      const actor = loggedInUser?.name || "Unknown";
+
+      const recipients = new Set();
+      recipients.add(actor);
+
+      // Assigned crew (if present)
+      const t = ticket || {};
+      if (Array.isArray(t.assignedCamOps)) {
+        t.assignedCamOps.filter(Boolean).forEach((n) => recipients.add(n));
+      }
+      if (t.assignedDriver) recipients.add(t.assignedDriver);
+      if (t.assignedDriverFrom) recipients.add(t.assignedDriverFrom);
+
+      if (Array.isArray(t.additionalDrivers)) {
+        t.additionalDrivers.filter(Boolean).forEach((n) => recipients.add(n));
+      }
+
+      // assignedReporter can be array OR string
+      if (Array.isArray(t.assignedReporter)) {
+        t.assignedReporter.filter(Boolean).forEach((n) => recipients.add(n));
+      } else if (t.assignedReporter) {
+        const raw = String(t.assignedReporter);
+        const cleaned = raw.includes(":")
+          ? raw.split(":").slice(1).join(":").trim()
+          : raw.trim();
+        if (cleaned) recipients.add(cleaned);
+        else recipients.add(raw.trim());
+      }
+
+      // ✅ Admins (match Fleet behavior)
+      recipients.add("Admins");
+      recipients.add("admin");
+      recipients.add("admins");
+
+      const payload = {
+        title: title || "Ticket update",
+        message: message || "",
+        recipients: Array.from(recipients),
+        timestamp: new Date().toISOString(),
+        category,
+        urgent: !!urgent,
+        // extras (harmless if backend ignores)
+        ticketId: t?.id,
+        ticketType: t?.type,
+      };
+
+      await fetch(`${API_BASE}/notifications`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      // Never break TicketPage if notifications fail
+      console.warn("TicketPage notification failed (non-blocking):", err);
+    }
+  };
+
   const startEditing = (ticketOrId) => {
     const id = typeof ticketOrId === "string" ? ticketOrId : ticketOrId?.id;
     const ticket = tickets.find((t) => String(t.id) === String(id));
@@ -451,25 +641,25 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
 
     setEditingId(ticket.id);
     setEditData({
-  ...ticket,
-  // Main driver (TO)
-  assignedDriver: autoDriver,
-  // Always keep Return (FROM) same as TO by default
-  assignedDriverFrom: autoDriver,
-  // Optional: additional drivers for extra vehicles
-  additionalDrivers: Array.isArray(ticket.additionalDrivers)
-    ? [...ticket.additionalDrivers]
-    : [],
-  assignedCamOps: ticket.assignedCamOps || [],
-  assignedReporter: normalizedReporter,
-  vehicle: ticket.vehicle || "",
-  priority: ticket.priority || "Normal",
-  assignmentStatus: ticket.assignmentStatus || "Pending",
-  departureTime: ticket.departureTime?.slice(0, 5) || "",
-  filmingTime: ticket.filmingTime?.slice(0, 5) || "",
-  location: ticket.location || "",
-  title: ticket.title || "",
-});
+      ...ticket,
+      // Main driver (TO)
+      assignedDriver: autoDriver,
+      // Always keep Return (FROM) same as TO by default
+      assignedDriverFrom: autoDriver,
+      // Optional: additional drivers for extra vehicles
+      additionalDrivers: Array.isArray(ticket.additionalDrivers)
+        ? [...ticket.additionalDrivers]
+        : [],
+      assignedCamOps: ticket.assignedCamOps || [],
+      assignedReporter: normalizedReporter,
+      vehicle: ticket.vehicle || "",
+      priority: ticket.priority || "Normal",
+      assignmentStatus: ticket.assignmentStatus || "Pending",
+      departureTime: ticket.departureTime?.slice(0, 5) || "",
+      filmingTime: ticket.filmingTime?.slice(0, 5) || "",
+      location: ticket.location || "",
+      title: ticket.title || "",
+    });
   };
 
   const saveEditing = async () => {
@@ -479,10 +669,7 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
 
     const stripRolePrefix = (s) =>
       String(s || "")
-        .replace(
-          /^\s*(?:Journalist|Sports\s*Journalist|Producer)\s*:\s*/i,
-          ""
-        )
+        .replace(/^\s*(?:Journalist|Sports\s*Journalist|Producer)\s*:\s*/i, "")
         .trim();
 
     const sourceReporter =
@@ -504,51 +691,47 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
     );
 
     const unique = (arr) =>
-  Array.from(new Set((arr || []).map((s) => String(s || "").trim()).filter(Boolean)));
+      Array.from(
+        new Set(
+          (arr || [])
+            .map((s) => String(s || "").trim())
+            .filter(Boolean)
+        )
+      );
 
-const updatedTicket = {
-  id: original.id,
-  title: editData.title || original.title,
-  date: editData.date || original.date,
-  location: editData.location || original.location,
-  filmingTime: editData.filmingTime || original.filmingTime,
-  departureTime: editData.departureTime || original.departureTime,
+    const updatedTicket = {
+      id: original.id,
+      title: editData.title || original.title,
+      date: editData.date || original.date,
+      location: editData.location || original.location,
+      filmingTime: editData.filmingTime || original.filmingTime,
+      departureTime: editData.departureTime || original.departureTime,
 
-  assignedCamOps:
-    editData.assignedCamOps || original.assignedCamOps || [],
+      assignedCamOps: editData.assignedCamOps || original.assignedCamOps || [],
 
-  // Primary driver (TO location)
-  assignedDriver:
-    editData.assignedDriver || original.assignedDriver || "",
+      // Primary driver (TO location)
+      assignedDriver: editData.assignedDriver || original.assignedDriver || "",
 
-  // NEW: Return driver (FROM location)
-  assignedDriverFrom:
-    editData.assignedDriverFrom || original.assignedDriverFrom || "",
+      // Return driver (FROM location)
+      assignedDriverFrom:
+        editData.assignedDriverFrom || original.assignedDriverFrom || "",
 
-  // NEW: Additional drivers (extra vehicles)
-  additionalDrivers: unique(
-    Array.isArray(editData.additionalDrivers)
-      ? editData.additionalDrivers
-      : Array.isArray(original.additionalDrivers)
-      ? original.additionalDrivers
-      : []
-  ),
+      // Additional drivers (extra vehicles)
+      additionalDrivers: unique(
+        Array.isArray(editData.additionalDrivers)
+          ? editData.additionalDrivers
+          : Array.isArray(original.additionalDrivers)
+          ? original.additionalDrivers
+          : []
+      ),
 
-  assignedReporter: reporterArray,
-  vehicle: editData.vehicle || original.vehicle || "",
-  assignmentStatus:
-    editData.assignmentStatus ||
-    original.assignmentStatus ||
-    "Unassigned",
-  priority: editData.priority || original.priority || "Normal",
-  assignedBy: loggedInUser?.name || "Unknown",
-};
-
-// If "return driver" equals main driver, keep it but it's fine (UI treats as single).
-// Optionally, you could blank it:
-// if (updatedTicket.assignedDriverFrom === updatedTicket.assignedDriver) {
-//   updatedTicket.assignedDriverFrom = "";
-// }
+      assignedReporter: reporterArray,
+      vehicle: editData.vehicle || original.vehicle || "",
+      assignmentStatus:
+        editData.assignmentStatus || original.assignmentStatus || "Unassigned",
+      priority: editData.priority || original.priority || "Normal",
+      assignedBy: loggedInUser?.name || "Unknown",
+    };
 
     if (
       updatedTicket.assignmentStatus === "Unassigned" &&
@@ -558,7 +741,7 @@ const updatedTicket = {
       updatedTicket.assignmentStatus = "Assigned";
     }
 
-    // Optimistic UI by id
+    // ✅ Optimistic UI by id
     setTickets((prev) =>
       prev.map((t) =>
         String(t.id) === String(editingId) ? { ...t, ...updatedTicket } : t
@@ -571,8 +754,7 @@ const updatedTicket = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedTicket),
       });
-      if (!res.ok)
-        throw new Error(`Failed to update ticket (HTTP ${res.status})`);
+      if (!res.ok) throw new Error(`Failed to update ticket (HTTP ${res.status})`);
 
       // Refetch to stay canonical with backend
       const refreshed = await fetch(`${API_BASE}/tickets`);
@@ -580,8 +762,27 @@ const updatedTicket = {
       setTickets(data);
       setEditingId(null);
       setEditData(null);
+
+          // ✅ Backend notification feed (so OTHER tabs can react via App.jsx poller)
+      await sendTicketPageNotification({
+        title: "Ticket updated",
+        message: updatedTicket.title || "Changes saved.",
+        urgent: false,
+        ticket: updatedTicket,
+        category: "tickets",
+      });
+
+      // ✅ Local/global emit (same-tab + same-origin broadcast)
+      await fireTicketAlert({
+        title: "Ticket updated",
+        message: updatedTicket.title || "Changes saved.",
+        action: "Updated",
+        ticketId: updatedTicket.id,
+      });
     } catch (err) {
       console.error("Failed to save ticket edits:", err);
+
+      // Try to refetch & reset UI
       try {
         const refreshed = await fetch(`${API_BASE}/tickets`);
         const data = await refreshed.json();
@@ -590,8 +791,25 @@ const updatedTicket = {
         setEditData(null);
       } catch (refetchErr) {
         console.error("Refetch after failed save also errored:", refetchErr);
-        alert("Failed to save changes. Please try again.");
       }
+
+           // ✅ Backend notification feed (so OTHER tabs can react via App.jsx poller)
+      await sendTicketPageNotification({
+        title: "Failed to save changes",
+        message: "Please try again.",
+        urgent: true,
+        ticket: updatedTicket,
+        category: "tickets",
+      });
+
+      // ✅ Local/global emit (same-tab + same-origin broadcast)
+      await fireTicketAlert({
+        title: "Failed to save changes",
+        message: "Please try again.",
+        urgent: true,
+        action: "UpdateFailed",
+        ticketId: updatedTicket.id,
+      });
     }
   };
 
@@ -643,7 +861,7 @@ const updatedTicket = {
   };
 
   // ===== Notes (by ID) =====
-  const handleAddNote = async (ticketId) => {
+    const handleAddNote = async (ticketId) => {
     const text = newNotes[ticketId];
     if (!text || !text.trim()) return;
 
@@ -660,11 +878,13 @@ const updatedTicket = {
     nextNotes.push(newNote);
 
     try {
-      await fetch(`${API_BASE}/tickets/${ticketId}`, {
+      const res = await fetch(`${API_BASE}/tickets/${ticketId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes: nextNotes }),
       });
+
+      if (!res.ok) throw new Error("Failed to add note");
 
       setTickets((prev) =>
         prev.map((t) =>
@@ -672,8 +892,43 @@ const updatedTicket = {
         )
       );
       setNewNotes((prev) => ({ ...prev, [ticketId]: "" }));
+
+          // ✅ Backend notification feed (so OTHER tabs can react via App.jsx poller)
+      await sendTicketPageNotification({
+        title: "Note added",
+        message: `${target.title || "Ticket"}: ${newNote.text}`,
+        urgent: false,
+        ticket: { ...target, notes: nextNotes },
+        category: "tickets",
+      });
+
+      // ✅ Local/global emit (same-tab + same-origin broadcast)
+      await fireTicketAlert({
+        title: "Note added",
+        message: `${target.title || "Ticket"}: ${newNote.text}`,
+        action: "NoteAdded",
+        ticketId,
+      });
     } catch (err) {
       console.error("Failed to add note:", err);
+
+          // ✅ Backend notification feed (so OTHER tabs can react via App.jsx poller)
+      await sendTicketPageNotification({
+        title: "Could not add note",
+        message: "Please try again.",
+        urgent: true,
+        ticket: target,
+        category: "tickets",
+      });
+
+      // ✅ Local/global emit (same-tab + same-origin broadcast)
+      await fireTicketAlert({
+        title: "Could not add note",
+        message: "Please try again.",
+        urgent: true,
+        action: "NoteAddFailed",
+        ticketId,
+      });
     }
   };
 
