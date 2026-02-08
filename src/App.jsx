@@ -77,9 +77,37 @@ function App() {
   const { toast } = useToast();
 
     // ✅ Install one global "unlock audio" handler (fixes Chrome autoplay restrictions)
-    useEffect(() => {
+  useEffect(() => {
     // ✅ Install one global "unlock audio" handler (fixes Chrome autoplay restrictions)
     installSoundUnlockOnGesture();
+
+    // ✅ Load users once so Admin/User/Leave views have content
+    const loadUsers = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/users`);
+        if (!res.ok) throw new Error(`Failed to load users (${res.status})`);
+
+        const data = await res.json().catch(() => []);
+        setUsers(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("Failed to load users:", err);
+        setUsers([]);
+      }
+    };
+
+    // ✅ Load tickets once so Home + Tickets pages have content
+    const loadTickets = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/tickets`);
+        if (!res.ok) throw new Error(`Failed to load tickets (${res.status})`);
+
+        const data = await res.json().catch(() => []);
+        setTickets(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("Failed to load tickets:", err);
+        setTickets([]);
+      }
+    };
 
     // ✅ Load vehicles once so FleetPage gets real data
     const loadVehicles = async () => {
@@ -95,8 +123,12 @@ function App() {
       }
     };
 
+    // Fire all initial loads
+    loadUsers();
+    loadTickets();
     loadVehicles();
   }, []);
+
 
   /* ===========================
      🔊 Global Toast/Sound starts here
