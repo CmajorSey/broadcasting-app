@@ -1,23 +1,47 @@
 /* public/firebase-messaging-sw.js */
-importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js");
-importScripts(
-  "https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js"
-);
 
 /* ===========================
    🔔 FCM Service Worker starts here
-   - SW cannot access import.meta.env (Vite)
-   - So the Firebase config MUST be hard-coded here.
-   - Paste your real Firebase web config values.
+   - Use local self-hosted Firebase scripts first (most reliable)
+   - Fallback to CDN if local files are missing (temporary safety net)
+   - SW cannot access import.meta.env (Vite) so config is hard-coded below
    =========================== */
 
+(function loadFirebaseCompat() {
+  // ✅ Most reliable: serve from your own origin (Netlify)
+  const localApp = "/firebase/firebase-app-compat.js";
+  const localMsg = "/firebase/firebase-messaging-compat.js";
+
+  // ✅ Fallback: CDN (can be blocked in workers by privacy tools)
+  const cdnApp =
+    "https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js";
+  const cdnMsg =
+    "https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js";
+
+  try {
+    importScripts(localApp, localMsg);
+    console.log("✅ FCM SW: loaded Firebase compat from local /firebase");
+    return;
+  } catch (e1) {
+    console.warn("⚠️ FCM SW: local Firebase scripts not loaded:", e1);
+  }
+
+  try {
+    importScripts(cdnApp, cdnMsg);
+    console.log("✅ FCM SW: loaded Firebase compat from gstatic CDN");
+    return;
+  } catch (e2) {
+    console.error("❌ FCM SW: failed to load Firebase scripts (local + CDN).", e2);
+  }
+})();
+
 firebase.initializeApp({
-  apiKey: "PASTE_REAL_API_KEY",
-  authDomain: "PASTE_REAL_AUTH_DOMAIN",
-  projectId: "PASTE_REAL_PROJECT_ID",
-  storageBucket: "PASTE_REAL_STORAGE_BUCKET",
-  messagingSenderId: "PASTE_REAL_MESSAGING_SENDER_ID",
-  appId: "PASTE_REAL_APP_ID",
+  apiKey: "BVarkqRVz8akVWEVbpYZULI41iXvddJcR2O8bZGDaSc",
+  authDomain: "loboard-notifications.firebaseapp.com",
+  projectId: "loboard-notifications",
+  storageBucket: "loboard-notifications.firebasestorage.app",
+  messagingSenderId: "302425553477",
+  appId: "1:302425553477:web:32e35c1c2e22c96793012c",
 });
 
 const messaging = firebase.messaging();
