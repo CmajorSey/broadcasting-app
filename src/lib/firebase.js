@@ -79,16 +79,36 @@ async function prepareMessaging() {
     return { supported: false };
   }
 }
+console.log(
+  "Firebase Project ID:",
+  import.meta.env.VITE_FIREBASE_PROJECT_ID
+);
+
 
 /**
  * Ask for permission only when appropriate and return the token (or null).
  * Call this from a user action (e.g., button click).
  */
-export const requestPermission = async () => {
+/* ===========================
+   🔔 FCM permission/token starts here
+   IMPORTANT:
+   - Browsers often block permission prompts unless triggered by a user gesture.
+   - Default behavior here: do NOT prompt automatically.
+   - Use requestPermission({ prompt: true }) from a button/toggle when you want to ask.
+   =========================== */
+
+/**
+ * Ask for permission only when appropriate and return the token (or null).
+ * ✅ Default: prompt=false (safe for useEffect)
+ * ✅ If prompt=true: will trigger Notification.requestPermission() when needed
+ */
+export const requestPermission = async (opts = {}) => {
   const { supported, registration, messaging: msg } = await prepareMessaging();
   if (!supported || !msg) return null;
 
-  // Already granted → just get token
+  const prompt = opts?.prompt === true;
+
+  // ✅ Already granted → just get token
   if (Notification.permission === "granted") {
     try {
       const token = await getToken(msg, {
@@ -102,24 +122,37 @@ export const requestPermission = async () => {
     }
   }
 
-  // Denied → bail
+  // ✅ Denied → bail
   if (Notification.permission === "denied") return null;
 
-  // Prompt only when default
-  const permission = await Notification.requestPermission();
-  if (permission !== "granted") return null;
+  // ✅ Default (not decided):
+  // - If we're NOT allowed to prompt (e.g. called from useEffect), return null safely.
+  if (Notification.permission === "default" && !prompt) return null;
 
-  try {
-    const token = await getToken(msg, {
-      vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
-      serviceWorkerRegistration: registration,
-    });
-    return token || null;
-  } catch (err) {
-    if (import.meta.env.DEV) console.warn("getToken failed after grant:", err);
-    return null;
+  // ✅ Prompt only when explicitly allowed
+  if (prompt) {
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return null;
+
+    try {
+      const token = await getToken(msg, {
+        vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+        serviceWorkerRegistration: registration,
+      });
+      return token || null;
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn("getToken failed after grant:", err);
+      return null;
+    }
   }
+
+  return null;
 };
+
+/* ===========================
+   🔔 FCM permission/token ends here
+   =========================== */
+
 
 // Foreground messages helper (same signature)
 export const onMessage = fcmOnMessage;

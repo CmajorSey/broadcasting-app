@@ -81,28 +81,105 @@ async function getAccessToken() {
   return token;
 }
 
-async function sendPushToUsers(users, title, message) {
-  const tokens = users
-    .map((u) => u.fcmToken)
-    .filter((t) => typeof t === "string" && t.length > 0);
+/* ===========================
+   🔔 FCM push sender starts here
+   - Supports BOTH:
+     - user.fcmToken (legacy single token)
+     - user.fcmTokens (new array of tokens)
+   - Adds data payload so:
+     - foreground handler (onMessage) can route rich info
+     - service worker can open correct URL on click
+   =========================== */
+
+async function sendPushToUsers(users, title, message, opts = {}) {
+  const safeStr = (v) => (v === null || v === undefined ? "" : String(v));
+
+  // Collect tokens:
+  // - Prefer fcmTokens[] if present
+  // - Fallback to fcmToken
+  const tokenSet = new Set();
+
+  (Array.isArray(users) ? users : []).forEach((u) => {
+    try {
+      const arr = Array.isArray(u?.fcmTokens) ? u.fcmTokens : [];
+      for (const t of arr) {
+        const s = safeStr(t).trim();
+        if (s) tokenSet.add(s);
+      }
+
+      const single = safeStr(u?.fcmToken).trim();
+      if (single) tokenSet.add(single);
+    } catch {
+      // ignore
+    }
+  });
+
+  const tokens = Array.from(tokenSet);
 
   if (tokens.length === 0) {
     console.log("ℹ️ No FCM tokens found for recipients.");
     return;
   }
 
+  // Build recipient identity list for frontend filters
+  const recipientIds = (Array.isArray(users) ? users : [])
+    .map((u) => safeStr(u?.id).trim())
+    .filter(Boolean);
+
+  const recipientNames = (Array.isArray(users) ? users : [])
+    .map((u) => safeStr(u?.name).trim())
+    .filter(Boolean);
+
+  const recipients = Array.from(new Set([...recipientIds, ...recipientNames]));
+
+  // Options (all optional)
+  const category = safeStr(opts.category || "admin").trim() || "admin";
+  const urgent = opts.urgent === true;
+  const url = safeStr(opts.url || "/").trim() || "/";
+  const ticketId = safeStr(opts.ticketId || "").trim();
+  const timestamp = safeStr(opts.timestamp || new Date().toISOString()).trim();
+
+  // FCM data must be STRING values
+  const dataPayload = {
+    title: safeStr(title),
+    body: safeStr(message),
+    message: safeStr(message),
+
+    category: safeStr(category),
+    urgent: urgent ? "true" : "false",
+    url: safeStr(url),
+    timestamp: safeStr(timestamp),
+
+    // Helpful for your App.jsx parsing
+    ticketId: ticketId,
+
+    // Send as JSON string so App.jsx can parse
+    recipients: JSON.stringify(recipients),
+  };
+
   const accessToken = await getAccessToken();
   const endpoint = `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`;
 
   const results = [];
+
   for (const token of tokens) {
     const payload = {
       message: {
         token,
+
+        // ✅ Keep notification block (best for visible notifications)
         notification: { title, body: message },
+
+        // ✅ Data makes it work for BOTH foreground + background routing
+        data: dataPayload,
+
         webpush: {
-          headers: { Urgency: "high" },
-          notification: { icon: "/icon.png" },
+          headers: { Urgency: urgent ? "high" : "normal" },
+          notification: {
+            icon: "/logo.png",
+            // Extra compatibility: some browsers respect click_action
+            click_action: url,
+          },
         },
       },
     };
@@ -126,12 +203,26 @@ async function sendPushToUsers(users, title, message) {
 
     if (!res.ok) {
       console.error("❌ FCM send error:", res.status, json);
+
+      // Optional: if token is invalid/unregistered, log it (cleanup can be added later)
+      // Common FCM v1 error: "UNREGISTERED" in details
     }
-    results.push({ status: res.status, body: json });
+
+    results.push({ token, status: res.status, ok: res.ok, body: json });
   }
 
-  console.log("✅ Push send summary:", results);
+  console.log("✅ Push send summary:", {
+    tokenCount: tokens.length,
+    recipients: recipients.length,
+    category,
+    urgent,
+    url,
+  });
 }
+
+/* ===========================
+   🔔 FCM push sender ends here
+   =========================== */
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1419,6 +1510,62 @@ app.patch("/users/:id/last-online", (req, res) => {
   }
 });
 
+/* ===========================
+   🔔 FCM token save starts here
+   - Web push tokens rotate sometimes.
+   - Keep backward compatibility:
+     - users[idx].fcmToken = latest token (string)
+     - users[idx].fcmTokens = unique list of tokens (array)
+   =========================== */
+
+// ✅ Save/refresh a user's FCM token (Web/Android)
+// Body: { fcmToken: string }
+app.patch("/users/:id/fcmToken", (req, res) => {
+  const { id } = req.params;
+  const token = String(req.body?.fcmToken || "").trim();
+
+  if (!token) {
+    return res.status(400).json({ error: "Missing fcmToken" });
+  }
+
+  try {
+    const users = readUsersSafe();
+    const idx = users.findIndex((u) => String(u.id) === String(id));
+    if (idx === -1) return res.status(404).json({ error: "User not found" });
+
+    const u = users[idx];
+
+    // ✅ Maintain a list (future-proof) + latest string (backward compatible)
+    const prev = Array.isArray(u.fcmTokens) ? u.fcmTokens.map(String) : [];
+    const nextSet = new Set(prev.filter(Boolean));
+    nextSet.add(token);
+
+    u.fcmToken = token; // ✅ keep your existing sendPushToUsers() logic working
+    u.fcmTokens = Array.from(nextSet);
+    u.fcmTokenUpdatedAt = new Date().toISOString();
+    u.updatedAt = new Date().toISOString();
+
+    users[idx] = u;
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+
+    return res.json({
+      success: true,
+      id: String(u.id),
+      name: String(u.name || ""),
+      fcmTokenUpdatedAt: u.fcmTokenUpdatedAt,
+      tokenCount: Array.isArray(u.fcmTokens) ? u.fcmTokens.length : 0,
+    });
+  } catch (err) {
+    console.error("Failed to save fcmToken:", err);
+    return res.status(500).json({ error: "Failed to save fcmToken" });
+  }
+});
+
+/* ===========================
+   🔔 FCM token save ends here
+   =========================== */
+
+
 // Ensure every user has an id
 const usersFixed = readUsersSafe().map(u => {
   if (!u.id) {
@@ -1547,11 +1694,25 @@ app.post("/tickets", async (req, res) => {
     const reporter = getUserByName(reporterName);
     if (reporter) recipients.add(reporter);
 
-    // Send push
+     // Send push
     if (recipients.size > 0) {
       const title = `🎥 New Ticket: ${newTicket.title}`;
       const message = `You have been assigned to a new request on ${newTicket.date?.split("T")[0]}.`;
-      await sendPushToUsers([...recipients], title, message);
+
+      const urgent =
+        newTicket?.priority === "Urgent" ||
+        newTicket?.priority === "High" ||
+        newTicket?.urgent === true;
+
+      const ticketId = String(newTicket?.id || "").trim();
+      const url = ticketId ? `/tickets?ticketId=${encodeURIComponent(ticketId)}` : "/tickets";
+
+      await sendPushToUsers([...recipients], title, message, {
+        category: "ticket",
+        urgent,
+        ticketId,
+        url,
+      });
     }
 
     res.status(201).json(newTicket);
@@ -1705,10 +1866,24 @@ app.patch("/tickets/:id", async (req, res) => {
         }
       }
 
-      if (recipients.size > 0) {
+           if (recipients.size > 0) {
         const title = `Ticket Updated: ${newTicket.title}`;
         const message = `One or more updates were made. Check filming, location, or assignment changes.`;
-        await sendPushToUsers([...recipients], title, message);
+
+        const urgent =
+          newTicket?.priority === "Urgent" ||
+          newTicket?.priority === "High" ||
+          newTicket?.urgent === true;
+
+        const ticketId = String(newTicket?.id || "").trim();
+        const url = ticketId ? `/tickets?ticketId=${encodeURIComponent(ticketId)}` : "/tickets";
+
+        await sendPushToUsers([...recipients], title, message, {
+          category: "ticket",
+          urgent,
+          ticketId,
+          url,
+        });
       }
     } catch (notifyErr) {
       // Don't fail the request just because notifications errored

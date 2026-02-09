@@ -721,27 +721,61 @@ function App() {
       }
     });
 
-    // Optional: ensure permission/token setup (safe to call)
+      /* ===========================
+       🔔 FCM token sync starts here
+       - Requests permission (your existing firebase helper)
+       - If a token is returned, save it to backend:
+         PATCH /users/:id/fcmToken { fcmToken }
+       - Deduped per user+token (prevents spam on refresh)
+       =========================== */
+
     try {
-      requestPermission(loggedInUser);
+      const maybePromise = requestPermission(loggedInUser);
+
+      Promise.resolve(maybePromise)
+        .then(async (token) => {
+          const userId = String(loggedInUser?.id || "").trim();
+          const fcmToken = String(token || "").trim();
+          if (!userId || !fcmToken) return;
+
+          const CACHE_KEY = `loBoard.fcmToken.${userId}`;
+          const last = String(localStorage.getItem(CACHE_KEY) || "").trim();
+
+          // ✅ If the token didn’t change, don’t hit backend again
+          if (last === fcmToken) return;
+
+          try {
+            const res = await fetch(`${API_BASE}/users/${userId}/fcmToken`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fcmToken }),
+            });
+
+            if (res.ok) {
+              localStorage.setItem(CACHE_KEY, fcmToken);
+              localStorage.setItem(
+                `loBoard.fcmTokenSavedAt.${userId}`,
+                new Date().toISOString()
+              );
+            } else {
+              // Keep silent; token saving shouldn't break the app
+              console.warn("FCM token save failed:", res.status);
+            }
+          } catch {
+            // ignore network issues
+          }
+        })
+        .catch(() => {
+          // ignore token/permission errors
+        });
     } catch {
       // ignore
     }
 
-    poll();
-    timer = setInterval(poll, 15000);
+    /* ===========================
+       🔔 FCM token sync ends here
+       =========================== */
 
-    return () => {
-      cancelled = true;
-      if (timer) clearInterval(timer);
-      if (typeof unsubscribe === "function") unsubscribe();
-
-      try {
-        window.removeEventListener("loBoard:notify", onLocalNotifyEvent);
-      } catch {
-        // ignore
-      }
-    };
   }, [loggedInUser?.name, loggedInUser?.id, fireGlobalAlert]);
 
   // ✅ NEW: Heartbeat that stamps "lastOnline" for the logged-in user
