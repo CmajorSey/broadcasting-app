@@ -3,44 +3,39 @@
 /* ===========================
    🔔 FCM Service Worker starts here
    - IMPORTANT: Service Worker must use worker-safe Firebase scripts
-   - firebase-*-compat can reference `window` (not defined in SW) → crash
-   - So we load firebase-app.js + firebase-messaging-sw.js instead
-   - Fallback to CDN if local files are missing
+   - ✅ Use gstatic CDN worker scripts only (simple + reliable)
+   - ✅ Web app config here is PUBLIC (safe to embed)
    =========================== */
 
 (function loadFirebaseWorkerScripts() {
-  // ✅ Local (recommended): served from your own origin
-  const localApp = "/firebase/firebase-app.js";
-  const localMsg = "/firebase/firebase-messaging-sw.js";
-
-  // ✅ CDN fallback
   const cdnApp = "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
   const cdnMsg =
     "https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-sw.js";
 
   try {
-    importScripts(localApp, localMsg);
-    console.log("✅ FCM SW: loaded Firebase worker scripts from local /firebase");
-    return;
-  } catch (e1) {
-    console.warn("⚠️ FCM SW: local worker scripts not loaded:", e1);
-  }
-
-  try {
     importScripts(cdnApp, cdnMsg);
+    // eslint-disable-next-line no-undef
     console.log("✅ FCM SW: loaded Firebase worker scripts from gstatic CDN");
-    return;
-  } catch (e2) {
-    console.error("❌ FCM SW: failed to load Firebase worker scripts (local + CDN).", e2);
+  } catch (e) {
+    // eslint-disable-next-line no-undef
+    console.error("❌ FCM SW: failed to load Firebase worker scripts.", e);
   }
 })();
 
 // Guard: if scripts failed, avoid crashing the whole SW file
+// eslint-disable-next-line no-undef
 if (typeof firebase === "undefined") {
+  // eslint-disable-next-line no-undef
   console.error("❌ FCM SW: firebase is undefined (scripts failed).");
 } else {
+  /* ===========================
+     🔐 Firebase Web App config (PUBLIC)
+     - This matches your Netlify VITE_FIREBASE_* values
+     - Safe to embed in SW (NOT a service account)
+     =========================== */
+  // eslint-disable-next-line no-undef
   firebase.initializeApp({
-    apiKey: "BVarkqRVz8akVWEVbpYZULI41iXvddJcR2O8bZGDaSc",
+    apiKey: "AIzaSyDB2mejIIrbi8cDXGanMiSogE9VmG4MsG8",
     authDomain: "loboard-notifications.firebaseapp.com",
     projectId: "loboard-notifications",
     storageBucket: "loboard-notifications.firebasestorage.app",
@@ -48,9 +43,13 @@ if (typeof firebase === "undefined") {
     appId: "1:302425553477:web:32e35c1c2e22c96793012c",
   });
 
+  // eslint-disable-next-line no-undef
   const messaging = firebase.messaging();
 
-  // ✅ Background messages (tab closed) — works for notification + data payloads
+  /* ===========================
+     📩 Background messages (tab closed)
+     - Works for notification + data payloads
+     =========================== */
   messaging.onBackgroundMessage((payload) => {
     try {
       const n = payload?.notification || {};
@@ -59,7 +58,9 @@ if (typeof firebase === "undefined") {
       const title = n.title || d.title || "Lo Board";
       const body = n.body || d.body || d.message || "";
       const icon = d.icon || n.icon || "/logo.png";
-      const url = d.url || n.click_action || "/";
+
+      const rawUrl = d.url || n.click_action || "/";
+      const url = new URL(rawUrl, self.location.origin).toString();
 
       self.registration.showNotification(title, {
         body,
@@ -71,39 +72,52 @@ if (typeof firebase === "undefined") {
     }
   });
 
-  // ✅ Click opens the app (or the relevant ticket/admin page)
+  /* ===========================
+     🖱️ Notification click behavior
+     - Focus an existing Lo Board tab if present
+     - Navigate it to the target URL when possible
+     - Otherwise open a new window
+     =========================== */
   self.addEventListener("notificationclick", (event) => {
-    try {
-      event.notification.close();
-      const url = event?.notification?.data?.url || "/";
+    event.notification?.close();
 
-      event.waitUntil(
-        (async () => {
-          const allClients = await clients.matchAll({
-            type: "window",
-            includeUncontrolled: true,
-          });
+    const rawUrl = event?.notification?.data?.url || "/";
+    const url = new URL(rawUrl, self.location.origin).toString();
 
-          for (const client of allClients) {
-            try {
+    event.waitUntil(
+      (async () => {
+        const allClients = await clients.matchAll({
+          type: "window",
+          includeUncontrolled: true,
+        });
+
+        // Try to reuse an existing same-origin tab first
+        for (const client of allClients) {
+          try {
+            const clientUrl = client?.url ? new URL(client.url) : null;
+
+            if (clientUrl && clientUrl.origin === self.location.origin) {
               if ("focus" in client) await client.focus();
-              if (
-                client.url &&
-                new URL(client.url).origin === self.location.origin
-              ) {
-                break;
-              }
-            } catch {
-              // ignore
-            }
-          }
 
-          return clients.openWindow(url);
-        })()
-      );
-    } catch {
-      // ignore
-    }
+              // Navigate in-place when supported (prevents duplicate tabs)
+              if ("navigate" in client) {
+                await client.navigate(url);
+                return;
+              }
+
+              // If navigate isn't supported, we at least focused a Lo Board tab
+              // so we can stop here to avoid opening duplicates.
+              return;
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        // No existing tab → open a new one
+        return clients.openWindow(url);
+      })()
+    );
   });
 }
 
