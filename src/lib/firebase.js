@@ -108,16 +108,34 @@ export const requestPermission = async (opts = {}) => {
 
   const prompt = opts?.prompt === true;
 
+  // ✅ Treat prompt=true as "interactive mode" → surface real errors
+  const interactive = prompt === true;
+
+  const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
+
+  // ✅ Missing VAPID key → cannot mint token (surface in interactive mode)
+  if (!vapidKey) {
+    const err = new Error("Missing VITE_FIREBASE_VAPID_KEY (Web Push public key)");
+    if (interactive) throw err;
+    return null;
+  }
+
   // ✅ Already granted → just get token
   if (Notification.permission === "granted") {
     try {
       const token = await getToken(msg, {
-        vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+        vapidKey,
         serviceWorkerRegistration: registration,
       });
       return token || null;
     } catch (err) {
-      if (import.meta.env.DEV) console.warn("getToken failed:", err);
+      // In prod you were swallowing this; surface when user explicitly asked
+      try {
+        console.warn("FCM getToken failed:", err);
+      } catch {
+        // ignore
+      }
+      if (interactive) throw err;
       return null;
     }
   }
@@ -136,12 +154,17 @@ export const requestPermission = async (opts = {}) => {
 
     try {
       const token = await getToken(msg, {
-        vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+        vapidKey,
         serviceWorkerRegistration: registration,
       });
       return token || null;
     } catch (err) {
-      if (import.meta.env.DEV) console.warn("getToken failed after grant:", err);
+      try {
+        console.warn("FCM getToken failed after grant:", err);
+      } catch {
+        // ignore
+      }
+      if (interactive) throw err;
       return null;
     }
   }
