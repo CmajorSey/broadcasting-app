@@ -15,6 +15,9 @@ import {
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 
+// 🔔 FCM (web push)
+import { requestPermission } from "@/lib/firebase";
+
 
 /** Single source of truth for Leave API endpoints */
 const LEAVE_ENDPOINT = `${API_BASE}/leave-requests`;
@@ -58,6 +61,11 @@ export default function MyProfile({
   );
   const [soundEnabled, setSoundEnabled] = useState(
     () => localStorage.getItem("notificationSoundsEnabled") !== "false"
+  );
+
+  // 🔔 Push notifications (FCM)
+  const [pushEnabled, setPushEnabled] = useState(
+    () => localStorage.getItem("notificationPushEnabled") === "true"
   );
 
   const makeNotifKey = (note) => {
@@ -667,7 +675,7 @@ const handleSuggestionSubmit = async () => {
                   <Label>Show pop-up messages anywhere in the app</Label>
                 </div>
 
-                <div className="flex items-center space-x-3">
+                           <div className="flex items-center space-x-3">
                   <Switch
                     checked={soundEnabled}
                     onCheckedChange={async (checked) => {
@@ -678,6 +686,122 @@ const handleSuggestionSubmit = async () => {
                   />
                   <Label>Play a sound when a new notification arrives</Label>
                 </div>
+
+                {/* ===========================
+                    🔔 Push notifications toggle starts here
+                    - Requests permission ONLY when user toggles ON
+                    - Saves fcmToken to backend user record
+                   =========================== */}
+                <div className="flex items-center space-x-3">
+                  <Switch
+                    checked={pushEnabled}
+                    onCheckedChange={async (checked) => {
+                      setPushEnabled(checked);
+                      localStorage.setItem(
+                        "notificationPushEnabled",
+                        checked ? "true" : "false"
+                      );
+
+                      // Must have a real user to attach token to
+                      if (!user?.id || !user?.name) {
+                        toast({
+                          title: "Not logged in",
+                          description: "User not found.",
+                          variant: "destructive",
+                        });
+                        setPushEnabled(false);
+                        localStorage.setItem("notificationPushEnabled", "false");
+                        return;
+                      }
+
+                      // Turning OFF: clear token on backend (best-effort)
+                      if (!checked) {
+                        try {
+                          await fetch(
+                            `${API_BASE}/users/${encodeURIComponent(user.id)}`,
+                            {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ fcmToken: "" }),
+                            }
+                          );
+                        } catch {
+                          // ignore
+                        }
+
+                        try {
+                          localStorage.removeItem("loBoard.fcmToken");
+                        } catch {
+                          // ignore
+                        }
+
+                        toast({
+                          title: "Push notifications disabled",
+                          description: "This device will no longer receive alerts.",
+                        });
+                        return;
+                      }
+
+                      // Turning ON: permission + token
+                      try {
+                        const token = await requestPermission({ prompt: true });
+
+                        if (!token) {
+                          toast({
+                            title: "Permission not granted",
+                            description:
+                              "Push notifications were not enabled on this device.",
+                            variant: "destructive",
+                          });
+                          setPushEnabled(false);
+                          localStorage.setItem("notificationPushEnabled", "false");
+                          return;
+                        }
+
+                        // Save token (local + backend)
+                        try {
+                          localStorage.setItem("loBoard.fcmToken", token);
+                        } catch {
+                          // ignore
+                        }
+
+                        const res = await fetch(
+                          `${API_BASE}/users/${encodeURIComponent(user.id)}`,
+                          {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ fcmToken: token }),
+                          }
+                        );
+
+                        if (!res.ok) {
+                          throw new Error("Failed to save token to server");
+                        }
+
+                        toast({
+                          title: "✅ Push enabled",
+                          description: "This device can now receive notifications.",
+                        });
+                      } catch (err) {
+                        console.error("Push enable failed:", err);
+                        toast({
+                          title: "Push setup failed",
+                          description:
+                            err?.message ||
+                            "Could not enable push notifications on this device.",
+                          variant: "destructive",
+                        });
+                        setPushEnabled(false);
+                        localStorage.setItem("notificationPushEnabled", "false");
+                      }
+                    }}
+                  />
+                  <Label>Enable device notifications (browser)</Label>
+                </div>
+                {/* ===========================
+                    🔔 Push notifications toggle ends here
+                   =========================== */}
+
 
                 <p className="text-xs text-muted-foreground pt-2">
                   More detailed notification controls will return in a future
