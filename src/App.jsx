@@ -137,7 +137,7 @@ function App() {
 
   const handledNotifKeysRef = useRef(new Set()); // session-only dedupe
 
-  const makeNotifKey = ({ timestamp, title, message, fallbackTs }) => {
+   const makeNotifKey = ({ timestamp, title, message, fallbackTs }) => {
     // Prefer stable server key: "YYYY-MM-DDTHH:mm:ssZ"
     if (timestamp) {
       try {
@@ -151,6 +151,151 @@ function App() {
 
     // Fallback: title|message (not perfect, but prevents quick doubles)
     return `${String(title || "").trim()}|${String(message || "").trim()}`;
+  };
+
+  // ✅ Ticket-rich toast helper (works for BOTH poll + push, without breaking non-ticket notes)
+    const buildTicketToastExtras = (note) => {
+    try {
+      // Accept multiple shapes (backend can evolve without breaking UI)
+      const src =
+        note?.ticket ||
+        note?.ticketData ||
+        note?.ticketInfo ||
+        note?.meta?.ticket ||
+        note?.data?.ticket ||
+        note?.__ticket ||
+        note ||
+        {};
+
+      const bits = [];
+
+      const pick = (v) =>
+        v === null || v === undefined ? "" : String(v).trim();
+
+      const normalize = (s) => pick(s).toLowerCase();
+
+      // ✅ Pull a "title hint" from message
+      // - For "Ticket updated": message is only the ticket title (e.g., "hgfghv")
+      // - For "New Request Created": message looks like "title • yyyy-mm-dd hh:mm • location"
+      const rawMsg = pick(note?.message);
+      const titleHint = rawMsg.includes("•")
+        ? pick(rawMsg.split("•")[0])
+        : rawMsg;
+
+      // --- 1) Direct fields on ticket-ish object ---
+      let date = pick(src.date || src.ticketDate);
+      let filmingTime = pick(src.filmingTime || src.ticketFilmingTime);
+      let departureTime = pick(src.departureTime || src.ticketDepartureTime);
+      let location = pick(src.location || src.ticketLocation);
+      let vehicle = pick(src.vehicle || src.ticketVehicle);
+
+      let assignedDriver = pick(src.assignedDriver || src.driver || src.ticketDriver);
+      let assignedReporter = pick(src.assignedReporter || src.reporter || src.ticketReporter);
+
+      const camOpsRaw = src.assignedCamOps || src.camOps || src.ticketCamOps;
+      let camOps = Array.isArray(camOpsRaw)
+        ? camOpsRaw.filter(Boolean).join(", ")
+        : pick(camOpsRaw);
+
+      let camCount = pick(src.camCount || src.cameras || src.ticketCamCount);
+
+      // --- 2) Try lookup from App state (tickets[]) by ID first, then by title hint ---
+      const possibleId =
+        pick(src.id || src.ticketId || src._id) ||
+        pick(note?.ticketId || note?.data?.ticketId || note?.meta?.ticketId);
+
+      const chooseBestByTime = (arr) => {
+        if (!Array.isArray(arr) || arr.length === 0) return null;
+        const score = (t) => {
+          const a =
+            new Date(t?.updatedAt || t?.modifiedAt || t?.createdAt || 0).getTime() ||
+            0;
+          const b = new Date(t?.date || 0).getTime() || 0;
+          return Math.max(a, b);
+        };
+        return arr.reduce((best, cur) => (score(cur) > score(best) ? cur : best), arr[0]);
+      };
+
+      let found = null;
+
+      if (possibleId) {
+        found = Array.isArray(tickets)
+          ? tickets.find((t) => String(t?.id) === String(possibleId))
+          : null;
+      }
+
+      if (!found && titleHint) {
+        const hint = normalize(titleHint);
+
+        const matches = Array.isArray(tickets)
+          ? tickets.filter((t) => normalize(t?.title) === hint)
+          : [];
+
+        found = chooseBestByTime(matches);
+
+        // If still not found, try "contains" match (helps if titles include prefixes)
+        if (!found && Array.isArray(tickets)) {
+          const soft = tickets.filter((t) => normalize(t?.title).includes(hint));
+          found = chooseBestByTime(soft);
+        }
+      }
+
+      // If found, fill missing fields from ticket
+      if (found) {
+        date = date || pick(found.date);
+        filmingTime = filmingTime || pick(found.filmingTime);
+        departureTime = departureTime || pick(found.departureTime);
+        location = location || pick(found.location);
+        vehicle = vehicle || pick(found.vehicle);
+
+        assignedDriver = assignedDriver || pick(found.assignedDriver);
+        assignedReporter = assignedReporter || pick(found.assignedReporter);
+
+        if (!camOps) {
+          const fOps = found.assignedCamOps;
+          camOps = Array.isArray(fOps) ? fOps.filter(Boolean).join(", ") : pick(fOps);
+        }
+
+        camCount = camCount || pick(found.camCount);
+      }
+
+      // --- 3) If still missing basics, try to parse New Request message format ---
+      // "title • 2026-02-08 21:25 • Unity House"
+      if ((!date || !location) && rawMsg.includes("•")) {
+        const parts = rawMsg.split("•").map((p) => pick(p));
+        // parts[1] looks like "2026-02-08 21:25" (we store date separately normally, so keep as “Date/Time”)
+        const dt = parts[1] || "";
+        const loc = parts[2] || "";
+        if (!location && loc) location = loc;
+        if (!date && dt) date = dt; // still useful in toast even if not perfect
+      }
+
+      // --- Build compact readable line ---
+      if (date) bits.push(`Date: ${date}`);
+      if (location) bits.push(`Location: ${location}`);
+
+      // Times
+      if (filmingTime && departureTime) bits.push(`Time: ${departureTime} → ${filmingTime}`);
+      else if (filmingTime) bits.push(`Filming: ${filmingTime}`);
+      else if (departureTime) bits.push(`Departure: ${departureTime}`);
+
+      // Assignments
+      if (assignedReporter) bits.push(`${assignedReporter}`);
+      if (assignedDriver) bits.push(`Driver: ${assignedDriver}`);
+      if (vehicle) bits.push(`Vehicle: ${vehicle}`);
+
+      // Cameras / cam ops
+      if (camCount && camOps) bits.push(`Cams/Ops: ${camCount} | ${camOps}`);
+      else if (camCount) bits.push(`Cameras: ${camCount}`);
+      else if (camOps) bits.push(`Cam Ops: ${camOps}`);
+
+      // ID if we have it
+      if (possibleId) bits.push(`Ticket ID: ${possibleId}`);
+
+      return bits.length ? bits.join(" • ") : "";
+    } catch {
+      return "";
+    }
   };
 
   const [debugBanner, setDebugBanner] = useState(null);
@@ -182,13 +327,29 @@ function App() {
       return;
     }
 
-    const toastEnabled =
+      const toastEnabled =
       localStorage.getItem("notificationToastsEnabled") !== "false";
     const soundEnabled =
       localStorage.getItem("notificationSoundsEnabled") !== "false";
 
     const urgent = !!note.urgent;
-    const category = String(note.category || "admin").toLowerCase();
+
+    // ✅ Category normalization (keeps soundRouter + prefs stable)
+    // - ticket sound triggers ONLY on category === "ticket"
+    // - suggestions/admin variants normalize cleanly
+    const normalizeCategory = (raw) => {
+      const c = String(raw || "admin").trim().toLowerCase();
+
+      if (c === "tickets") return "ticket";
+      if (c === "suggestions") return "suggestion";
+
+      // Optional safety aliases (won't change behavior unless you emit these later)
+      if (c === "leaves") return "leave";
+
+      return c;
+    };
+
+    const category = normalizeCategory(note.category);
 
     // ✅ Use the best timestamp available
     const rawTs = note.timestamp || note._ts || note.ts;
@@ -251,10 +412,17 @@ function App() {
       // ignore
     }
 
-    if (toastEnabled) {
+     if (toastEnabled) {
+      const extras = buildTicketToastExtras(note);
+      const base = note.message || "";
+
+      // ✅ If it's a ticket-related notification, append structured info
+      const description =
+        extras && base ? `${base}\n${extras}` : extras ? extras : base;
+
       toast({
         title: note.title || "New notification",
-        description: note.message || "",
+        description,
         variant: urgent ? "destructive" : undefined,
       });
     }
@@ -285,7 +453,7 @@ function App() {
   [toast]
 );
 
-  // ✅ NEW: Global notifications wiring (POLL + PUSH) lives here
+  // ✅ NEW: Global notifications wiring (POLL + PUSH + EVENTS) lives here
   useEffect(() => {
     const myName = String(loggedInUser?.name || "").trim();
     if (!myName) {
@@ -319,6 +487,45 @@ function App() {
       }
     };
 
+    /* ===========================
+       📣 NotificationsPanel → App.jsx event bridge starts here
+       Listens for: window.dispatchEvent(new CustomEvent("loBoard:notify", { detail: note }))
+       Routes into: fireGlobalAlert(note)
+       =========================== */
+    const onLocalNotifyEvent = (evt) => {
+      try {
+        const note = evt?.detail || null;
+        if (!note) return;
+
+        const recips = Array.isArray(note?.recipients) ? note.recipients : [];
+        const matches =
+          recips.length === 0
+            ? true
+            : recips.includes(myName) ||
+              recips.includes(String(loggedInUser?.id || "")) ||
+              recips.some((r) => String(r || "").trim().toLowerCase() === "all") ||
+              recips.some((r) => String(r || "").trim() === "*");
+
+        fireGlobalAlert({
+          ...note,
+          __source: note.__source || "event",
+          __recipientMatch: matches,
+          __note: "From loBoard:notify event",
+        });
+      } catch {
+        // ignore
+      }
+    };
+
+    try {
+      window.addEventListener("loBoard:notify", onLocalNotifyEvent);
+    } catch {
+      // ignore
+    }
+    /* ===========================
+       📣 NotificationsPanel → App.jsx event bridge ends here
+       =========================== */
+
     const poll = async () => {
       try {
         const res = await fetch(`${API_BASE}/notifications`);
@@ -335,9 +542,46 @@ function App() {
         const all = await res.json().catch(() => []);
         const list = Array.isArray(all) ? all : [];
 
-        const mine = list.filter(
-          (n) => Array.isArray(n?.recipients) && n.recipients.includes(myName)
-        );
+             const norm = (v) => String(v || "").trim().toLowerCase();
+
+        const myId = String(loggedInUser?.id || "").trim();
+        const myNameNorm = norm(myName);
+
+        // ✅ Support: name, id, ALL/*, admin/admins, and (optional) section
+        const section =
+          String(
+            loggedInUser?.section ||
+              loggedInUser?.description ||
+              loggedInUser?.team ||
+              ""
+          ).trim();
+
+        const mine = list.filter((n) => {
+          const recips = Array.isArray(n?.recipients) ? n.recipients : [];
+          if (recips.length === 0) return false;
+
+          const rn = recips.map(norm);
+
+          const isAll = rn.includes("all") || rn.includes("*");
+          const isAdminTarget = rn.includes("admin") || rn.includes("admins");
+
+          const matchesName = rn.includes(myNameNorm);
+          const matchesId = myId ? rn.includes(norm(myId)) : false;
+          const matchesSection = section ? rn.includes(norm(section)) : false;
+
+          // If you're an admin, allow admin/admins targets too
+          const isAdminUser = Array.isArray(loggedInUser?.roles)
+            ? loggedInUser.roles.map(norm).includes("admin")
+            : false;
+
+          return (
+            isAll ||
+            matchesName ||
+            matchesId ||
+            matchesSection ||
+            (isAdminUser && isAdminTarget)
+          );
+        });
 
         const dismissedRaw =
           JSON.parse(localStorage.getItem("dismissedNotifications") || "[]") || [];
@@ -395,6 +639,7 @@ function App() {
           payload?.notification?.title ||
           payload?.data?.title ||
           "New notification";
+
         const message =
           payload?.notification?.body ||
           payload?.data?.message ||
@@ -405,6 +650,7 @@ function App() {
         const urgent =
           payload?.data?.urgent === "true" || payload?.data?.urgent === true;
 
+        // ✅ recipients parsing (unchanged behavior)
         let recipients = [];
         const rawRec = payload?.data?.recipients;
         if (typeof rawRec === "string") {
@@ -421,15 +667,52 @@ function App() {
           recipients = rawRec;
         }
 
-        const matches = recipients.length === 0 ? true : recipients.includes(myName);
+        const matches =
+          recipients.length === 0 ? true : recipients.includes(myName);
+
+        // ✅ Pull ticket fields if present (supports BOTH explicit fields and JSON-encoded arrays)
+        const d = payload?.data || {};
+        const ticketId =
+          d.ticketId || d.id || d.ticket_id || d.ticketID || d._id || "";
+
+        let assignedCamOps = [];
+        if (typeof d.assignedCamOps === "string" && d.assignedCamOps.trim()) {
+          try {
+            const parsed = JSON.parse(d.assignedCamOps);
+            assignedCamOps = Array.isArray(parsed) ? parsed : [];
+          } catch {
+            assignedCamOps = d.assignedCamOps
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+          }
+        } else if (Array.isArray(d.assignedCamOps)) {
+          assignedCamOps = d.assignedCamOps;
+        }
 
         fireGlobalAlert({
           title,
           message,
           category,
           urgent,
-          timestamp: payload?.data?.timestamp || new Date().toISOString(),
+          timestamp: d.timestamp || new Date().toISOString(),
           recipients,
+
+          // ✅ IMPORTANT: pass ticketId + a ticket-like object so toast can show “all info”
+          ticketId: ticketId || undefined,
+          __ticket: {
+            id: ticketId || undefined,
+            date: d.date || d.ticketDate || undefined,
+            filmingTime: d.filmingTime || d.ticketFilmingTime || undefined,
+            departureTime: d.departureTime || d.ticketDepartureTime || undefined,
+            location: d.location || d.ticketLocation || undefined,
+            vehicle: d.vehicle || d.ticketVehicle || undefined,
+            camCount: d.camCount || d.cameras || undefined,
+            assignedDriver: d.assignedDriver || d.driver || undefined,
+            assignedReporter: d.assignedReporter || d.reporter || undefined,
+            assignedCamOps: assignedCamOps.length ? assignedCamOps : undefined,
+          },
+
           __source: "push",
           __recipientMatch: matches,
         });
@@ -452,8 +735,14 @@ function App() {
       cancelled = true;
       if (timer) clearInterval(timer);
       if (typeof unsubscribe === "function") unsubscribe();
+
+      try {
+        window.removeEventListener("loBoard:notify", onLocalNotifyEvent);
+      } catch {
+        // ignore
+      }
     };
-  }, [loggedInUser?.name, fireGlobalAlert]);
+  }, [loggedInUser?.name, loggedInUser?.id, fireGlobalAlert]);
 
   // ✅ NEW: Heartbeat that stamps "lastOnline" for the logged-in user
   const onlineHeartbeatRef = useRef(null);

@@ -34,11 +34,41 @@ export default function NotificationsPanel({ loggedInUser }) {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  /* ===========================
+     🔊 App-level notify emit starts here
+     - Sends a shaped note to App.jsx (fireGlobalAlert)
+     - App decides: toast / sound / browser notif / push, etc.
+     =========================== */
+  const emitAdminNotification = (note) => {
+    try {
+      // Keep shape compatible with App.jsx fireGlobalAlert(note)
+      window.dispatchEvent(
+        new CustomEvent("loBoard:notify", {
+          detail: {
+            title: note?.title || "",
+            message: note?.message || "",
+            recipients: Array.isArray(note?.recipients) ? note.recipients : [],
+            timestamp: note?.timestamp || new Date().toISOString(),
+            category: note?.category || "admin",
+            urgent: note?.urgent === true,
+            // helpful metadata for debugging/dedup
+            __source: "notifications-panel",
+          },
+        })
+      );
+    } catch {
+      // ignore
+    }
+  };
+  /* ===========================
+     🔊 App-level notify emit ends here
+     =========================== */
+
   // compose tab state (kept)
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
 
-   // ✅ NEW: urgent notifications (forces sound later in user rules)
+  // ✅ NEW: urgent notifications (forces sound later in user rules)
   const [urgent, setUrgent] = useState(false);
 
   const [selectedUsers, setSelectedUsers] = useState([]);
@@ -47,7 +77,6 @@ export default function NotificationsPanel({ loggedInUser }) {
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
   const [history, setHistory] = useState([]);
-
 
   // suggestions (kept)
   const [suggestions, setSuggestions] = useState([]);
@@ -217,7 +246,7 @@ export default function NotificationsPanel({ loggedInUser }) {
   };
 
 
-  const handleSend = async () => {
+   const handleSend = async () => {
     const recipients = resolveRecipients();
 
     if (!title || !message || recipients.length === 0) {
@@ -229,16 +258,24 @@ export default function NotificationsPanel({ loggedInUser }) {
       return;
     }
 
-      const payload = {
+    // Use a single timestamp for backend + App-level emit
+    const ts = new Date().toISOString();
+
+    const payload = {
       title,
       message,
       recipients,
-      createdAt: new Date().toISOString(),
 
-      // ✅ NEW
+      // ✅ align with stored schema + App expects this too
+      timestamp: ts,
+      category: "admin",
+
+      // ✅ urgent flag
       urgent: urgent === true,
-    };
 
+      // keep for backward compatibility (if anything uses createdAt)
+      createdAt: ts,
+    };
 
     try {
       const res = await fetch(`${API_BASE}/notifications`, {
@@ -249,13 +286,24 @@ export default function NotificationsPanel({ loggedInUser }) {
 
       if (!res.ok) throw new Error("Failed to send notification");
 
-         toast({ title: "Notification sent!" });
+      toast({ title: "Notification sent!" });
+
+      // ✅ Immediately hand off to App.jsx for toast/sound/push logic
+      emitAdminNotification({
+        title: payload.title,
+        message: payload.message,
+        recipients: payload.recipients,
+        timestamp: payload.timestamp,
+        category: payload.category,
+        urgent: payload.urgent,
+      });
+
       setTitle("");
       setMessage("");
       setSelectedUsers([]);
       setSelectedSections([]);
 
-        // ✅ reset meta
+      // ✅ reset meta
       setUrgent(false);
 
       fetchHistory();
@@ -630,12 +678,88 @@ function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions 
   const [drafts, setDrafts] = useState({}); // id -> response text
   const [actingId, setActingId] = useState(null);
 
+  /* ===========================
+     🔔 Suggestion → Notification wiring starts here
+     - When admin marks a suggestion as "reviewed" OR saves a response,
+       notify the original user via backend /notifications.
+     - This ensures inbox works even if they are offline.
+     =========================== */
+  const sendSuggestionNotification = async (opts) => {
+    try {
+      const {
+        userName,
+        kind, // "reviewed" | "responded"
+        suggestionMessage,
+        responseText,
+      } = opts || {};
+
+      const name = String(userName || "").trim();
+      if (!name) return;
+
+      const ts = new Date().toISOString();
+
+      const short = (s, n = 140) => {
+        const t = String(s || "").trim();
+        if (!t) return "";
+        return t.length > n ? t.slice(0, n - 1) + "…" : t;
+      };
+
+      let title = "💡 Suggestion Update";
+      let message = "Your suggestion has been updated.";
+
+      if (kind === "reviewed") {
+        title = "💡 Suggestion Reviewed";
+        message = `An admin reviewed your suggestion: “${short(suggestionMessage, 110)}”`;
+      }
+
+      if (kind === "responded") {
+        title = "✅ Suggestion Response";
+        message = `Response to your suggestion: “${short(suggestionMessage, 90)}” • Reply: “${short(
+          responseText,
+          110
+        )}”`;
+      }
+
+      const payload = {
+        title,
+        message,
+        recipients: [name],
+        timestamp: ts,
+        category: "suggestion",
+        urgent: false,
+      };
+
+      // Persist it (so MyProfile inbox / global poll sees it)
+      await fetch(`${API_BASE}/notifications`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).catch(() => null);
+
+      // Also emit locally so App.jsx can alert immediately for the admin session if it matches.
+      // (Safe; if App ignores recipient mismatch, nothing happens.)
+      try {
+        window.dispatchEvent(
+          new CustomEvent("loBoard:notify", {
+            detail: { ...payload, __source: "suggestions-panel" },
+          })
+        );
+      } catch {
+        // ignore
+      }
+    } catch {
+      // ignore
+    }
+  };
+  /* ===========================
+     🔔 Suggestion → Notification wiring ends here
+     =========================== */
+
   const filtered = useMemo(() => {
     const list = Array.isArray(suggestions) ? suggestions.slice() : [];
     const norm = (s) => String(s || "").toLowerCase();
     const want = norm(statusFilter);
-    const out =
-      want === "all" ? list : list.filter((s) => norm(s.status) === want);
+    const out = want === "all" ? list : list.filter((s) => norm(s.status) === want);
     // newest first
     out.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
     return out;
@@ -652,12 +776,44 @@ function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Update failed");
 
+      // capture target BEFORE state mutates (for notification context)
+      const target = Array.isArray(suggestions)
+        ? suggestions.find((s) => String(s.id) === String(id))
+        : null;
+
       // Optimistic merge update
       setSuggestions((prev) =>
         (prev || []).map((s) =>
           String(s.id) === String(id) ? { ...s, ...data?.suggestion, ...body } : s
         )
       );
+
+      // ✅ Notify user on key state changes
+      try {
+        const status = String(body?.status || "").toLowerCase();
+        const hasResponse = typeof body?.response === "string" && body.response.trim().length > 0;
+
+        if (status === "reviewed") {
+          await sendSuggestionNotification({
+            userName: target?.userName,
+            kind: "reviewed",
+            suggestionMessage: target?.message,
+          });
+        }
+
+        // If admin saved a response, notify (regardless of status field)
+        if (hasResponse) {
+          await sendSuggestionNotification({
+            userName: target?.userName,
+            kind: "responded",
+            suggestionMessage: target?.message,
+            responseText: body?.response,
+          });
+        }
+      } catch {
+        // ignore notification errors
+      }
+
       return true;
     } catch (err) {
       console.error("Suggestion patch error:", err);
@@ -818,16 +974,15 @@ function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions 
                               Archive
                             </Button>
                           )}
-                            <Button
+                          <Button
                             variant="destructive"
                             size="sm"
-                            onClick={() => id ? deleteSuggestion(id) : null}
+                            onClick={() => (id ? deleteSuggestion(id) : null)}
                             disabled={!id || actingId === id}
                             title={!id ? "No identifier available for deletion" : "Delete this suggestion"}
                           >
                             Delete
                           </Button>
-
                         </div>
                       </td>
                     </tr>
