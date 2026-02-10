@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import API_BASE from "@/api";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -124,7 +125,7 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
     };
   };
 
-  // ---------------- State ----------------
+   // ---------------- State ----------------
   const [noteOptions, setNoteOptions] = useState([
     "Cleaned and Fueled",
     "Needs Cleaning",
@@ -139,6 +140,22 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
 
   const [noteToDelete, setNoteToDelete] = useState(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  /* ===========================
+     🧾 Fleet dialogs state starts
+     (replaces prompt/confirm/alert)
+     =========================== */
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+
+  const [customNoteOpen, setCustomNoteOpen] = useState(false);
+  const [customNoteVehicleId, setCustomNoteVehicleId] = useState(null);
+  const [customNoteValue, setCustomNoteValue] = useState("");
+
+  const [createErrorOpen, setCreateErrorOpen] = useState(false);
+  const [createErrorMessage, setCreateErrorMessage] = useState("");
+  /* ===========================
+     🧾 Fleet dialogs state end
+     =========================== */
 
   const [newVehicle, setNewVehicle] = useState({
     name: "",
@@ -264,28 +281,66 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
     setConfirmingDelete(false);
   };
 
+  /* ===========================
+     📝 Custom note flow starts here
+     (replaces browser prompt)
+     =========================== */
   const handleCustomNote = async (id) => {
-  if (!canEdit) return;
+    if (!canEdit) return;
 
-  const customNote = prompt("Enter custom note:");
-  if (customNote) {
-    const updated = vehicles.map((v) =>
-      v.id === id ? { ...v, notes: customNote } : v
-    );
+    const existing = vehicles.find((v) => v.id === id)?.notes || "";
+    setCustomNoteVehicleId(id);
+    setCustomNoteValue(existing);
+    setCustomNoteOpen(true);
+  };
+
+  const confirmSaveCustomNote = async () => {
+    if (!canEdit) return;
+    if (!customNoteVehicleId) return;
+
+    const id = customNoteVehicleId;
+    const before = vehicles.find((v) => v.id === id);
+
+    const note = String(customNoteValue || "").trim();
+    if (!note) {
+      setCustomNoteOpen(false);
+      setCustomNoteVehicleId(null);
+      setCustomNoteValue("");
+      return;
+    }
+
+    const updated = vehicles.map((v) => (v.id === id ? { ...v, notes: note } : v));
     setVehicles(updated);
     setOpenDropdownId(null);
+
     try {
       const updatedVehicle = updated.find((v) => v.id === id);
-      await fetch(`${API_BASE}/vehicles/${id}`, {
+
+      const res = await fetch(`${API_BASE}/vehicles/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedVehicle),
       });
+
+      if (!res.ok) throw new Error("Failed to save custom note");
+
+      const name = updatedVehicle?.name || "Vehicle";
+      await sendFleetNotification({
+        title: "Fleet note updated",
+        message: `${name} note changed: ${before?.notes || "No note"} → ${note}`,
+        urgent: false,
+      });
     } catch (err) {
       console.error("Failed to save custom note:", err);
+    } finally {
+      setCustomNoteOpen(false);
+      setCustomNoteVehicleId(null);
+      setCustomNoteValue("");
     }
-  }
-};
+  };
+  /* ===========================
+     📝 Custom note flow end
+     =========================== */
 
 
    const handleDateChange = async (id, field, value) => {
@@ -436,31 +491,12 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
             )}
           </div>
 
-          {selectedIds.length > 0 && (
+                 {selectedIds.length > 0 && (
             <button
-              onClick={async () => {
-  if (!canEdit) return;
-
-  const confirmed = confirm(
-    `Are you sure you want to delete ${selectedIds.length} vehicle(s)?`
-  );
-  if (!confirmed) return;
-
-  const remaining = [...vehicles];
-  for (const id of selectedIds) {
-    try {
-      await fetch(`${API_BASE}/vehicles/${id}`, { method: "DELETE" });
-      const idx = remaining.findIndex((v) => v.id === id);
-      if (idx !== -1) remaining.splice(idx, 1);
-    } catch (err) {
-      console.error(`Failed to delete vehicle ${id}:`, err);
-    }
-  }
-
-  setVehicles(remaining);
-  setSelectedIds([]);
-}}
-
+              onClick={() => {
+                if (!canEdit) return;
+                setBulkDeleteOpen(true);
+              }}
               className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
             >
               🗑️ Delete Selected ({selectedIds.length})
@@ -911,7 +947,7 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
                           body: JSON.stringify(payload),
                         });
 
-                        if (res.ok) {
+                                          if (res.ok) {
                           const created = await res.json();
                           setVehicles((prev) => [...prev, created]);
                           setNewVehicle({
@@ -927,15 +963,19 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
 
                           await sendFleetNotification({
                             title: "New vehicle added",
-                            message: `${created?.name || payload.name} was added to Fleet${created?.licensePlate ? ` (${created.licensePlate})` : ""}.`,
+                            message: `${created?.name || payload.name} was added to Fleet${
+                              created?.licensePlate ? ` (${created.licensePlate})` : ""
+                            }.`,
                             urgent: false,
                           });
                         } else {
-                          alert("Failed to create vehicle");
+                          setCreateErrorMessage("Failed to create vehicle.");
+                          setCreateErrorOpen(true);
                         }
                       } catch (err) {
                         console.error("Error:", err);
-                        alert("Network error");
+                        setCreateErrorMessage("Network error. Please try again.");
+                        setCreateErrorOpen(true);
                       }
                     }}
                   >
@@ -947,6 +987,112 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
           </div>
         </>
       )}
+
+          {/* ===========================
+          🧾 Fleet dialogs UI starts
+          =========================== */}
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete selected vehicles?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete {selectedIds.length} vehicle(s) from Fleet.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={async () => {
+                if (!canEdit) return;
+
+                const ids = [...selectedIds];
+                const beforeCount = ids.length;
+
+                const remaining = [...vehicles];
+                for (const id of ids) {
+                  try {
+                    await fetch(`${API_BASE}/vehicles/${id}`, { method: "DELETE" });
+                    const idx = remaining.findIndex((v) => v.id === id);
+                    if (idx !== -1) remaining.splice(idx, 1);
+                  } catch (err) {
+                    console.error(`Failed to delete vehicle ${id}:`, err);
+                  }
+                }
+
+                setVehicles(remaining);
+                setSelectedIds([]);
+                setBulkDeleteOpen(false);
+
+                // Optional: notify drivers/admins that a cleanup happened
+                await sendFleetNotification({
+                  title: "Fleet updated",
+                  message: `${beforeCount} vehicle(s) were deleted from Fleet.`,
+                  urgent: true,
+                });
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Custom Note Dialog */}
+      <AlertDialog open={customNoteOpen} onOpenChange={setCustomNoteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Create Custom Note</AlertDialogTitle>
+            <AlertDialogDescription>
+              Type a custom note for this vehicle.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-2">
+            <Input
+              value={customNoteValue}
+              onChange={(e) => setCustomNoteValue(e.target.value)}
+              placeholder="Enter note..."
+            />
+            <p className="text-xs text-gray-500">
+              Tip: keep it short (e.g. “Needs washing”, “Fuel half tank”, “Service booked”).
+            </p>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setCustomNoteOpen(false);
+                setCustomNoteVehicleId(null);
+                setCustomNoteValue("");
+              }}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={confirmSaveCustomNote}>
+              Save Note
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Create Vehicle Error Dialog */}
+      <AlertDialog open={createErrorOpen} onOpenChange={setCreateErrorOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Couldn’t create vehicle</AlertDialogTitle>
+            <AlertDialogDescription>
+              {createErrorMessage || "Something went wrong."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setCreateErrorOpen(false)}>
+              OK
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete Note Confirmation Dialog (kept) */}
       {confirmingDelete && (
@@ -969,6 +1115,11 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
           </AlertDialogContent>
         </AlertDialog>
       )}
+
+      {/* ===========================
+          🧾 Fleet dialogs UI end
+          =========================== */}
     </div>
   );
 }
+

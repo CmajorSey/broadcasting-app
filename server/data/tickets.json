@@ -84,5 +84,121 @@
     "assignedDriverFrom": "Nelson Joseph",
     "additionalDrivers": [],
     "assignedBy": "Admin"
+  },
+  {
+    "id": "1770719205686",
+    "title": "Test3",
+    "type": "Sports",
+    "category": "",
+    "subtype": "Football",
+    "date": "2026-02-10T14:30",
+    "location": "Astro Turf",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "14:30",
+    "filmingTime": "14:30",
+    "assignedCamOps": [
+      "Christopher Gabriel"
+    ],
+    "assignedDriver": "",
+    "vehicle": "",
+    "assignmentStatus": "Unassigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": "Sports Journalist: Ronny Solin",
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-10T10:26:45.686Z"
+  },
+  {
+    "id": "1770719224400",
+    "title": "Test3",
+    "type": "Sports",
+    "category": "",
+    "subtype": "Football",
+    "date": "2026-02-10T14:30",
+    "location": "Astro Turf",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "14:30",
+    "filmingTime": "14:30",
+    "assignedCamOps": [
+      "Christopher Gabriel"
+    ],
+    "assignedDriver": "",
+    "vehicle": "",
+    "assignmentStatus": "Unassigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": "Sports Journalist: Ronny Solin",
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-10T10:27:04.400Z"
+  },
+  {
+    "id": "1770719230200",
+    "title": "Test3",
+    "type": "Sports",
+    "category": "",
+    "subtype": "Football",
+    "date": "2026-02-10T14:30",
+    "location": "Astro Turf",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "14:30",
+    "filmingTime": "14:30",
+    "assignedCamOps": [
+      "Christopher Gabriel"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Ronny Solin"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-10T10:27:10.200Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin"
   }
 ]

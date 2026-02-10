@@ -795,11 +795,20 @@ const sendTicketNotification = async (ticket) => {
       ticket, // safe to store in JSON backend; ignored if not used
     };
 
-    await fetch(`${API_BASE}/notifications`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    // ✅ Hard timeout so backend notifications NEVER block UI flow
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+
+    try {
+      await fetch(`${API_BASE}/notifications`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
   } catch (err) {
     // Never break TicketForm if notifications fail
     console.warn("Ticket notification failed (non-blocking):", err);
@@ -941,19 +950,27 @@ const handleSubmit = async (e) => {
     setFormData(getInitialFormData(loggedInUser));
     console.log("✅ Ticket submitted to backend by:", name);
 
-      // ✅ 1) Write to backend notifications feed (so OTHER tabs can react via App.jsx poller)
-    await sendTicketNotification(savedTicket);
-
-    // ✅ 2) Same-tab + optional cross-tab emit (kept as-is)
+    // ✅ 1) Local same-tab + optional cross-tab emits (NEVER blocked)
     emitTicketCreated(savedTicket);
 
+    // ✅ 2) Local UI toast (NEVER blocked)
     toast({
-  title: "✅ Request Created",
-  description: `${savedTicket?.title || "Untitled"}${
-    savedTicket?.date ? ` • ${String(savedTicket.date).replace("T", " ")}` : ""
-  }${savedTicket?.location ? ` • ${savedTicket.location}` : ""}`,
-  duration: 4500,
-});
+      title: "✅ Request Created",
+      description: `${savedTicket?.title || "Untitled"}${
+        savedTicket?.date
+          ? ` • ${String(savedTicket.date).replace("T", " ")}`
+          : ""
+      }${savedTicket?.location ? ` • ${savedTicket.location}` : ""}`,
+      duration: 4500,
+    });
+
+    // ✅ 3) Backend notifications feed (fire-and-forget; NEVER blocks)
+    //     If it fails or stalls, the timeout in sendTicketNotification prevents hanging.
+    try {
+      void sendTicketNotification(savedTicket);
+    } catch {
+      // ignore
+    }
   } catch (error) {
     console.error("❌ Error submitting request:", error);
     alert("Request submission failed. Please try again.");

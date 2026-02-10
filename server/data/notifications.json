@@ -1,1 +1,49 @@
-[]
+[
+  {
+    "title": "🆕 New Request Created",
+    "message": "Test3 • 2026-02-10 14:30 • Astro Turf",
+    "recipients": [
+      "Admin",
+      "Ronny Solin",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-10T10:27:10.236Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "Test3",
+    "recipients": [
+      "Admin",
+      "Christopher Gabriel",
+      "Nelson Joseph",
+      "Ronny Solin",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-10T10:27:40.141Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → In Garage",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-10T10:28:23.271Z",
+    "category": "fleet",
+    "urgent": false
+  }
+]

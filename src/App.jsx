@@ -135,24 +135,6 @@ function App() {
      All app-wide toast + sound triggers are routed ONLY inside this section.
      =========================== */
 
-  const handledNotifKeysRef = useRef(new Set()); // session-only dedupe
-
-   const makeNotifKey = ({ timestamp, title, message, fallbackTs }) => {
-    // Prefer stable server key: "YYYY-MM-DDTHH:mm:ssZ"
-    if (timestamp) {
-      try {
-        return new Date(timestamp).toISOString().split(".")[0] + "Z";
-      } catch {
-        // ignore
-      }
-    }
-
-    if (fallbackTs) return String(fallbackTs);
-
-    // Fallback: title|message (not perfect, but prevents quick doubles)
-    return `${String(title || "").trim()}|${String(message || "").trim()}`;
-  };
-
   // ✅ Ticket-rich toast helper (works for BOTH poll + push, without breaking non-ticket notes)
     const buildTicketToastExtras = (note) => {
     try {
@@ -427,7 +409,12 @@ function App() {
       });
     }
 
-    if (soundEnabled) {
+      // ✅ Self rule: if I triggered it, I still get a toast confirmation, but NO sound.
+    const actorName = String(note?.actor || "").trim();
+    const realSelfName = String(loggedInUser?.name || "").trim();
+    const isSelfActor = !!actorName && !!realSelfName && actorName === realSelfName;
+
+    if (soundEnabled && !isSelfActor) {
       try {
         await playSoundFor({
           category,
@@ -454,8 +441,12 @@ function App() {
 );
 
   // ✅ NEW: Global notifications wiring (POLL + PUSH + EVENTS) lives here
+  // ✅ IMPORTANT: Uses effectiveUser (Admin "View As") for filtering + matching
+  // ✅ Token sync is moved to its own effect so View As does NOT re-request permission
   useEffect(() => {
-    const myName = String(loggedInUser?.name || "").trim();
+    const myName = String(effectiveUser?.name || "").trim();
+    const myId = String(effectiveUser?.id || "").trim();
+
     if (!myName) {
       setDebugBanner({
         at: new Date().toISOString(),
@@ -469,13 +460,12 @@ function App() {
         category: "admin",
         title: "",
         hasRecipientMatch: false,
-        note: "No loggedInUser.name – global alerts disabled",
+        note: "No effectiveUser.name – global alerts disabled",
       });
       return;
     }
 
     let cancelled = false;
-    let timer = null;
 
     const syncUnread = (visibleList) => {
       try {
@@ -492,19 +482,26 @@ function App() {
        Listens for: window.dispatchEvent(new CustomEvent("loBoard:notify", { detail: note }))
        Routes into: fireGlobalAlert(note)
        =========================== */
-    const onLocalNotifyEvent = (evt) => {
+       const onLocalNotifyEvent = (evt) => {
       try {
         const note = evt?.detail || null;
         if (!note) return;
 
-        const recips = Array.isArray(note?.recipients) ? note.recipients : [];
-        const matches =
-          recips.length === 0
-            ? true
-            : recips.includes(myName) ||
-              recips.includes(String(loggedInUser?.id || "")) ||
-              recips.some((r) => String(r || "").trim().toLowerCase() === "all") ||
-              recips.some((r) => String(r || "").trim() === "*");
+        const section =
+          String(
+            effectiveUser?.section ||
+              effectiveUser?.description ||
+              effectiveUser?.team ||
+              ""
+          ).trim();
+
+        const matches = recipientsMatchUser({
+          recipients: note?.recipients,
+          userName: myName,
+          userId: myId,
+          userRoles: effectiveUser?.roles || [],
+          userSection: section,
+        });
 
         fireGlobalAlert({
           ...note,
@@ -542,45 +539,33 @@ function App() {
         const all = await res.json().catch(() => []);
         const list = Array.isArray(all) ? all : [];
 
-             const norm = (v) => String(v || "").trim().toLowerCase();
+        const norm = (v) => String(v || "").trim().toLowerCase();
 
-        const myId = String(loggedInUser?.id || "").trim();
         const myNameNorm = norm(myName);
+        const myIdNorm = myId ? norm(myId) : "";
 
         // ✅ Support: name, id, ALL/*, admin/admins, and (optional) section
         const section =
           String(
-            loggedInUser?.section ||
-              loggedInUser?.description ||
-              loggedInUser?.team ||
+            effectiveUser?.section ||
+              effectiveUser?.description ||
+              effectiveUser?.team ||
               ""
           ).trim();
+        const sectionNorm = section ? norm(section) : "";
 
-        const mine = list.filter((n) => {
-          const recips = Array.isArray(n?.recipients) ? n.recipients : [];
-          if (recips.length === 0) return false;
+        const isAdminUser = Array.isArray(effectiveUser?.roles)
+          ? effectiveUser.roles.map(norm).includes("admin")
+          : false;
 
-          const rn = recips.map(norm);
-
-          const isAll = rn.includes("all") || rn.includes("*");
-          const isAdminTarget = rn.includes("admin") || rn.includes("admins");
-
-          const matchesName = rn.includes(myNameNorm);
-          const matchesId = myId ? rn.includes(norm(myId)) : false;
-          const matchesSection = section ? rn.includes(norm(section)) : false;
-
-          // If you're an admin, allow admin/admins targets too
-          const isAdminUser = Array.isArray(loggedInUser?.roles)
-            ? loggedInUser.roles.map(norm).includes("admin")
-            : false;
-
-          return (
-            isAll ||
-            matchesName ||
-            matchesId ||
-            matchesSection ||
-            (isAdminUser && isAdminTarget)
-          );
+               const mine = list.filter((n) => {
+          return recipientsMatchUser({
+            recipients: n?.recipients,
+            userName: myName,
+            userId: myId,
+            userRoles: effectiveUser?.roles || [],
+            userSection: section,
+          });
         });
 
         const dismissedRaw =
@@ -667,8 +652,22 @@ function App() {
           recipients = rawRec;
         }
 
-        const matches =
-          recipients.length === 0 ? true : recipients.includes(myName);
+              // ✅ Match against effectiveUser (Admin "View As") — supports role/section buckets too
+        const section =
+          String(
+            effectiveUser?.section ||
+              effectiveUser?.description ||
+              effectiveUser?.team ||
+              ""
+          ).trim();
+
+        const matches = recipientsMatchUser({
+          recipients,
+          userName: myName,
+          userId: myId,
+          userRoles: effectiveUser?.roles || [],
+          userSection: section,
+        });
 
         // ✅ Pull ticket fields if present (supports BOTH explicit fields and JSON-encoded arrays)
         const d = payload?.data || {};
@@ -698,7 +697,7 @@ function App() {
           timestamp: d.timestamp || new Date().toISOString(),
           recipients,
 
-          // ✅ IMPORTANT: pass ticketId + a ticket-like object so toast can show “all info”
+          // ✅ pass ticketId + a ticket-like object so toast can show “all info”
           ticketId: ticketId || undefined,
           __ticket: {
             id: ticketId || undefined,
@@ -721,13 +720,53 @@ function App() {
       }
     });
 
-      /* ===========================
-       🔔 FCM token sync starts here
-       - Requests permission (your existing firebase helper)
-       - If a token is returned, save it to backend:
-         PATCH /users/:id/fcmToken { fcmToken }
-       - Deduped per user+token (prevents spam on refresh)
-       =========================== */
+    // ✅ Run an immediate poll so View As updates instantly
+    poll();
+
+    // ✅ Poll every 8 seconds (same as before)
+    const interval = setInterval(poll, 8000);
+
+    return () => {
+      cancelled = true;
+
+      try {
+        window.removeEventListener("loBoard:notify", onLocalNotifyEvent);
+      } catch {
+        // ignore
+      }
+
+      try {
+        if (typeof unsubscribe === "function") unsubscribe();
+      } catch {
+        // ignore
+      }
+
+      try {
+        clearInterval(interval);
+      } catch {
+        // ignore
+      }
+    };
+  }, [
+    effectiveUser?.name,
+    effectiveUser?.id,
+    JSON.stringify(effectiveUser?.roles || []),
+    effectiveUser?.section,
+    effectiveUser?.description,
+    adminViewAs ? JSON.stringify(adminViewAs) : "",
+    fireGlobalAlert,
+  ]);
+
+  /* ===========================
+     🔔 FCM token sync starts here
+     - Requests permission (your existing firebase helper)
+     - If a token is returned, save it to backend:
+       PATCH /users/:id/fcmToken { fcmToken }
+     - Deduped per user+token (prevents spam on refresh)
+     ✅ IMPORTANT: Always uses REAL loggedInUser (not View As)
+     =========================== */
+  useEffect(() => {
+    if (!loggedInUser?.id || !String(loggedInUser?.id).trim()) return;
 
     try {
       const maybePromise = requestPermission(loggedInUser);
@@ -771,12 +810,10 @@ function App() {
     } catch {
       // ignore
     }
-
-    /* ===========================
-       🔔 FCM token sync ends here
-       =========================== */
-
-  }, [loggedInUser?.name, loggedInUser?.id, fireGlobalAlert]);
+  }, [loggedInUser?.id, loggedInUser?.name]);
+  /* ===========================
+     🔔 FCM token sync ends here
+     =========================== */
 
   // ✅ NEW: Heartbeat that stamps "lastOnline" for the logged-in user
   const onlineHeartbeatRef = useRef(null);
