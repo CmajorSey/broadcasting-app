@@ -282,78 +282,111 @@ function App() {
 
   const [debugBanner, setDebugBanner] = useState(null);
 
-  const fireGlobalAlert = useCallback(
-  async (note) => {
-    if (!note) return;
+    const fireGlobalAlert = useCallback(
+    async (note) => {
+      if (!note) return;
 
-    // ✅ Hard gate: if we already know this doesn't match the logged-in user, never alert
-    if (note.__recipientMatch === false) {
-      try {
-        setDebugBanner({
-          at: new Date().toISOString(),
-          source: note.__source || "unknown",
-          key: "",
-          toastEnabled:
-            localStorage.getItem("notificationToastsEnabled") !== "false",
-          soundEnabled:
-            localStorage.getItem("notificationSoundsEnabled") !== "false",
-          urgent: !!note.urgent,
-          category: String(note.category || "admin").toLowerCase(),
-          title: note.title || "",
-          hasRecipientMatch: false,
-          note: "Skipped: recipient mismatch",
-        });
-      } catch {
-        // ignore
+      // ✅ Hard gate: if we already know this doesn't match the logged-in user, never alert
+      if (note.__recipientMatch === false) {
+        try {
+          setDebugBanner({
+            at: new Date().toISOString(),
+            source: note.__source || "unknown",
+            key: "",
+            toastEnabled:
+              localStorage.getItem("notificationToastsEnabled") !== "false",
+            soundEnabled:
+              localStorage.getItem("notificationSoundsEnabled") !== "false",
+            urgent: !!note.urgent,
+            category: String(note.category || "admin").toLowerCase(),
+            title: note.title || "",
+            hasRecipientMatch: false,
+            note: "Skipped: recipient mismatch",
+          });
+        } catch {
+          // ignore
+        }
+        return;
       }
-      return;
-    }
 
       const toastEnabled =
-      localStorage.getItem("notificationToastsEnabled") !== "false";
-    const soundEnabled =
-      localStorage.getItem("notificationSoundsEnabled") !== "false";
+        localStorage.getItem("notificationToastsEnabled") !== "false";
+      const soundEnabled =
+        localStorage.getItem("notificationSoundsEnabled") !== "false";
 
-    const urgent = !!note.urgent;
+      const urgent = !!note.urgent;
 
-    // ✅ Category normalization (keeps soundRouter + prefs stable)
-    // - ticket sound triggers ONLY on category === "ticket"
-    // - suggestions/admin variants normalize cleanly
-    const normalizeCategory = (raw) => {
-      const c = String(raw || "admin").trim().toLowerCase();
+      // ✅ Category normalization (keeps soundRouter + prefs stable)
+      // - ticket sound triggers ONLY on category === "ticket"
+      // - suggestions/admin variants normalize cleanly
+      const normalizeCategory = (raw) => {
+        const c = String(raw || "admin").trim().toLowerCase();
 
-      if (c === "tickets") return "ticket";
-      if (c === "suggestions") return "suggestion";
+        if (c === "tickets") return "ticket";
+        if (c === "suggestions") return "suggestion";
 
-      // Optional safety aliases (won't change behavior unless you emit these later)
-      if (c === "leaves") return "leave";
+        // Optional safety aliases (won't change behavior unless you emit these later)
+        if (c === "leaves") return "leave";
 
-      return c;
-    };
+        return c;
+      };
 
-    const category = normalizeCategory(note.category);
+      const category = normalizeCategory(note.category);
 
-    // ✅ Use the best timestamp available
-    const rawTs = note.timestamp || note._ts || note.ts;
-    const noteTs = new Date(rawTs || 0).getTime();
+      // ✅ Use the best timestamp available
+      const rawTs = note.timestamp || note._ts || note.ts;
+      const noteTs = new Date(rawTs || 0).getTime();
 
-    // ✅ Persistent “already alerted up to here” guard (survives refresh)
-    const LAST_SEEN_KEY = "loBoard.lastSeenNotifTs.global";
-    const lastSeen = Number(localStorage.getItem(LAST_SEEN_KEY) || 0);
+      // ✅ Persistent “already alerted up to here” guard (survives refresh)
+      const LAST_SEEN_KEY = "loBoard.lastSeenNotifTs.global";
+      const lastSeen = Number(localStorage.getItem(LAST_SEEN_KEY) || 0);
 
-    // ✅ Build a stable key for per-session dedupe (poll + push + double events)
-    const key = makeNotifKey({
-      timestamp: note.timestamp,
-      title: note.title,
-      message: note.message,
-      fallbackTs: note._ts || note.ts,
-    });
+      // ✅ Build a stable key for per-session dedupe (poll + push + double events)
+      const key = makeNotifKey({
+        timestamp: note.timestamp,
+        title: note.title,
+        message: note.message,
+        fallbackTs: note._ts || note.ts,
+      });
 
-    // ✅ Session dedupe first
-    if (handledNotifKeysRef.current.has(key)) return;
+      // ✅ Session dedupe first
+      if (handledNotifKeysRef.current.has(key)) return;
 
-    // ✅ Refresh-safe guard second (prevents re-toast/re-sound after reload)
-    if (Number.isFinite(noteTs) && noteTs > 0 && noteTs <= lastSeen) {
+      // ✅ IMPORTANT:
+      // Local UI events (like TicketForm emit) MUST always show instantly.
+      // They should NOT be blocked by lastSeen (which is meant for poll/push refresh safety).
+      const bypassLastSeen =
+        note?.__forceImmediate === true ||
+        note?.__source === "event" ||
+        note?.__source === "form";
+
+      // ✅ Refresh-safe guard second (prevents re-toast/re-sound after reload)
+      if (!bypassLastSeen) {
+        if (Number.isFinite(noteTs) && noteTs > 0 && noteTs <= lastSeen) {
+          try {
+            setDebugBanner({
+              at: new Date().toISOString(),
+              source: note.__source || "unknown",
+              key,
+              toastEnabled,
+              soundEnabled,
+              urgent,
+              category,
+              title: note.title || "",
+              hasRecipientMatch: true,
+              note: `Skipped: <= lastSeen (${new Date(lastSeen).toISOString()})`,
+            });
+          } catch {
+            // ignore
+          }
+          return;
+        }
+      }
+
+      // ✅ Mark as handled for this session immediately (prevents double fires)
+      handledNotifKeysRef.current.add(key);
+
+      // ✅ Debug stamp (always)
       try {
         setDebugBanner({
           at: new Date().toISOString(),
@@ -365,80 +398,59 @@ function App() {
           category,
           title: note.title || "",
           hasRecipientMatch: true,
-          note: `Skipped: <= lastSeen (${new Date(lastSeen).toISOString()})`,
+          note: note.__note || "",
         });
       } catch {
         // ignore
       }
-      return;
-    }
 
-    // ✅ Mark as handled for this session immediately (prevents double fires)
-    handledNotifKeysRef.current.add(key);
+      if (toastEnabled) {
+        const extras = buildTicketToastExtras(note);
+        const base = note.message || "";
 
-    // ✅ Debug stamp (always)
-    try {
-      setDebugBanner({
-        at: new Date().toISOString(),
-        source: note.__source || "unknown",
-        key,
-        toastEnabled,
-        soundEnabled,
-        urgent,
-        category,
-        title: note.title || "",
-        hasRecipientMatch: true,
-        note: note.__note || "",
-      });
-    } catch {
-      // ignore
-    }
+        // ✅ If it's a ticket-related notification, append structured info
+        const description =
+          extras && base ? `${base}\n${extras}` : extras ? extras : base;
 
-     if (toastEnabled) {
-      const extras = buildTicketToastExtras(note);
-      const base = note.message || "";
-
-      // ✅ If it's a ticket-related notification, append structured info
-      const description =
-        extras && base ? `${base}\n${extras}` : extras ? extras : base;
-
-      toast({
-        title: note.title || "New notification",
-        description,
-        variant: urgent ? "destructive" : undefined,
-      });
-    }
+        toast({
+          title: note.title || "New notification",
+          description,
+          variant: urgent ? "destructive" : undefined,
+        });
+      }
 
       // ✅ Self rule: if I triggered it, I still get a toast confirmation, but NO sound.
-    const actorName = String(note?.actor || "").trim();
-    const realSelfName = String(loggedInUser?.name || "").trim();
-    const isSelfActor = !!actorName && !!realSelfName && actorName === realSelfName;
+      const actorName = String(note?.actor || "").trim();
+      const realSelfName = String(loggedInUser?.name || "").trim();
+      const isSelfActor =
+        !!actorName && !!realSelfName && actorName === realSelfName;
 
-    if (soundEnabled && !isSelfActor) {
+      if (soundEnabled && !isSelfActor) {
+        try {
+          await playSoundFor({
+            category,
+            urgent,
+            scope: "global",
+            label: note.action || note.label || note.state || note.eventLabel,
+          });
+        } catch {
+          // ignore
+        }
+      }
+
+      // ✅ Advance persistent last-seen AFTER we’ve “processed” the note
+      // ❗ For local forced-immediate events, we still advance lastSeen safely (helps dedupe)
       try {
-        await playSoundFor({
-          category,
-          urgent,
-          scope: "global",
-          label: note.action || note.label || note.state || note.eventLabel,
-        });
+        if (Number.isFinite(noteTs) && noteTs > 0) {
+          const next = Math.max(lastSeen, noteTs);
+          localStorage.setItem(LAST_SEEN_KEY, String(next));
+        }
       } catch {
         // ignore
       }
-    }
-
-    // ✅ Advance persistent last-seen AFTER we’ve “processed” the note
-    try {
-      if (Number.isFinite(noteTs) && noteTs > 0) {
-        const next = Math.max(lastSeen, noteTs);
-        localStorage.setItem(LAST_SEEN_KEY, String(next));
-      }
-    } catch {
-      // ignore
-    }
-  },
-  [toast]
-);
+    },
+    [toast, loggedInUser?.name, tickets]
+  );
 
   // ✅ NEW: Global notifications wiring (POLL + PUSH + EVENTS) lives here
   // ✅ IMPORTANT: Uses effectiveUser (Admin "View As") for filtering + matching
@@ -482,18 +494,17 @@ function App() {
        Listens for: window.dispatchEvent(new CustomEvent("loBoard:notify", { detail: note }))
        Routes into: fireGlobalAlert(note)
        =========================== */
-       const onLocalNotifyEvent = (evt) => {
+        const onLocalNotifyEvent = (evt) => {
       try {
         const note = evt?.detail || null;
         if (!note) return;
 
-        const section =
-          String(
-            effectiveUser?.section ||
-              effectiveUser?.description ||
-              effectiveUser?.team ||
-              ""
-          ).trim();
+        const section = String(
+          effectiveUser?.section ||
+            effectiveUser?.description ||
+            effectiveUser?.team ||
+            ""
+        ).trim();
 
         const matches = recipientsMatchUser({
           recipients: note?.recipients,
@@ -508,6 +519,7 @@ function App() {
           __source: note.__source || "event",
           __recipientMatch: matches,
           __note: "From loBoard:notify event",
+          __forceImmediate: true, // ✅ NEVER let local emits be blocked by lastSeen
         });
       } catch {
         // ignore

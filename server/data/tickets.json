@@ -200,5 +200,47 @@
     "assignedDriverFrom": "Nelson Joseph",
     "additionalDrivers": [],
     "assignedBy": "Admin"
+  },
+  {
+    "id": "1770747025879",
+    "title": "tata",
+    "type": "News",
+    "category": "Press Conference",
+    "subtype": "",
+    "date": "2026-02-10T22:10",
+    "location": "Unity House",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "22:10",
+    "filmingTime": "22:10",
+    "assignedCamOps": [
+      "Christopher Gabriel"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Joshua Sofola"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-10T18:10:25.879Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin"
   }
 ]

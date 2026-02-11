@@ -45,5 +45,86 @@
     "timestamp": "2026-02-10T10:28:23.271Z",
     "category": "fleet",
     "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-10T18:03:56.992Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → In Garage",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-10T18:08:58.795Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-10T18:09:04.271Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "🆕 New Request Created",
+    "message": "tata • 2026-02-10 22:10 • Unity House",
+    "recipients": [
+      "Admin",
+      "Joshua Sofola",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-10T18:10:25.937Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "tata",
+    "recipients": [
+      "Admin",
+      "Christopher Gabriel",
+      "Nelson Joseph",
+      "Joshua Sofola",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-10T18:10:49.163Z",
+    "category": "admin",
+    "urgent": false
   }
 ]
