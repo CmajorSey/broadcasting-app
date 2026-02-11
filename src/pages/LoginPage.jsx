@@ -60,8 +60,16 @@ export default function LoginPage({ users, setLoggedInUser }) {
         .then((res) => res.json())
         .then((user) => {
           if (user?.name) {
+            // ✅ Autofill identifier only — NEVER password (prevents hash leak bugs)
             setName(user.name);
             setRemember(true);
+
+            /* ===========================
+               🔐 Password safety reset starts here
+               If anything ever tried to prefill password (including from a user object),
+               wipe it immediately so only user-typed plaintext is submitted.
+               =========================== */
+            setPassword("");
           }
         })
         .catch(() => {});
@@ -74,6 +82,36 @@ const handleLogin = async (e) => {
   setDebugMessage("");
   setLoading(true);
 
+  /* ===========================
+     🔐 Login payload safety starts here
+     - Password MUST be plaintext (user typed)
+     - Never send a bcrypt hash to /auth/login
+     =========================== */
+
+  const identifierSafe = String(name || "").trim();
+  const passwordSafe = String(password || "");
+
+  // ✅ Block the exact bug you showed: sending bcrypt hash as the password
+  const looksLikeBcrypt =
+    passwordSafe.startsWith("$2a$") ||
+    passwordSafe.startsWith("$2b$") ||
+    passwordSafe.startsWith("$2y$");
+
+  if (looksLikeBcrypt) {
+    setDebugMessage(
+      "❌ Password field contains a hash. Please type the real password (not the saved encrypted value)."
+    );
+    toast({
+      title: "Invalid password input",
+      description:
+        "Your password field contains an encrypted value. Please type your actual password.",
+      variant: "destructive",
+      duration: 4000,
+    });
+    setLoading(false);
+    return;
+  }
+
   // Normalize “must change password” across possible back-end contracts
   const mustChangeFrom = (res, data) => {
     // Legacy/canonical status
@@ -81,18 +119,23 @@ const handleLogin = async (e) => {
 
     // Header hints
     const hdr = (n) => (res?.headers?.get?.(n) || "").toLowerCase();
-    if (hdr("x-requires-password-change") === "1" || hdr("x-requires-password-change") === "true") return true;
+    if (
+      hdr("x-requires-password-change") === "1" ||
+      hdr("x-requires-password-change") === "true"
+    )
+      return true;
 
     // JSON flags (new 200-OK path supported)
     const u = data?.user || {};
     return Boolean(
       data?.mustChangePassword ||
-      data?.requiresPasswordChange ||
-      data?.mustSetPassword ||
-      u?.forcePasswordChange ||
-      u?.requiresPasswordReset ||
-      u?.passwordIsTemp ||
-      (typeof u?.passwordStatus === "string" && u.passwordStatus.toUpperCase() === "TEMP")
+        data?.requiresPasswordChange ||
+        data?.mustSetPassword ||
+        u?.forcePasswordChange ||
+        u?.requiresPasswordReset ||
+        u?.passwordIsTemp ||
+        (typeof u?.passwordStatus === "string" &&
+          u.passwordStatus.toUpperCase() === "TEMP")
     );
   };
 
@@ -100,12 +143,14 @@ const handleLogin = async (e) => {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ identifier: name, password }),
+      body: JSON.stringify({ identifier: identifierSafe, password: passwordSafe }),
     });
 
     // Temp password expired
     if (res.status === 410) {
-      setDebugMessage("⏰ Your temporary password has expired. Please request a new one from the admin.");
+      setDebugMessage(
+        "⏰ Your temporary password has expired. Please request a new one from the admin."
+      );
       toast({
         title: "Temporary password expired",
         description: "Ask an admin to generate a new temporary password.",
@@ -129,16 +174,19 @@ const handleLogin = async (e) => {
       // Save minimal context for /set-password
       const minimalUser = {
         id: user?.id || user?._id || null,
-        name: user?.name || name || ""
+        name: user?.name || identifierSafe || "",
       };
 
       if (minimalUser.id || minimalUser.name) {
-        sessionStorage.setItem("pendingPasswordUser", JSON.stringify(minimalUser));
-        sessionStorage.setItem("pendingPasswordSecret", password); // original temp/default pass
+        sessionStorage.setItem(
+          "pendingPasswordUser",
+          JSON.stringify(minimalUser)
+        );
+        sessionStorage.setItem("pendingPasswordSecret", passwordSafe); // original temp/default pass (plaintext)
       }
 
       // “Remember me” without creating session
-      if (remember && (minimalUser.id)) {
+      if (remember && minimalUser.id) {
         localStorage.setItem("rememberedUser", minimalUser.id);
       } else {
         localStorage.removeItem("rememberedUser");
@@ -167,7 +215,12 @@ const handleLogin = async (e) => {
     }
 
     // Normal login path
-    if (!data?.ok || !user) {
+    // ✅ Support BOTH backend contracts:
+    // - auth.js router: { ok: true, user }
+    // - index.js inline: { success: true, user }
+    const ok = data?.ok === true || data?.success === true;
+
+    if (!ok || !user) {
       setDebugMessage(data?.error || "❌ Login failed.");
       return;
     }
@@ -177,7 +230,9 @@ const handleLogin = async (e) => {
     else localStorage.removeItem("rememberedUser");
 
     // Clear any stale temp secret
-    try { sessionStorage.removeItem("pendingPasswordSecret"); } catch {}
+    try {
+      sessionStorage.removeItem("pendingPasswordSecret");
+    } catch {}
 
     // 🕒 Stamp a lastLogin timestamp immediately so UI reflects it
     const _ts = new Date().toISOString();
@@ -214,7 +269,7 @@ const handleLogin = async (e) => {
     setLoading(false);
   }
 };
- // B: END handleLogin (temp-password → redirect to /set-password)
+// B: END handleLogin (temp-password → redirect to /set-password)
 
   // 🔹 Inline Forgot submit
   const handleForgotSubmit = async (e) => {

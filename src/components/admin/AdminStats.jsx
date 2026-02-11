@@ -46,6 +46,7 @@ const monthStart = (date = new Date()) => {
 };
 
 // Normalize arbitrary status strings (use assignmentStatus from tickets)
+// ✅ Key is chart-safe: lowercase + underscores (no spaces)
 const normalizeStatus = (raw) => {
   const rawStr = typeof raw === "string" ? raw : String(raw ?? "");
   const s = rawStr
@@ -54,22 +55,26 @@ const normalizeStatus = (raw) => {
     .replace(/\s+/g, " ")
     .trim();
 
+  const keyify = (k) => String(k || "").toLowerCase().trim().replace(/\s+/g, "_");
+
   if (!s) return { label: "Unknown", key: "unknown" };
   if (/^(done|completed?|finished|closed)\b/.test(s)) return { label: "Completed", key: "completed" };
   if (/^(cancel+ed?|called off|aborted)\b/.test(s)) return { label: "Cancelled", key: "cancelled" };
   if (/^(postponed?|deferred?)\b/.test(s)) return { label: "Postponed", key: "postponed" };
-  if (/^(in ?progress|ongoing|working|active)\b/.test(s)) return { label: "In Progress", key: "in progress" };
+  if (/^(in ?progress|ongoing|working|active)\b/.test(s)) return { label: "In Progress", key: "in_progress" };
   if (/^(assigned)\b/.test(s)) return { label: "Assigned", key: "assigned" };
   if (/^unassigned\b/.test(s)) return { label: "Unassigned", key: "unassigned" };
   if (/^(pending|await|to ?do|not ?started)\b/.test(s)) return { label: "Pending", key: "pending" };
 
-  // Fallback: Title Case for label; key stays normalized
+  // Fallback: Title Case label; key becomes underscore-safe
   const label = s.replace(/\b\w/g, (c) => c.toUpperCase());
-  return { label, key: s };
+  return { label, key: keyify(s) };
 };
+
 const statusKeyFromLabel = (label) => normalizeStatus(label).key;
 
-// --- Seychelles Day-Type helpers (weekend & core public holidays) ---
+
+// --- Seychelles Day-Type helpers (weekend + backend holidays; safe fallback) ---
 const isWeekend = (d) => {
   const x = new Date(d);
   const day = x.getDay(); // 0 Sun ... 6 Sat
@@ -105,14 +110,15 @@ const addDays = (date, n) => {
 
 const sameYMD = (a, b) => toISODate(a) === toISODate(b);
 
-// Basic Seychelles public holidays (fixed + Good Fri / Easter Mon).
-// Note: This is an intentionally minimal set. You can expand with more dates if needed.
-function isSeychellesPublicHoliday(d) {
+// Basic Seychelles public holidays (fixed + Good Fri / Easter Mon) as a fallback only.
+// Your backend holiday route should be the source of truth.
+function isSeychellesPublicHolidayFallback(d) {
   const x = new Date(d);
   const y = x.getFullYear();
-  const mmdd = `${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+  const mmdd = `${String(x.getMonth() + 1).padStart(2, "0")}-${String(
+    x.getDate()
+  ).padStart(2, "0")}`;
 
-  // Fixed-date holidays
   const fixed = new Set([
     "01-01", // New Year's Day
     "05-01", // Labour Day
@@ -125,20 +131,26 @@ function isSeychellesPublicHoliday(d) {
   ]);
   if (fixed.has(mmdd)) return true;
 
-  // Moveable feasts: Good Friday (Easter - 2), Easter Monday (Easter + 1)
   const easter = easterDate(y);
   const goodFriday = addDays(easter, -2);
   const easterMonday = addDays(easter, 1);
 
-  if (sameYMD(x, goodFriday) || sameYMD(x, easterMonday)) return true;
-
-  return false;
+  return sameYMD(x, goodFriday) || sameYMD(x, easterMonday);
 }
 
-const dayTypeOfDate = (dateLike) => {
+const isHolidayFromSet = (dateLike, holidayISOSet) => {
+  if (!holidayISOSet || typeof holidayISOSet.has !== "function") return false;
+  const iso = toISODate(dateLike);
+  if (!iso) return false;
+  return holidayISOSet.has(iso);
+};
+
+const dayTypeOfDate = (dateLike, holidayISOSet) => {
   const d = new Date(dateLike);
   if (isNaN(d)) return "Unknown";
-  if (isSeychellesPublicHoliday(d)) return "Public Holiday";
+  // Prefer backend-provided holiday set; fallback to minimal built-in logic
+  if (isHolidayFromSet(d, holidayISOSet) || isSeychellesPublicHolidayFallback(d))
+    return "Public Holiday";
   if (isWeekend(d)) return "Weekend";
   return "Weekday";
 };
@@ -203,8 +215,12 @@ export default function AdminStats() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
 
-    // also fetch users so we can map reporter names -> roles (journalist, sports_journalist, producer)
+  // also fetch users so we can map reporter names -> roles (journalist, sports_journalist, producer)
   const [users, setUsers] = useState([]);
+
+  // ✅ Holidays cache (YYYY-MM-DD) from backend /holidays route (fallback-safe)
+  const [holidayISOSet, setHolidayISOSet] = useState(new Set());
+  const holidaysLoadedRef = useRef(false);
 
   // RESTORED: initial data fetch
   useEffect(() => {
@@ -247,6 +263,104 @@ export default function AdminStats() {
     };
   }, []);
 
+  // ✅ Fetch holidays for all years present in tickets (backend-driven; robust shape parsing)
+  useEffect(() => {
+    let cancelled = false;
+
+    const extractYears = (arr) => {
+      const ys = new Set();
+      for (const t of Array.isArray(arr) ? arr : []) {
+        const d = new Date(t?.date || t?.createdAt || "");
+        if (!isNaN(d)) ys.add(d.getFullYear());
+      }
+      return Array.from(ys.values()).sort((a, b) => a - b);
+    };
+
+    const parseHolidayDates = (raw) => {
+      // Accept: ["2026-01-01", ...] OR { dates: [...] } OR { holidays:[{date}], ... }
+      const out = [];
+
+      const pushDate = (v) => {
+        const iso = toISODate(v);
+        if (iso) out.push(iso);
+      };
+
+      if (Array.isArray(raw)) {
+        raw.forEach(pushDate);
+        return out;
+      }
+
+      if (raw && typeof raw === "object") {
+        if (Array.isArray(raw.dates)) raw.dates.forEach(pushDate);
+        if (Array.isArray(raw.holidays)) {
+          raw.holidays.forEach((h) => pushDate(h?.date || h?.iso || h));
+        }
+        if (Array.isArray(raw.data)) raw.data.forEach(pushDate);
+      }
+
+      return out;
+    };
+
+    const fetchYear = async (year) => {
+      // Try common patterns without breaking if your route differs
+      const candidates = [
+        `${API_BASE}/holidays?year=${year}`,
+        `${API_BASE}/holidays/${year}`,
+        `${API_BASE}/holidays?from=${year}-01-01&to=${year}-12-31`,
+        `${API_BASE}/holidays`,
+      ];
+
+      let lastErr = null;
+      for (const url of candidates) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) {
+            lastErr = new Error(`${res.status} ${res.statusText}`);
+            continue;
+          }
+          const json = await res.json().catch(() => null);
+          return parseHolidayDates(json);
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr || new Error("Holiday fetch failed");
+    };
+
+    (async () => {
+      try {
+        const years = extractYears(tickets);
+        if (years.length === 0) return;
+
+        // Avoid refetching on tiny ticket edits during the same session
+        if (holidaysLoadedRef.current) return;
+
+        const results = await Promise.all(
+          years.map((y) =>
+            fetchYear(y).catch((err) => {
+              console.warn("Holiday fetch failed for year:", y, err?.message || err);
+              return [];
+            })
+          )
+        );
+
+        const all = new Set();
+        results.flat().forEach((iso) => all.add(iso));
+
+        if (!cancelled) {
+          setHolidayISOSet(all);
+          holidaysLoadedRef.current = true;
+        }
+      } catch (err) {
+        console.warn("Holiday loading skipped (fallback will be used):", err?.message || err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tickets]);
+
    // Filters
   const [rangeMode, setRangeMode] = useState("thisWeek"); // today | thisWeek | thisMonth | past3Months | oneYear | custom | all
   const [customStart, setCustomStart] = useState("");
@@ -273,13 +387,11 @@ export default function AdminStats() {
 
 
    // Roster cache & stats (#4)
-  const rosterCache = useRef({}); // { weekStartISO: weekArray }
+   const rosterCache = useRef({}); // { weekStartISO: weekArray }
   const [rosterStats, setRosterStats] = useState({
     offDuty: 0,
     afternoon: 0,
     primary: 0,
-    unmatched: 0,
-    unmatchedDetails: [], // [{ name, count, dates: [YYYY-MM-DD,...] }]
   });
   const [rosterBusy, setRosterBusy] = useState(false);
 
@@ -353,19 +465,18 @@ export default function AdminStats() {
   }, [tickets, rangeMode, startDate, endDate, includeArchived]);
 
   // Apply Day-Type filter (#5)
-  const activeTickets = useMemo(() => {
+   const activeTickets = useMemo(() => {
     const src = Array.isArray(baseTickets) ? baseTickets : [];
     if (dayType === "all") return src;
     return src.filter((t) => {
       const d = t?.date || t?.createdAt;
-      const kind = dayTypeOfDate(d);
+      const kind = dayTypeOfDate(d, holidayISOSet);
       if (dayType === "weekday") return kind === "Weekday";
       if (dayType === "weekend") return kind === "Weekend";
       if (dayType === "holiday") return kind === "Public Holiday";
       return true;
     });
-  }, [baseTickets, dayType]);
-
+  }, [baseTickets, dayType, holidayISOSet]);
 
    // NEW: Scope by selected users across all roles (Reporter, Cam-Op, Driver).
   // If none selected, use activeTickets unchanged.
@@ -583,9 +694,9 @@ export default function AdminStats() {
     const statusByTypeRows = rows; // keys = Array.from(statusKeySet)
 
     // ---- Day-Type breakdown (#5) on the *range-filtered* base set (ignores the Day-Type and user filters to show full mix)
-    const dayCounts = { "Weekday": 0, "Weekend": 0, "Public Holiday": 0 };
+       const dayCounts = { Weekday: 0, Weekend: 0, "Public Holiday": 0 };
     for (const t of baseTickets) {
-      const kind = dayTypeOfDate(t?.date || t?.createdAt);
+      const kind = dayTypeOfDate(t?.date || t?.createdAt, holidayISOSet);
       if (kind === "Weekday") dayCounts["Weekday"] += 1;
       else if (kind === "Weekend") dayCounts["Weekend"] += 1;
       else if (kind === "Public Holiday") dayCounts["Public Holiday"] += 1;
@@ -704,7 +815,7 @@ export default function AdminStats() {
       statusKeys: Array.from(statusKeySet),
     };
 
-    return {
+       return {
       sectionPie,
       lineSeries,
       topCamOps,
@@ -719,7 +830,7 @@ export default function AdminStats() {
       totalRangeCount: baseTickets.length,
       totalSelectedCount: scopedTickets.length,
     };
-  }, [scopedTickets, baseTickets, selectedUsers]);
+  }, [scopedTickets, baseTickets, selectedUsers, holidayISOSet]);
 
   // ----- Colors (consistent coding) -----
   const palette = {
@@ -882,12 +993,10 @@ useEffect(() => {
       // Preload all needed weeks
       await Promise.all(weekKeys.map(fetchRosterForWeek));
 
-      // Compute counts + unmatched details
+          // Compute counts (no "Unmatched" category)
       let offDuty = 0;
       let afternoon = 0;
       let primary = 0;
-      let unmatched = 0;
-      const unmatchedMap = new Map(); // name -> { count, dates:Set }
 
       for (const t of scopedTickets) {
         const dateOnly = toISODate(t?.date || t?.createdAt);
@@ -912,7 +1021,7 @@ useEffect(() => {
         const AFT = new Set((groups.afternoonShift || []).map(normalizeName));
         const ON  = new Set((groups.onDuty || []).map(normalizeName));
 
-        const assigned = Array.isArray(t?.assignedCamOps) ? t.assignedCamOps : [];
+           const assigned = Array.isArray(t?.assignedCamOps) ? t.assignedCamOps : [];
         for (const rawName of assigned) {
           const n = normalizeName(rawName);
           if (!n) continue;
@@ -927,29 +1036,13 @@ useEffect(() => {
             // Any other on-duty roster group (Primary/Directing, News Director, Backup, Other on Duty, AM, etc.)
             primary += 1;
           } else {
-            // Only "unmatched" if not found on the roster at all for that day
-            unmatched += 1;
-
-            // Track details: count + dates
-            const prev = unmatchedMap.get(n) || { count: 0, dates: new Set() };
-            prev.count += 1;
-            prev.dates.add(dateOnly);
-            unmatchedMap.set(n, prev);
+            // Not counted (Unmatched category removed)
           }
         }
       }
 
-      // Flatten unmatched details for UI
-      const unmatchedDetails = Array.from(unmatchedMap.entries())
-        .map(([name, info]) => ({
-          name,
-          count: info.count,
-          dates: Array.from(info.dates).sort(), // YYYY-MM-DD
-        }))
-        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-
       if (!cancelled) {
-        setRosterStats({ offDuty, afternoon, primary, unmatched, unmatchedDetails });
+        setRosterStats({ offDuty, afternoon, primary });
       }
     } finally {
       if (!cancelled) setRosterBusy(false);
@@ -1438,11 +1531,10 @@ useEffect(() => {
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={[
+                                 data={[
                     { label: "On Duty", value: rosterStats.primary },
                     { label: "Afternoon Shift", value: rosterStats.afternoon },
                     { label: "Off Duty", value: rosterStats.offDuty },
-                    { label: "Unmatched", value: rosterStats.unmatched },
                   ]}
                 >
                   <CartesianGrid strokeDasharray="3 3" />
@@ -1451,10 +1543,9 @@ useEffect(() => {
                   <Tooltip />
                   <Bar dataKey="value" name="Assignments">
                     {[
-                      { k: "On Duty", c: palette.statusD },
+                                       { k: "On Duty", c: palette.statusD },
                       { k: "Afternoon Shift", c: palette.statusC },
                       { k: "Off Duty", c: palette.statusB },
-                      { k: "Unmatched", c: palette.statusE },
                     ].map((e, i) => (
                       <Cell key={`ro-${i}`} fill={e.c} />
                     ))}
@@ -1467,28 +1558,7 @@ useEffect(() => {
   is treated as matched.“Unmatched” only means the name isn’t present anywhere on that day’s roster.
 </p>
 
-{rosterStats.unmatched > 0 && Array.isArray(rosterStats.unmatchedDetails) && rosterStats.unmatchedDetails.length > 0 && (
-  <div className="mt-3">
-    <div className="text-xs font-medium mb-1">Unmatched details:</div>
-    <div className="flex flex-wrap gap-2 max-h-24 overflow-auto pr-1">
-      {rosterStats.unmatchedDetails.slice(0, 12).map((item) => (
-        <span
-          key={item.name}
-          className="inline-flex items-center rounded-full border px-2 py-1 text-xs"
-          title={item.dates && item.dates.length ? `Dates: ${item.dates.join(", ")}` : ""}
-        >
-          <span className="mr-1 inline-block h-2 w-2 rounded-full bg-amber-500" />
-          {item.name} <span className="ml-1 opacity-70">×{item.count}</span>
-        </span>
-      ))}
-    </div>
-    {rosterStats.unmatchedDetails.length > 12 && (
-      <div className="mt-1 text-xs text-muted-foreground">
-        +{rosterStats.unmatchedDetails.length - 12} more
-      </div>
-    )}
-  </div>
-)}
+{/* Unmatched category removed */}
           </CardContent>
         </Card>
       </div>

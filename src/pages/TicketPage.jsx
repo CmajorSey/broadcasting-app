@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Trash2, Pencil, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import StatusBadge from "../components/StatusBadge";
 import MultiSelectCombobox from "@/components/MultiSelectCombobox";
 import DutyBadge from "@/components/DutyBadge";
 import API_BASE from "@/api";
 import { useToast } from "@/hooks/use-toast";
+
 
 import {
   AlertDialog,
@@ -90,57 +92,148 @@ export default function TicketPage({ users, vehicles, loggedInUser }) {
   }
 };
 
+  const navigate = useNavigate();
+
   const fireTicketAlert = async ({
-  title,
-  message,
-  urgent = false,
-  action = "Updated",
-  ticketId,
-  extra = {},
-}) => {
-  const actor = loggedInUser?.name || "Unknown";
-
-  // ✅ Prefer a ticket object from extra (caller should pass { ticket })
-  // Fallbacks: { updatedTicket } / { newTicket } if your handlers use those names
-  const ticket =
-    extra?.ticket ||
-    extra?.updatedTicket ||
-    extra?.newTicket ||
-    null;
-
-  // ✅ Always emit (so App.jsx can alert OTHER users)
-  emitTicketEvent({
-    category: "ticket",
-    action,
     title,
     message,
+    urgent = false,
+    action = "Updated",
     ticketId,
-    actor,
-    ticket, // ✅ enables rich ticket toast in App.jsx
-    ts: Date.now(),
-    ...extra,
-  });
+    extra = {},
+    // ✅ allow callers (or future global listeners) to override where the toast click should go
+    actionUrl = "/tickets",
+  }) => {
+    const actor = loggedInUser?.name || "Unknown";
 
-  // ✅ Local confirmation toast ONLY (no sound on TicketPage actions)
-  const toastEnabled =
-    localStorage.getItem("notificationToastsEnabled") !== "false";
+    const ticket =
+      extra?.ticket ||
+      extra?.updatedTicket ||
+      extra?.newTicket ||
+      null;
 
-  if (toastEnabled) {
-    // Auto-dismiss local ticket confirmations
-    toast({
-      title: title || "Ticket update",
-      description: message || "",
-      variant: urgent ? "destructive" : undefined,
-      duration: 4500,
+    emitTicketEvent({
+      category: "ticket",
+      action,
+      title,
+      message,
+      ticketId,
+      actor,
+      ticket,
+      ts: Date.now(),
+      actionUrl,
+      ...extra,
     });
-  }
-};
-// 🔊 Sound settings ends here
+
+    const toastEnabled =
+      localStorage.getItem("notificationToastsEnabled") !== "false";
+
+    // ✅ Click guard: ignore clicks on the toast close button (or any button)
+    const shouldIgnoreToastClick = (evt) => {
+      try {
+        const el = evt?.target;
+        if (!el) return false;
+        if (typeof el.closest === "function" && el.closest("button")) return true;
+        return false;
+      } catch {
+        return false;
+      }
+    };
+
+    if (toastEnabled) {
+      toast({
+        title: title || "Request update",
+        description: message || "",
+        variant: urgent ? "destructive" : undefined,
+        duration: 4500,
+        className: "cursor-pointer",
+
+        // ✅ CLICKING TOAST REDIRECTS TO TICKET PAGE (and ignores the close button)
+        onClick: (evt) => {
+          if (shouldIgnoreToastClick(evt)) return;
+          navigate(actionUrl || "/tickets");
+        },
+      });
+    }
+  };
+  // 🔊 Sound settings ends here
 
   // Sorting state for "Filming Date & Time"
   // true = ascending (oldest → newest), false = descending (newest → oldest)
   const [filmSortAsc, setFilmSortAsc] = useState(true);
   const rosterCache = useRef({});
+
+  /* ===========================
+     🗓️ Public holidays (for PH badge + Admin Stats feed)
+     - Pulls from backend: GET /holidays
+     - Stores a quick lookup Set of "YYYY-MM-DD"
+     - Enriches tickets with:
+       - isPublicHoliday: boolean
+       - publicHolidayName: string
+     =========================== */
+  const [holidays, setHolidays] = useState([]); // [{ date:"YYYY-MM-DD", name }]
+  const holidaySetRef = useRef(new Set());
+
+  // ✅ Optional: quick name lookup for Admin Stats / UI
+  const getHolidayName = (dateISO) => {
+    const day = String(dateISO || "").slice(0, 10);
+    if (!day) return "";
+    const hit = (Array.isArray(holidays) ? holidays : []).find(
+      (h) => String(h?.date || "").slice(0, 10) === day
+    );
+    return String(hit?.name || "").trim();
+  };
+
+  useEffect(() => {
+    holidaySetRef.current = new Set(
+      (Array.isArray(holidays) ? holidays : [])
+        .map((h) => String(h?.date || "").slice(0, 10))
+        .filter(Boolean)
+    );
+
+    // ✅ Feed stats / other consumers: enrich tickets in-state (non-destructive)
+    setTickets((prev) =>
+      (Array.isArray(prev) ? prev : []).map((t) => {
+        const day = String(t?.date || "").slice(0, 10);
+        const isPH = day && holidaySetRef.current.has(day);
+        const name = isPH ? getHolidayName(day) : "";
+
+        const alreadyHasPH = typeof t?.isPublicHoliday === "boolean";
+        const alreadyHasName = typeof t?.publicHolidayName === "string";
+
+        // Preserve backend values if already present
+        const next = { ...t };
+        if (!alreadyHasPH) next.isPublicHoliday = !!isPH;
+        if (!alreadyHasName) next.publicHolidayName = name || "";
+
+        return next;
+      })
+    );
+  }, [holidays]);
+
+  const isPublicHoliday = (dateISO) => {
+    const day = String(dateISO || "").slice(0, 10);
+    if (!day) return false;
+    return holidaySetRef.current.has(day);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/holidays`, { credentials: "include" });
+        if (!res.ok) throw new Error(`GET /holidays failed (${res.status})`);
+        const data = await res.json().catch(() => []);
+        if (!cancelled) setHolidays(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.warn("TicketPage: could not load holidays (non-blocking):", err);
+        if (!cancelled) setHolidays([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function fetchRosterForDate(dateISO) {
     const weekStart = getWeekStart(dateISO);
@@ -160,7 +253,6 @@ export default function TicketPage({ users, vehicles, loggedInUser }) {
       return [];
     }
   }
-
 
    async function getTodayRoster(dateOnlyISO) {
     // Expect "YYYY-MM-DD"; still guard with slice for safety
@@ -377,11 +469,12 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
         prev.map((t) => (String(t.id) === String(ticketId) ? updated : t))
       );
 
-      await fireTicketAlert({
-        title: "Ticket status updated",
+           await fireTicketAlert({
+        title: "Request status updated",
         message: `${before?.title || "Ticket"}: ${beforeStatus} → ${newStatus}`,
         action: "StatusChanged",
         ticketId,
+        extra: { ticket: updated }, // ✅ gives App.jsx detail.ticket
       });
     } catch (err) {
       console.error("Error updating status:", err);
@@ -538,69 +631,212 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
    * Non-blocking by design.
    */
   const sendTicketPageNotification = async ({
-    title,
-    message,
-    urgent = false,
-    ticket,
-    category = "tickets",
-  }) => {
-    try {
-      const actor = loggedInUser?.name || "Unknown";
+  title,
+  message,
+  urgent = false,
+  ticket,
+  category = "tickets",
+  action = "ticket_updated", // ✅ consistent action label for App.jsx / inbox rendering
+}) => {
+  try {
+    const actor = loggedInUser?.name || "Unknown";
 
-      const recipients = new Set();
-      recipients.add(actor);
+    /* ===========================
+       🧾 Ticket notification text (basic English)
+       - Shows ONLY fields that exist (no "null"/empty lines)
+       - Includes key info: Title, Date, Time, Location, Reporter, News/Sports type,
+         Driver(s), Vehicle, Cam Ops (only if more than you / more than 1)
+       =========================== */
 
-      // Assigned crew (if present)
-      const t = ticket || {};
-      if (Array.isArray(t.assignedCamOps)) {
-        t.assignedCamOps.filter(Boolean).forEach((n) => recipients.add(n));
+    const stripRolePrefix = (s) =>
+      String(s || "")
+        .replace(/^\s*(?:Journalist|Sports\s*Journalist|Producer)\s*:\s*/i, "")
+        .trim();
+
+    const uniq = (arr) =>
+      Array.from(
+        new Set((arr || []).map((x) => String(x || "").trim()).filter(Boolean))
+      );
+
+    const fmtDate = (iso) => {
+      const d = new Date(String(iso || ""));
+      if (isNaN(d.getTime())) return "";
+      const day = String(d.getDate()).padStart(2, "0");
+      const month = d.toLocaleString("en-US", { month: "short" });
+      const year = String(d.getFullYear());
+      return `${day}-${month}-${year}`;
+    };
+
+    const fmtTimeFromISO = (iso) => {
+      const d = new Date(String(iso || ""));
+      if (isNaN(d.getTime())) return "";
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      return `${hh}:${mm}`;
+    };
+
+    const fmtTime = (iso, filmingTime) => {
+      const ft = String(filmingTime || "").trim();
+      if (/^\d{2}:\d{2}$/.test(ft)) return ft;
+      return fmtTimeFromISO(iso);
+    };
+
+    const buildBasicEnglishMessage = (t) => {
+      if (!t || typeof t !== "object") return "";
+
+      const lines = [];
+
+      // Title (bold style for display)
+      if (t.title) lines.push(`Request Title: ${t.title}`);
+
+      // Date + Time
+      const d = fmtDate(t.date);
+      const tm = fmtTime(t.date, t.filmingTime);
+      if (d) lines.push(`Date: ${d}`);
+      if (tm) lines.push(`Time: ${tm}`);
+
+      // Departure time (only if present)
+      if (t.departureTime) lines.push(`Departure Time: ${t.departureTime}`);
+
+      // Location
+      if (t.location) lines.push(`Location: ${t.location}`);
+
+      // Journalist / Producer (assignedReporter can be array OR string)
+      const reporterList = Array.isArray(t.assignedReporter)
+        ? uniq(t.assignedReporter.map(stripRolePrefix))
+        : t.assignedReporter
+        ? uniq([stripRolePrefix(t.assignedReporter)])
+        : [];
+      if (reporterList.length > 0) {
+        lines.push(`Journalist / Producer: ${reporterList.join(", ")}`);
       }
-      if (t.assignedDriver) recipients.add(t.assignedDriver);
-      if (t.assignedDriverFrom) recipients.add(t.assignedDriverFrom);
 
-      if (Array.isArray(t.additionalDrivers)) {
-        t.additionalDrivers.filter(Boolean).forEach((n) => recipients.add(n));
+      // News / Sports type (only if present)
+      if (String(t.type || "").toLowerCase() === "news" && t.category) {
+        lines.push(`News Type: ${t.category}`);
+      }
+      if (String(t.type || "").toLowerCase() === "sports" && t.subtype) {
+        lines.push(`Sports Type: ${t.subtype}`);
       }
 
-      // assignedReporter can be array OR string
-      if (Array.isArray(t.assignedReporter)) {
-        t.assignedReporter.filter(Boolean).forEach((n) => recipients.add(n));
-      } else if (t.assignedReporter) {
-        const raw = String(t.assignedReporter);
-        const cleaned = raw.includes(":")
-          ? raw.split(":").slice(1).join(":").trim()
-          : raw.trim();
-        if (cleaned) recipients.add(cleaned);
-        else recipients.add(raw.trim());
+      // Driver(s) (only if present)
+      const driverMain = String(t.assignedDriver || "").trim();
+      const driverReturn = String(t.assignedDriverFrom || "").trim();
+      const extraDrivers = Array.isArray(t.additionalDrivers)
+        ? t.additionalDrivers.filter(Boolean)
+        : [];
+
+      const driverParts = [];
+      if (driverMain) driverParts.push(driverMain);
+      if (driverReturn && driverReturn !== driverMain)
+        driverParts.push(`Return: ${driverReturn}`);
+
+      const extrasClean = extraDrivers
+        .map((x) => String(x || "").trim())
+        .filter(Boolean)
+        .filter((x) => x !== driverMain && x !== driverReturn);
+
+      if (extrasClean.length > 0) driverParts.push(`Additional: ${extrasClean.join(", ")}`);
+
+      if (driverParts.length > 0) {
+        lines.push(`Driver: ${driverParts.join(" • ")}`);
       }
 
-      // ✅ Admins (match Fleet behavior)
-      recipients.add("Admins");
-      recipients.add("admin");
-      recipients.add("admins");
+      // Vehicle (only if present)
+      if (t.vehicle) lines.push(`Vehicle: ${t.vehicle}`);
 
-      const payload = {
-        title: title || "Ticket update",
-        message: message || "",
-        recipients: Array.from(recipients),
-        timestamp: new Date().toISOString(),
-        category,
-        urgent: !!urgent,
-        // extras (harmless if backend ignores)
-        ticketId: t?.id,
-        ticketType: t?.type,
-      };
+      // Cam Ops (show only if > you, or more than 1 assigned)
+      const camOps = Array.isArray(t.assignedCamOps) ? uniq(t.assignedCamOps) : [];
+      const actorName = String(actor || "").trim();
+      const camOpsWithoutActor = camOps.filter((n) => String(n).trim() !== actorName);
 
-      await fetch(`${API_BASE}/notifications`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-    } catch (err) {
-      // Never break TicketPage if notifications fail
-      console.warn("TicketPage notification failed (non-blocking):", err);
+      const shouldShowCamOps =
+        camOps.length > 1 || (camOps.length === 1 && camOpsWithoutActor.length === 1);
+
+      if (shouldShowCamOps) {
+        lines.push(`Cam Ops: ${camOps.join(", ")}`);
+      }
+
+      // If this is technical, keep it simple but helpful (only if filled)
+      if (String(t.type || "").toLowerCase() === "technical") {
+        if (t.scopeOfWork) lines.push(`Scope of Work: ${t.scopeOfWork}`);
+        if (Array.isArray(t.assignedTechnicians) && t.assignedTechnicians.length > 0) {
+          lines.push(`Technicians: ${t.assignedTechnicians.filter(Boolean).join(", ")}`);
+        }
+      }
+
+      return lines.join("\n");
+    };
+
+    const recipients = new Set();
+    recipients.add(actor);
+
+    // Assigned crew (if present)
+    const t = ticket || {};
+    if (Array.isArray(t.assignedCamOps)) {
+      t.assignedCamOps.filter(Boolean).forEach((n) => recipients.add(n));
     }
-  };
+    if (t.assignedDriver) recipients.add(t.assignedDriver);
+    if (t.assignedDriverFrom) recipients.add(t.assignedDriverFrom);
+
+    if (Array.isArray(t.additionalDrivers)) {
+      t.additionalDrivers.filter(Boolean).forEach((n) => recipients.add(n));
+    }
+
+    // assignedReporter can be array OR string
+    if (Array.isArray(t.assignedReporter)) {
+      t.assignedReporter.filter(Boolean).forEach((n) => recipients.add(stripRolePrefix(n)));
+    } else if (t.assignedReporter) {
+      const cleaned = stripRolePrefix(t.assignedReporter);
+      if (cleaned) recipients.add(cleaned);
+    }
+
+    // ✅ Admins (match Fleet behavior)
+    recipients.add("Admins");
+    recipients.add("admin");
+    recipients.add("admins");
+
+    // ✅ If caller only passed the title (common today), auto-build a richer message.
+    const incoming = String(message || "").trim();
+    const basicEnglish = buildBasicEnglishMessage(t);
+
+    const shouldAuto =
+      !incoming ||
+      incoming === String(t?.title || "").trim() ||
+      incoming.toLowerCase() === "changes saved." ||
+      incoming.toLowerCase() === "changes saved" ||
+      incoming.toLowerCase() === "ticket updated";
+
+    const finalMessage = shouldAuto ? basicEnglish : incoming;
+
+        const payload = {
+      title: title || "Request update",
+      message: finalMessage || "",
+      recipients: Array.from(recipients),
+      timestamp: new Date().toISOString(),
+      category,
+      urgent: !!urgent,
+
+      // ✅ standardized extras
+      action,
+      actor,
+      ticketId: t?.id,
+      ticketType: t?.type,
+
+      // ✅ IMPORTANT: rich snapshot so Admin view / other tab can render details
+      ticket: t,
+    };
+
+    await fetch(`${API_BASE}/notifications`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    // Never break TicketPage if notifications fail
+    console.warn("TicketPage notification failed (non-blocking):", err);
+  }
+};
 
   const startEditing = (ticketOrId) => {
     const id = typeof ticketOrId === "string" ? ticketOrId : ticketOrId?.id;
@@ -699,7 +935,7 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
         )
       );
 
-    const updatedTicket = {
+      const updatedTicket = {
       id: original.id,
       title: editData.title || original.title,
       date: editData.date || original.date,
@@ -731,6 +967,10 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
         editData.assignmentStatus || original.assignmentStatus || "Unassigned",
       priority: editData.priority || original.priority || "Normal",
       assignedBy: loggedInUser?.name || "Unknown",
+
+      // ✅ PH fields for Admin Stats (computed from the chosen date)
+      isPublicHoliday: isPublicHoliday(editData.date || original.date),
+      publicHolidayName: (isPublicHoliday(editData.date || original.date) ? getHolidayName(editData.date || original.date) : "") || "",
     };
 
     if (
@@ -764,8 +1004,8 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
       setEditData(null);
 
           // ✅ Backend notification feed (so OTHER tabs can react via App.jsx poller)
-      await sendTicketPageNotification({
-        title: "Ticket updated",
+        await sendTicketPageNotification({
+        title: "Request updated",
         message: updatedTicket.title || "Changes saved.",
         urgent: false,
         ticket: updatedTicket,
@@ -773,11 +1013,12 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
       });
 
       // ✅ Local/global emit (same-tab + same-origin broadcast)
-      await fireTicketAlert({
+         await fireTicketAlert({
         title: "Ticket updated",
         message: updatedTicket.title || "Changes saved.",
         action: "Updated",
         ticketId: updatedTicket.id,
+        extra: { ticket: updatedTicket }, // ✅ gives App.jsx detail.ticket
       });
     } catch (err) {
       console.error("Failed to save ticket edits:", err);
@@ -894,32 +1135,35 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
       setNewNotes((prev) => ({ ...prev, [ticketId]: "" }));
 
           // ✅ Backend notification feed (so OTHER tabs can react via App.jsx poller)
-      await sendTicketPageNotification({
-        title: "Note added",
-        message: `${target.title || "Ticket"}: ${newNote.text}`,
-        urgent: false,
-        ticket: { ...target, notes: nextNotes },
-        category: "tickets",
-      });
+await sendTicketPageNotification({
+  title: "Note added to Request",
+  message: `${target.title || "Request"}: ${newNote.text}`,
+  urgent: false,
+  ticket: { ...target, notes: nextNotes },
+  category: "tickets",
+  action: "ticket_note_added",
+});
+  
+// ✅ Local/global emit (same-tab + same-origin broadcast)
+await fireTicketAlert({
+  title: "Note added",
+  message: `${target.title || "Ticket"}: ${newNote.text}`,
+  action: "NoteAdded",
+  ticketId,
+  extra: { ticket: { ...target, notes: nextNotes } }, // ✅ rich payload
+});
+} catch (err) {
+console.error("Failed to add note:", err);
 
-      // ✅ Local/global emit (same-tab + same-origin broadcast)
-      await fireTicketAlert({
-        title: "Note added",
-        message: `${target.title || "Ticket"}: ${newNote.text}`,
-        action: "NoteAdded",
-        ticketId,
-      });
-    } catch (err) {
-      console.error("Failed to add note:", err);
-
-          // ✅ Backend notification feed (so OTHER tabs can react via App.jsx poller)
-      await sendTicketPageNotification({
-        title: "Could not add note",
-        message: "Please try again.",
-        urgent: true,
-        ticket: target,
-        category: "tickets",
-      });
+    // ✅ Backend notification feed (so OTHER tabs can react via App.jsx poller)
+await sendTicketPageNotification({
+  title: "Could not add note",
+  message: "Please try again.",
+  urgent: true,
+  ticket: target,
+  category: "tickets",
+  action: "ticket_note_add_failed",
+});
 
       // ✅ Local/global emit (same-tab + same-origin broadcast)
       await fireTicketAlert({
@@ -934,7 +1178,7 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
 
   return (
     <div className="p-4">
-      <h2 className="text-xl font-bold mb-4">All Request Forms</h2>
+      <h2 className="text-xl font-bold mb-4">All Requests</h2>
 
       <div className="flex flex-wrap items-center mb-2 gap-2">
         <button
@@ -944,7 +1188,7 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
           }}
           className="px-3 py-1 border rounded"
         >
-          {showSelectBoxes ? "Hide Selection" : "Select Forms"}
+          {showSelectBoxes ? "Hide Selection" : "Select Requests"}
         </button>
         {showSelectBoxes && (
           <button onClick={toggleSelectAll} className="px-3 py-1 border rounded">
@@ -1007,7 +1251,7 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
     {showSelectBoxes && <th className="p-2 text-center">Select</th>}
 
     {/* Title */}
-<th className="px-2 py-1 text-center text-xs font-semibold">Title</th>
+<th className="px-2 py-1 text-center text-xs font-semibold">Request</th>
 
 {/* Filming Date & Time — clickable sort header */}
 <th
@@ -1034,7 +1278,7 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
 <th className="px-2 py-1 text-center text-xs font-semibold">Driver</th>
 
 {/* Assigned Reporter */}
-<th className="px-2 py-1 text-center text-xs font-semibold">Assigned Reporter</th>
+<th className="px-2 py-1 text-center text-xs font-semibold">Journalist / Producer</th>
 
 {/* Status */}
 <th className="px-2 py-1 text-center text-xs font-semibold">Status</th>
@@ -1162,37 +1406,35 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
                           }
                           className="border px-2 py-1 rounded"
                         />
-                      ) : (() => {
+                     ) : (() => {
                           const filmingISO = ticket.date?.trim?.();
                           if (!filmingISO) return "-";
 
                           const filmingDate = new Date(filmingISO);
                           if (isNaN(filmingDate.getTime())) {
-                            console.warn(
-                              "Invalid filming date format:",
-                              filmingISO
-                            );
+                            console.warn("Invalid filming date format:", filmingISO);
                             return filmingISO;
                           }
 
-                          const day = String(filmingDate.getDate()).padStart(
-                            2,
-                            "0"
-                          );
-                          const month = filmingDate.toLocaleString("en-US", {
-                            month: "short",
-                          });
-                          const year = String(
-                            filmingDate.getFullYear()
-                          ).slice(2);
-                          const hours = String(
-                            filmingDate.getHours()
-                          ).padStart(2, "0");
-                          const minutes = String(
-                            filmingDate.getMinutes()
-                          ).padStart(2, "0");
+                          const day = String(filmingDate.getDate()).padStart(2, "0");
+                          const month = filmingDate.toLocaleString("en-US", { month: "short" });
+                          const year = String(filmingDate.getFullYear()).slice(2);
+                          const hours = String(filmingDate.getHours()).padStart(2, "0");
+                          const minutes = String(filmingDate.getMinutes()).padStart(2, "0");
 
-                          return `${day}-${month}-${year}, ${hours}:${minutes}`;
+                          const label = `${day}-${month}-${year}, ${hours}:${minutes}`;
+                          const ph = isPublicHoliday(filmingISO);
+
+                          return (
+                            <div className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                              <span>{label}</span>
+                              {ph ? (
+                                <Badge variant="outline" className="text-[10px] px-2 py-0.5">
+                                  (PH)
+                                </Badge>
+                              ) : null}
+                            </div>
+                          );
                         })()}
                     </td>
 
@@ -1550,125 +1792,146 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
 {isExpanded && (
   <tr className="bg-gray-100">
     <td
-      colSpan={showSelectBoxes ? 9 : 8}
+      // Main table columns:
+      // - Without Select: 9
+      // - With Select: 10
+      colSpan={showSelectBoxes ? 10 : 9}
       className="p-4 text-sm text-gray-700"
     >
       {/* FULL TITLE (expanded view) */}
       <div className="mb-3">
-        <strong className="block text-gray-600">Title</strong>
-        <div className="text-base font-semibold leading-snug break-words">
-          {ticket.title || "-"}
-        </div>
+  <div className="font-bold text-gray-700">Request Title</div>
+  <div className="text-base font-semibold leading-snug break-words">
+    {ticket.title || "-"}
+  </div>
+</div>
+
+<div className="mb-2 space-y-1">
+  {ticket.type === "Technical" ? (
+    <>
+      <div>
+        <span className="font-bold">Scope of Work:</span>{" "}
+        {ticket.scopeOfWork || "-"}
+      </div>
+      <div>
+        <span className="font-bold">Assigned Technicians:</span>{" "}
+        {Array.isArray(ticket.assignedTechnicians) && ticket.assignedTechnicians.length > 0
+          ? ticket.assignedTechnicians.join(", ")
+          : "-"}
+      </div>
+      <div>
+        <span className="font-bold">Location:</span>{" "}
+        {ticket.location || "-"}
+      </div>
+    </>
+  ) : (
+    <>
+      <div>
+        <span className="font-bold">Filming Date:</span>{" "}
+        {ticket.date ? String(ticket.date).slice(0, 10) : "-"}
+      </div>
+      <div>
+        <span className="font-bold">Filming Time:</span>{" "}
+        {ticket.filmingTime || "-"}
+      </div>
+      <div>
+        <span className="font-bold">Departure Time:</span>{" "}
+        {ticket.departureTime || "-"}
+      </div>
+      <div>
+        <span className="font-bold">Location:</span>{" "}
+        {ticket.location || "-"}
+      </div>
+      <div>
+        <span className="font-bold">Number of Cameras:</span>{" "}
+        {ticket.camCount ?? "-"}
+      </div>
+      <div>
+        <span className="font-bold">Cam Op Requirement:</span>{" "}
+        {ticket.expectedCamOps
+          ? `${ticket.expectedCamOps} operator${ticket.expectedCamOps > 1 ? "s" : ""} expected`
+          : ticket.onlyOneCamOp
+          ? "Only one operator required"
+          : "Multiple operators expected"}
+      </div>
+      <div>
+        <span className="font-bold">Assigned Cam Ops:</span>{" "}
+        {Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0
+          ? ticket.assignedCamOps.join(", ")
+          : "-"}
       </div>
 
-      <div className="mb-2 space-y-1">
-        {ticket.type === "Technical" ? (
-          <>
-            <div>
-              <strong>Scope of Work:</strong>{" "}
-              {ticket.scopeOfWork || "-"}
-            </div>
-            <div>
-              <strong>Assigned Technicians:</strong>{" "}
-              {Array.isArray(ticket.assignedTechnicians) && ticket.assignedTechnicians.length > 0
-                ? ticket.assignedTechnicians.join(", ")
-                : "-"}
-            </div>
-            <div>
-              <strong>Location:</strong>{" "}
-              {ticket.location || "-"}
-            </div>
-          </>
-        ) : (
-          <>
-            <div>
-              <strong>Number of Cameras:</strong>{" "}
-              {ticket.camCount}
-            </div>
-            <div>
-              <strong>Cam Op Requirement:</strong>{" "}
-              {ticket.expectedCamOps
-                ? `${ticket.expectedCamOps} operator${ticket.expectedCamOps > 1 ? "s" : ""} expected`
-                : ticket.onlyOneCamOp
-                ? "Only one operator required"
-                : "Multiple operators expected"}
-            </div>
-            <div>
-              <strong>Assigned Cam Ops:</strong>{" "}
-              {Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0
-                ? ticket.assignedCamOps.join(", ")
-                : "-"}
-            </div>
-            {/* 🔹 Added Location to expanded view for normal (non-technical) tickets */}
-            <div>
-              <strong>Location:</strong>{" "}
-              {ticket.location || "-"}
-            </div>
-            {ticket.type === "News" && ticket.category && (
-              <div>
-                <strong>News Category:</strong> {ticket.category}
-              </div>
-            )}
-            {ticket.type === "Sports" && ticket.subtype && (
-              <div>
-                <strong>Sports Subtype:</strong> {ticket.subtype}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Full drivers section (expanded view) */}
-        <div className="mt-3">
-          <strong>Drivers:</strong>
-          <div className="mt-1 space-y-1">
-            <div>
-              <span className="text-gray-600">To (main):</span>{" "}
-              <span className="font-medium">
-                {ticket.assignedDriver || "-"}
-              </span>
-            </div>
-            <div>
-              <span className="text-gray-600">From (return):</span>{" "}
-              <span className="font-medium">
-                {ticket.assignedDriverFrom || "-"}
-              </span>
-            </div>
-            <div>
-              <span className="text-gray-600">Additional:</span>{" "}
-              <span className="font-medium">
-                {Array.isArray(ticket.additionalDrivers) && ticket.additionalDrivers.length > 0
-                  ? ticket.additionalDrivers.filter(Boolean).join(", ")
-                  : "-"}
-              </span>
-            </div>
-          </div>
-        </div>
+      {/* Journalist / Producer */}
+      <div>
+        <span className="font-bold">Journalist / Producer:</span>{" "}
+        {Array.isArray(ticket.assignedReporter) && ticket.assignedReporter.length > 0
+          ? ticket.assignedReporter.join(", ")
+          : typeof ticket.assignedReporter === "string" && ticket.assignedReporter.trim()
+          ? ticket.assignedReporter
+          : "-"}
       </div>
 
-      <div className="mt-3">
-        <strong>Assigned By:</strong>{" "}
-        <span className="text-gray-700 font-medium">
-          {ticket.assignedBy || "Unknown"}
+      {ticket.type === "News" && ticket.category && (
+        <div>
+          <span className="font-bold">News Category:</span> {ticket.category}
+        </div>
+      )}
+      {ticket.type === "Sports" && ticket.subtype && (
+        <div>
+          <span className="font-bold">Sports Subtype:</span> {ticket.subtype}
+        </div>
+      )}
+    </>
+  )}
+
+  {/* Full drivers section (expanded view) */}
+  <div className="mt-3">
+    <div className="font-bold">Drivers</div>
+    <div className="mt-1 space-y-1">
+      <div>
+        <span className="font-bold">To (main):</span>{" "}
+        <span className="font-medium">{ticket.assignedDriver || "-"}</span>
+      </div>
+      <div>
+        <span className="font-bold">From (return):</span>{" "}
+        <span className="font-medium">{ticket.assignedDriverFrom || "-"}</span>
+      </div>
+      <div>
+        <span className="font-bold">Additional:</span>{" "}
+        <span className="font-medium">
+          {Array.isArray(ticket.additionalDrivers) && ticket.additionalDrivers.length > 0
+            ? ticket.additionalDrivers.filter(Boolean).join(", ")
+            : "-"}
         </span>
       </div>
+    </div>
+  </div>
+</div>
 
-      <div className="mt-2">
-        <strong>Notes:</strong>
-        {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
-          <ul className="list-disc list-inside ml-2 mt-1">
-            {ticket.notes.map((note, noteIdx) => (
-              <li key={noteIdx}>
-                {note.text}{" "}
-                <span className="text-gray-500 text-xs">
-                  — {note.author}, {note.timestamp}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-gray-500 italic">No notes</p>
-        )}
-      </div>
+<div className="mt-3">
+  <span className="font-bold">Assigned By:</span>{" "}
+  <span className="text-gray-700 font-medium">
+    {ticket.assignedBy || "Unknown"}
+  </span>
+</div>
+
+<div className="mt-2">
+  <div className="font-bold">Notes</div>
+  {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
+    <ul className="list-disc list-inside ml-2 mt-1">
+      {ticket.notes.map((note, noteIdx) => (
+        <li key={noteIdx}>
+          {note.text}{" "}
+          <span className="text-gray-500 text-xs">
+            — {note.author}, {note.timestamp}
+          </span>
+        </li>
+      ))}
+    </ul>
+  ) : (
+    <p className="text-gray-500 italic">No notes</p>
+  )}
+</div>
 
       {canAddNotes && (
         <div className="mt-2">
@@ -2500,10 +2763,13 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
           {archivedFiltered.map((ticket, rowIdx) => {
             const isExpanded = archExpandedIds.includes(ticket.id);
 
-            // date formatting identical to current table
+             // date formatting identical to current table
             const filmingISO = ticket.date?.trim?.();
             let filmingDisplay = "-";
+            let filmingIsPH = false;
+
             if (filmingISO) {
+              filmingIsPH = isPublicHoliday(filmingISO);
               const d = new Date(filmingISO);
               if (!isNaN(d.getTime())) {
                 const day = String(d.getDate()).padStart(2, "0");
@@ -2571,7 +2837,16 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
                   </td>
 
                   {/* Filming Date & Time */}
-                  <td className="px-2 py-1 text-center align-middle">{filmingDisplay}</td>
+                  <td className="px-2 py-1 text-center align-middle">
+                    <div className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                      <span>{filmingDisplay}</span>
+                      {filmingIsPH ? (
+                        <Badge variant="outline" className="text-[10px] px-2 py-0.5">
+                          (PH)
+                        </Badge>
+                      ) : null}
+                    </div>
+                  </td>
 
                   {/* Departure Time */}
                   <td className="px-2 py-1 text-center align-middle">
@@ -2858,9 +3133,11 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
                       const year = String(d.getFullYear()).slice(2);
                       const hh = String(d.getHours()).padStart(2, "0");
                       const mm = String(d.getMinutes()).padStart(2, "0");
-                      const formatted = !isNaN(d.getTime())
+                     const formatted = !isNaN(d.getTime())
                         ? `${day}-${month}-${year}, ${hh}:${mm}`
                         : "-";
+
+                      const isPH = isPublicHoliday(ticket?.date);
 
                       return (
                         <tr
@@ -2882,8 +3159,17 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
                               }}
                             />
                           </td>
-                          <td className="p-2 text-center">{ticket.title}</td>
-                          <td className="p-2 text-center">{formatted}</td>
+                        <td className="p-2 text-center">{ticket.title}</td>
+                          <td className="p-2 text-center">
+                            <div className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                              <span>{formatted}</span>
+                              {isPH ? (
+                                <Badge variant="outline" className="text-[10px] px-2 py-0.5">
+                                  (PH)
+                                </Badge>
+                              ) : null}
+                            </div>
+                          </td>
                           <td className="p-2 text-center">
                             {ticket.departureTime || "-"}
                           </td>

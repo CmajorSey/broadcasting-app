@@ -56,18 +56,32 @@ const [branding, setBranding] = useState({ siteName: "" }); // no longer used he
     return `${first}${rand}!`; // e.g., "Alex537!"
   };
 
-  const handleResetPassword = async () => {
+   const handleResetPassword = async () => {
     if (!resetTarget || !newPassword.trim()) return;
 
     try {
+      // ✅ Keep same default TTL as backend (72h)
+      const TTL_HOURS = 72;
+      const expiresIso = new Date(Date.now() + TTL_HOURS * 60 * 60 * 1000).toISOString();
+      const nowIso = new Date().toISOString();
+
       const res = await fetch(`${API_BASE}/users/${resetTarget.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           password: newPassword.trim(),
+
           // 👇 force new-password screen on next login
           forcePasswordChange: true,
           requiresPasswordReset: true,
+
+          // ✅ Mark as temp + set expiry + audit stamp
+          passwordIsTemp: true,
+          tempPasswordExpires: expiresIso,
+          passwordUpdatedAt: nowIso,
+
+          // Optional hint (backend supports it if you keep it)
+          tempPasswordTtlHours: TTL_HOURS,
         }),
       });
 
@@ -75,10 +89,14 @@ const [branding, setBranding] = useState({ siteName: "" }); // no longer used he
       const data = await res.json();
 
       toast({ title: `Temp password set for ${resetTarget.name}` });
+
       // optionally update local list if server echoed user
-      if (data?.user) {
-        setUsers((prev) => prev.map((u) => (u.id === data.user.id ? data.user : u)));
+      // (your /users/:id PATCH returns RAW user in your current server)
+      const updatedUser = data?.user || data;
+      if (updatedUser?.id) {
+        setUsers((prev) => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
       }
+
       setResetTarget(null);
       setNewPassword("");
     } catch (err) {
@@ -210,13 +228,30 @@ const saveBranding = () => {
     const firstName = name.split(" ")[0] || "User";
     const autoPassword = `${firstName}1`;
 
+    /* ===========================
+       🔐 New-user temp password rules start
+       - Ensure tempPasswordExpires is in the future
+       - Mark password as temporary
+       =========================== */
+    const nowIso = new Date().toISOString();
+    const expiresAtIso = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // +7 days
+    /* ===========================
+       🔐 New-user temp password rules end
+       =========================== */
+
     const newUser = {
       name,
       password: autoPassword,
       roles: newUserRoles,
       description: newUserDesc.trim(),
       hiddenRoles: [],
+
+      // ✅ these flags must align with login logic
+      forcePasswordChange: true,
       requiresPasswordReset: true,
+      passwordIsTemp: true,
+      tempPasswordExpires: expiresAtIso,
+      passwordUpdatedAt: nowIso,
     };
 
     try {
@@ -234,6 +269,14 @@ const saveBranding = () => {
       if (created?.id) {
         setUsers((prev) => [...prev, created]);
       }
+
+      // Nice UX for admin: show temp pass + expiry if backend doesn’t already
+      toast({
+        title: `User created: ${name}`,
+        description: `Temporary password: ${response?.tempPassword || autoPassword} (expires ${expiresAtIso
+          .replace("T", " ")
+          .slice(0, 16)})`,
+      });
     } catch (err) {
       alert("Error adding user: " + err.message);
     }

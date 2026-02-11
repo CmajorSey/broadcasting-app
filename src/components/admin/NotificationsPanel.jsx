@@ -1,7 +1,8 @@
 // src/components/admin/NotificationsPanel.jsx
-// v0.6.3 — Admin QoL: delete/clear notifications + reset-password action + keep existing UX (no edit UI)
-import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+// v0.6.3+ — Admin QoL: delete/clear notifications + reset-password action + keep existing UX (no edit UI)
+// ✅ NEW: deep-link support → open History tab + scroll to Suggestions
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import API_BASE from "@/api";
 
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ const uniq = (arr = []) => Array.from(new Set(arr.filter(Boolean)));
 
 export default function NotificationsPanel({ loggedInUser }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
 
   /* ===========================
@@ -64,16 +66,72 @@ export default function NotificationsPanel({ loggedInUser }) {
      🔊 App-level notify emit ends here
      =========================== */
 
+  /* ===========================
+     🧭 Deep-link routing starts here
+     - /admin?tab=notifications&subtab=history&scroll=suggestions
+     =========================== */
+  const getQuery = () => new URLSearchParams(location.search);
+  const getSubtab = () => {
+    const q = getQuery();
+    const sub = String(q.get("subtab") || "").trim();
+    // safety: only allow known tabs
+    if (sub === "history" || sub === "groups" || sub === "send") return sub;
+    return "send";
+  };
+  const getScrollTarget = () => {
+    const q = getQuery();
+    return String(q.get("scroll") || "").trim();
+  };
+
+  const [activeTab, setActiveTab] = useState(getSubtab());
+  const suggestionsRef = useRef(null);
+
+  // keep activeTab in sync if URL changes (AdminGlobalToasts / navbar links)
+  useEffect(() => {
+    setActiveTab(getSubtab());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
+
+  // scroll after tab is on "history"
+  useEffect(() => {
+    if (activeTab !== "history") return;
+
+    const target = getScrollTarget();
+    if (target !== "suggestions") return;
+
+    // allow the DOM + suggestions section to render first
+    const t = setTimeout(() => {
+      try {
+        if (suggestionsRef.current && typeof suggestionsRef.current.scrollIntoView === "function") {
+          suggestionsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        } else {
+          const el = document.getElementById("suggestions");
+          if (el && typeof el.scrollIntoView === "function") {
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }, 200);
+
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, location.search]);
+  /* ===========================
+     🧭 Deep-link routing ends here
+     =========================== */
+
   // compose tab state (kept)
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
 
-  // ✅ NEW: urgent notifications (forces sound later in user rules)
+  // ✅ urgent notifications (forces sound later in user rules)
   const [urgent, setUrgent] = useState(false);
 
   const [selectedUsers, setSelectedUsers] = useState([]);
-
   const [selectedSections, setSelectedSections] = useState([]);
+
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
   const [history, setHistory] = useState([]);
@@ -99,7 +157,7 @@ export default function NotificationsPanel({ loggedInUser }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-    const fetchUsers = async () => {
+  const fetchUsers = async () => {
     try {
       // Use backend-normalized shape: [{ id: "string", name: "..." , roles:[], description:"" }]
       const res = await fetch(`${API_BASE}/users-brief`);
@@ -122,8 +180,7 @@ export default function NotificationsPanel({ loggedInUser }) {
     }
   };
 
-
-   const fetchGroups = async () => {
+  const fetchGroups = async () => {
     try {
       const res = await fetch(`${API_BASE}/notification-groups`);
 
@@ -153,7 +210,7 @@ export default function NotificationsPanel({ loggedInUser }) {
     }
   };
 
-   const fetchHistory = async () => {
+  const fetchHistory = async () => {
     try {
       const res = await fetch(`${API_BASE}/notifications`);
 
@@ -190,7 +247,7 @@ export default function NotificationsPanel({ loggedInUser }) {
     }
   };
 
-     const fetchSuggestions = async () => {
+  const fetchSuggestions = async () => {
     try {
       const res = await fetch(`${API_BASE}/suggestions`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -204,7 +261,7 @@ export default function NotificationsPanel({ loggedInUser }) {
         setSuggestions([]);
         return;
       }
-      const normalized = data.map((s, i) => {
+      const normalized = data.map((s) => {
         const created = s.createdAt || s.timestamp || null;
         const tsId = created ? `ts:${isoSec(created)}` : null;
         return {
@@ -226,10 +283,8 @@ export default function NotificationsPanel({ loggedInUser }) {
     }
   };
 
-
-
   // ------- compose/send -------
-   const resolveRecipients = () => {
+  const resolveRecipients = () => {
     // If user names were explicitly picked, send those
     if (selectedUsers.length > 0) {
       return selectedUsers;
@@ -238,15 +293,14 @@ export default function NotificationsPanel({ loggedInUser }) {
     // Otherwise, resolve group → userIds → user names
     const matchingGroupUsers = groups
       .filter((g) => selectedSections.includes(g.name))
-      .flatMap((g) => Array.isArray(g.userIds) ? g.userIds : [])
+      .flatMap((g) => (Array.isArray(g.userIds) ? g.userIds : []))
       .map((id) => String(id));
 
     const resolved = users.filter((u) => matchingGroupUsers.includes(String(u.id)));
     return resolved.map((u) => u.name);
   };
 
-
-   const handleSend = async () => {
+  const handleSend = async () => {
     const recipients = resolveRecipients();
 
     if (!title || !message || recipients.length === 0) {
@@ -284,9 +338,9 @@ export default function NotificationsPanel({ loggedInUser }) {
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) throw new Error("Failed to send notification");
+      if (!res.ok) throw new Error("Failed to send message");
 
-      toast({ title: "Notification sent!" });
+      toast({ title: "Message sent!" });
 
       // ✅ Immediately hand off to App.jsx for toast/sound/push logic
       emitAdminNotification({
@@ -309,7 +363,7 @@ export default function NotificationsPanel({ loggedInUser }) {
       fetchHistory();
     } catch (err) {
       console.error("Notification error:", err);
-      toast({ title: "Error", description: "Failed to send notification." });
+      toast({ title: "Error", description: "Failed to send message." });
     }
   };
 
@@ -347,7 +401,6 @@ export default function NotificationsPanel({ loggedInUser }) {
       setDeletingTs(null);
     }
   };
-
 
   const handleClearAll = async () => {
     try {
@@ -483,9 +536,13 @@ export default function NotificationsPanel({ loggedInUser }) {
   };
 
   return (
-    <Tabs defaultValue="send" className="p-4 max-w-6xl mx-auto">
+    <Tabs
+      value={activeTab}
+      onValueChange={(v) => setActiveTab(v)}
+      className="p-4 max-w-6xl mx-auto"
+    >
       <TabsList className="mb-4">
-        <TabsTrigger value="send">📢 Send Notification</TabsTrigger>
+        <TabsTrigger value="send">📢 Send Messages</TabsTrigger>
         <TabsTrigger value="history">🕓 History</TabsTrigger>
         <TabsTrigger value="groups">👥 Manage Groups</TabsTrigger>
       </TabsList>
@@ -493,27 +550,26 @@ export default function NotificationsPanel({ loggedInUser }) {
       {/* SEND */}
       <TabsContent value="send">
         <div className="space-y-6">
-          <h2 className="text-2xl font-bold">📢 Send Notification</h2>
+          <h2 className="text-2xl font-bold">📢 Send Messages</h2>
 
-                 <div className="grid gap-4">
+          <div className="grid gap-4">
             <div>
               <label className="text-sm font-medium block mb-1">Title</label>
               <Input
-                placeholder="Enter notification title"
+                placeholder="Enter Message title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 className="w-full"
               />
             </div>
 
-              {/* ✅ NEW: urgent */}
+            {/* ✅ urgent */}
             <div className="flex items-center gap-3">
               <Switch checked={urgent} onCheckedChange={(v) => setUrgent(!!v)} />
               <Label className="text-sm">
                 Mark as <span className="font-medium">Urgent</span> (Forces sound notification)
               </Label>
             </div>
-
 
             <div>
               <label className="text-sm font-medium block mb-1">Message</label>
@@ -557,7 +613,7 @@ export default function NotificationsPanel({ loggedInUser }) {
               </div>
             </div>
 
-            <Button onClick={handleSend}>Send Notification</Button>
+            <Button onClick={handleSend}>Send Message</Button>
           </div>
 
           <hr className="my-6" />
@@ -606,15 +662,11 @@ export default function NotificationsPanel({ loggedInUser }) {
                           return "Invalid date";
                         }
                       })()}
-                                     </td>
-                                  <td className="py-1 px-2 font-medium">
+                    </td>
+                    <td className="py-1 px-2 font-medium">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span>{notif.title}</span>
-
-                        {notif?.urgent === true ? (
-                          <Badge>URGENT</Badge>
-                        ) : null}
-
+                        {notif?.urgent === true ? <Badge>URGENT</Badge> : null}
                       </div>
                     </td>
                     <td className="py-1 px-2 max-w-sm break-words">{notif.message}</td>
@@ -638,8 +690,8 @@ export default function NotificationsPanel({ loggedInUser }) {
           </table>
         </div>
 
-              {/* 🔽 Collapsible: User Suggestions (beneath history) */}
-        <div className="mt-6" id="suggestions">
+        {/* 🔽 Collapsible: User Suggestions (beneath history) */}
+        <div className="mt-6" id="suggestions" ref={suggestionsRef}>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-lg font-semibold">
               💡 User Suggestions {Array.isArray(suggestions) ? `(${suggestions.length})` : ""}
@@ -654,7 +706,6 @@ export default function NotificationsPanel({ loggedInUser }) {
             fetchSuggestions={fetchSuggestions}
           />
         </div>
-
       </TabsContent>
 
       {/* GROUPS */}
@@ -686,12 +737,7 @@ function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions 
      =========================== */
   const sendSuggestionNotification = async (opts) => {
     try {
-      const {
-        userName,
-        kind, // "reviewed" | "responded"
-        suggestionMessage,
-        responseText,
-      } = opts || {};
+      const { userName, kind, suggestionMessage, responseText } = opts || {};
 
       const name = String(userName || "").trim();
       if (!name) return;
@@ -737,7 +783,6 @@ function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions 
       }).catch(() => null);
 
       // Also emit locally so App.jsx can alert immediately for the admin session if it matches.
-      // (Safe; if App ignores recipient mismatch, nothing happens.)
       try {
         window.dispatchEvent(
           new CustomEvent("loBoard:notify", {
@@ -932,18 +977,16 @@ function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions 
                         <Textarea
                           className="min-h-[68px]"
                           value={draft}
-                          onChange={(e) =>
-                            setDrafts((d) => ({ ...d, [id]: e.target.value }))
-                          }
+                          onChange={(e) => setDrafts((d) => ({ ...d, [id]: e.target.value }))}
                           placeholder="Write a response…"
                         />
                         <div className="mt-2 flex gap-2">
-                          <Button
-                            size="sm"
-                            onClick={() => sendResponse(id)}
-                            disabled={actingId === id}
-                          >
-                            {actingId === id ? "Saving…" : s.response ? "Update Response" : "Send Response"}
+                          <Button size="sm" onClick={() => sendResponse(id)} disabled={actingId === id}>
+                            {actingId === id
+                              ? "Saving…"
+                              : s.response
+                              ? "Update Response"
+                              : "Send Response"}
                           </Button>
                           {s.respondedAt && (
                             <span className="text-xs text-muted-foreground self-center">
@@ -1003,3 +1046,4 @@ function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions 
     </div>
   );
 }
+

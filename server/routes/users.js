@@ -108,8 +108,11 @@ router.patch("/:id", (req, res) => {
   const { id } = req.params;
 
   const {
+    // Leave balances (support both legacy + newer field names)
     annualLeaveBalance,
+    annualLeave, // legacy field used in your user objects
     offDayBalance,
+    offDays, // legacy field used in your user objects
     currentLeaveStatus, // e.g., "On Leave", "Off Duty", "Available"
 
     /* ===========================
@@ -118,6 +121,24 @@ router.patch("/:id", (req, res) => {
     fcmToken,
     // NOTE: We intentionally ignore client-provided fcmTokens arrays to prevent
     // accidental/malicious cross-user token leakage. Only accept single fcmToken.
+
+    /* ===========================
+       🔐 Password reset fields start
+       These are REQUIRED for temp-password resets to work:
+       - tempPasswordExpires MUST be writable
+       - passwordIsTemp MUST be writable
+       - forcePasswordChange / requiresPasswordReset MUST be writable
+       - passwordUpdatedAt should be writable (audit + logic)
+       =========================== */
+    password,
+    forcePasswordChange,
+    requiresPasswordReset,
+    passwordIsTemp,
+    tempPasswordExpires,
+    passwordUpdatedAt,
+    /* ===========================
+       🔐 Password reset fields end
+       =========================== */
 
     // Any other lightweight fields you want to allow inline edits for
   } = req.body || {};
@@ -131,36 +152,99 @@ router.patch("/:id", (req, res) => {
   // IMPORTANT: start from the correct user record (prevents mutation leakage)
   let user = { ...users[idx] };
 
-  // Only touch provided fields; clamp annualLeaveBalance to 0–42 on server
-  if (annualLeaveBalance !== undefined) {
-    const clamped = clampLeave(annualLeaveBalance, 0, 42);
+  // -----------------------------
+  // Leave balances
+  // -----------------------------
+
+  // Only touch provided fields; clamp annual leave to 0–42 on server
+  const annualIncoming =
+    annualLeaveBalance !== undefined ? annualLeaveBalance : annualLeave;
+
+  if (annualIncoming !== undefined) {
+    const clamped = clampLeave(annualIncoming, 0, 42);
     if (clamped === undefined) {
       return res.status(400).json({ error: "Invalid annualLeaveBalance" });
     }
+    // Write both keys for compatibility across UI/logic versions
     user.annualLeaveBalance = clamped;
+    user.annualLeave = clamped;
+    user.lastLeaveUpdate = new Date().toISOString();
   }
 
-  if (offDayBalance !== undefined) {
+  const offIncoming = offDayBalance !== undefined ? offDayBalance : offDays;
+
+  if (offIncoming !== undefined) {
     // Off days are uncapped (per your notes), but normalize to integer ≥ 0
-    const n = Math.max(0, Math.round(Number(offDayBalance)));
+    const n = Math.max(0, Math.round(Number(offIncoming)));
     if (Number.isNaN(n)) return res.status(400).json({ error: "Invalid offDayBalance" });
+    // Write both keys for compatibility across UI/logic versions
     user.offDayBalance = n;
+    user.offDays = n;
   }
 
   if (currentLeaveStatus !== undefined) {
     user.currentLeaveStatus = String(currentLeaveStatus || "");
   }
 
-  // ✅ Token update (per-user, deduped, trimmed)
+  // -----------------------------
+  // FCM tokens
+  // -----------------------------
   if (fcmToken !== undefined) {
     user = mergeTokenIntoUser(user, fcmToken);
   }
+
+  // -----------------------------
+  // 🔐 Password reset handling
+  // -----------------------------
+  /* ===========================
+     🔐 Password reset persistence starts here
+     =========================== */
+  if (password !== undefined) {
+    user.password = String(password);
+  }
+
+  if (forcePasswordChange !== undefined) {
+    user.forcePasswordChange = Boolean(forcePasswordChange);
+  }
+
+  if (requiresPasswordReset !== undefined) {
+    user.requiresPasswordReset = Boolean(requiresPasswordReset);
+  }
+
+  if (passwordIsTemp !== undefined) {
+    user.passwordIsTemp = Boolean(passwordIsTemp);
+  }
+
+  if (tempPasswordExpires !== undefined) {
+    const d = new Date(tempPasswordExpires);
+    if (Number.isNaN(d.getTime())) {
+      return res.status(400).json({ error: "Invalid tempPasswordExpires" });
+    }
+    user.tempPasswordExpires = d.toISOString();
+  }
+
+  if (passwordUpdatedAt !== undefined) {
+    const d = new Date(passwordUpdatedAt);
+    if (Number.isNaN(d.getTime())) {
+      return res.status(400).json({ error: "Invalid passwordUpdatedAt" });
+    }
+    user.passwordUpdatedAt = d.toISOString();
+  } else if (password !== undefined) {
+    // If password changed but caller didn't pass a timestamp, set one
+    user.passwordUpdatedAt = new Date().toISOString();
+  }
+
+  // Always bump updatedAt when any PATCH happens (helps debugging)
+  user.updatedAt = new Date().toISOString();
+  /* ===========================
+     🔐 Password reset persistence ends here
+     =========================== */
 
   users[idx] = user;
 
   try {
     writeUsers(users);
-    return res.json(user); // send back the fresh user for optimistic UI sync
+    return res.json({ success: true, user }); // keep existing UI expectations flexible
   } catch (err) {
     console.error("Failed to write users.json:", err);
     return res.status(500).json({ error: "Failed to persist changes" });

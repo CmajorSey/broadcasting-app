@@ -302,11 +302,22 @@ export default function MyProfile({
   // -----------------------------
   // Notifications Inbox (inbox-only: NO toast, NO sound)
   // -----------------------------
+  /* ===========================
+     📥 Inbox fetch + Navbar badge sync starts here
+     - Saves inbox to localStorage ("loBoard.inbox") for Navbar bubble
+     - Keeps unreadCount in sync as fallback
+     - Reacts to global events (AdminGlobalToasts / App.jsx)
+     =========================== */
+
   const loadInboxNotifications = async () => {
     if (!user?.name) {
       setNotifications([]);
+
+      // ✅ Keep Navbar badge synced
       try {
+        localStorage.setItem("loBoard.inbox", "[]");
         localStorage.setItem("loBoard.unreadCount", "0");
+        window.dispatchEvent(new CustomEvent("loBoard:inbox"));
         window.dispatchEvent(new CustomEvent("loBoard:unread"));
       } catch {
         // ignore
@@ -345,9 +356,11 @@ export default function MyProfile({
 
       setNotifications(visible);
 
-      // Keep navbar unread badge in sync (inbox truth)
+      // ✅ Single source of truth for Navbar bubble
       try {
+        localStorage.setItem("loBoard.inbox", JSON.stringify(visible));
         localStorage.setItem("loBoard.unreadCount", String(visible.length));
+        window.dispatchEvent(new CustomEvent("loBoard:inbox"));
         window.dispatchEvent(new CustomEvent("loBoard:unread"));
       } catch {
         // ignore
@@ -355,8 +368,12 @@ export default function MyProfile({
     } catch (err) {
       console.error("Failed to load inbox notifications:", err);
       setNotifications([]);
+
+      // ✅ Keep Navbar bubble consistent even on failure
       try {
+        localStorage.setItem("loBoard.inbox", "[]");
         localStorage.setItem("loBoard.unreadCount", "0");
+        window.dispatchEvent(new CustomEvent("loBoard:inbox"));
         window.dispatchEvent(new CustomEvent("loBoard:unread"));
       } catch {
         // ignore
@@ -370,6 +387,27 @@ export default function MyProfile({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.name]);
 
+  useEffect(() => {
+    // ✅ Wiring: refresh inbox when app-wide notifications arrive
+    // - AdminGlobalToasts dispatches: "notifications:new"
+    // - App-level dispatcher uses: "loBoard:notify"
+    const handler = () => {
+      loadInboxNotifications();
+    };
+
+    window.addEventListener("notifications:new", handler);
+    window.addEventListener("loBoard:notify", handler);
+
+    return () => {
+      window.removeEventListener("notifications:new", handler);
+      window.removeEventListener("loBoard:notify", handler);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.name]);
+
+  /* ===========================
+     📥 Inbox fetch + Navbar badge sync ends here
+     =========================== */
 
 // --- Submit new leave request (dates preferred; supports half-days; else figures) ---
 // 🔄 Load my leave requests (used after submit / refresh)
@@ -814,6 +852,7 @@ const handleSuggestionSubmit = async () => {
       </Collapsible>
 
      {/* Notifications Inbox */}
+     {/* Notifications Inbox */}
 <Card>
   <CardHeader className="flex items-center justify-between">
     <CardTitle>Notifications Inbox</CardTitle>
@@ -822,19 +861,14 @@ const handleSuggestionSubmit = async () => {
       <Button
         size="sm"
         variant="ghost"
-               onClick={() => {
+        onClick={() => {
           const dismissed = JSON.parse(
             localStorage.getItem("dismissedNotifications") || "[]"
           );
 
+          // ✅ Use the SAME stable key logic as dismiss (not timestamp-only)
           const allKeys = notifications
-            .map((n) => {
-              try {
-                return new Date(n.timestamp).toISOString().split(".")[0] + "Z";
-              } catch {
-                return null;
-              }
-            })
+            .map((n) => makeNotifKey(n))
             .filter(Boolean);
 
           localStorage.setItem(
@@ -862,43 +896,56 @@ const handleSuggestionSubmit = async () => {
   </CardHeader>
 
   <CardContent>
-    <div className="border rounded p-2 max-h-[300px] overflow-y-auto space-y-3">
-      {notifications.length === 0 ? (
-        <p className="text-muted-foreground text-sm">No notifications yet.</p>
-      ) : (
-        notifications.map((note) => {
-          const stableKey = (() => {
-            try {
-              return new Date(note.timestamp).toISOString().split(".")[0] + "Z";
-            } catch {
-              return `${note.timestamp || ""}-${note.title || ""}-${note.message || ""}`;
-            }
-          })();
+    {/* ===========================
+        🔑 Stable list keys start here
+        - Dismissal uses makeNotifKey(note) (stable across sessions)
+        - React rendering key must be UNIQUE even if 2 items share the same base key
+       =========================== */}
+    {(() => {
+      const seenCounts = new Map(); // baseKey -> count (1..n)
 
-          return (
-            <div
-              key={stableKey}
-              className="relative border p-3 rounded bg-muted pr-10"
-            >
-              <button
-                className="absolute top-1 right-1 text-gray-500 hover:text-red-500 text-xs"
-                onClick={() => handleDismiss(note)}
-                type="button"
-                aria-label="Dismiss notification"
-              >
-                ✕
-              </button>
+      return (
+        <div className="border rounded p-2 max-h-[300px] overflow-y-auto space-y-3">
+          {notifications.length === 0 ? (
+            <p className="text-muted-foreground text-sm">No notifications yet.</p>
+          ) : (
+            notifications.map((note) => {
+              const baseKey = makeNotifKey(note) || "notif";
+              const nextCount = (seenCounts.get(baseKey) || 0) + 1;
+              seenCounts.set(baseKey, nextCount);
 
-              <p className="font-semibold">{note.title}</p>
-              <p className="text-sm">{note.message}</p>
-              <p className="text-xs text-gray-500 mt-1">
-                {note.timestamp ? new Date(note.timestamp).toLocaleString() : ""}
-              </p>
-            </div>
-          );
-        })
-      )}
-    </div>
+              // ✅ React key: baseKey + occurrence counter (prevents duplicate-key warnings)
+              const reactKey = `${baseKey}__${nextCount}`;
+
+              return (
+                <div
+                  key={reactKey}
+                  className="relative border p-3 rounded bg-muted pr-10"
+                >
+                  <button
+                    className="absolute top-1 right-1 text-gray-500 hover:text-red-500 text-xs"
+                    onClick={() => handleDismiss(note)}
+                    type="button"
+                    aria-label="Dismiss notification"
+                  >
+                    ✕
+                  </button>
+
+                  <p className="font-semibold">{note.title}</p>
+                  <p className="text-sm">{note.message}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {note.timestamp ? new Date(note.timestamp).toLocaleString() : ""}
+                  </p>
+                </div>
+              );
+            })
+          )}
+        </div>
+      );
+    })()}
+    {/* ===========================
+        🔑 Stable list keys end here
+       =========================== */}
   </CardContent>
 </Card>
 

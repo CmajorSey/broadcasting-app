@@ -589,5 +589,74 @@
       "afternoonShift": [],
       "off": []
     }
+  ],
+  "2026-02-08": [
+    {
+      "date": "2026-02-09",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2026-02-10",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2026-02-11",
+      "primary": [
+        "Julius Payet"
+      ],
+      "backup": [
+        "Alexander Moumou"
+      ],
+      "otherOnDuty": [
+        "Darino Esther",
+        "Nelson Joseph"
+      ],
+      "afternoonShift": [
+        "Joshua Dodin"
+      ],
+      "off": [
+        "Shereen Florentine"
+      ]
+    },
+    {
+      "date": "2026-02-12",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2026-02-13",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2026-02-14",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2026-02-08",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [],
+      "afternoonShift": [],
+      "off": []
+    }
   ]
 }

@@ -73,7 +73,8 @@
     "isReady": false,
     "status": "Pending",
     "assignedReporter": [
-      "Clive Camille"
+      "Clive Camille",
+      "Andy Henriette"
     ],
     "crewAssignments": [],
     "scopeOfWork": "",
@@ -231,7 +232,7 @@
     "isReady": false,
     "status": "Pending",
     "assignedReporter": [
-      "Joshua Sofola"
+      "Jana Mondon"
     ],
     "crewAssignments": [],
     "scopeOfWork": "",
@@ -242,5 +243,130 @@
     "assignedDriverFrom": "Nelson Joseph",
     "additionalDrivers": [],
     "assignedBy": "Admin"
+  },
+  {
+    "id": "1770798447925",
+    "title": "test",
+    "type": "Sports",
+    "category": "",
+    "subtype": "Basketball",
+    "date": "2026-02-11T12:30",
+    "location": "Victoria Gym",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "12:30",
+    "filmingTime": "12:30",
+    "assignedCamOps": [],
+    "assignedDriver": "",
+    "vehicle": "",
+    "assignmentStatus": "Unassigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": "Sports Journalist: Kerine Savy",
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-11T08:27:27.925Z"
+  },
+  {
+    "id": "1770801450003",
+    "title": "teste",
+    "type": "News",
+    "category": "",
+    "subtype": "",
+    "date": "2026-02-11T07:20",
+    "location": "Welelee",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "07:00",
+    "filmingTime": "13:20",
+    "assignedCamOps": [
+      "Shereen Florentine",
+      "Joshua Dodin",
+      "Julius Payet"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Joshua Sofola"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-11T09:17:30.003Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin"
+  },
+  {
+    "id": "1770806464819",
+    "title": "TEST",
+    "type": "News",
+    "category": "",
+    "subtype": "",
+    "date": "2026-02-02T13:45",
+    "location": "State House",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "13:15",
+    "filmingTime": "13:45",
+    "assignedCamOps": [
+      "Julius Payet",
+      "Alexander Moumou"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Melissa Hassan",
+      "Clive Camille"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-11T10:41:04.819Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin",
+    "isPublicHoliday": true,
+    "publicHolidayName": "Day off for Abolition of Slavery Day"
   }
 ]

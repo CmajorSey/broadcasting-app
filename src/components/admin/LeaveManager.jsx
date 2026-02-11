@@ -814,18 +814,25 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     const uid = userId ? String(userId) : "";
     if (!uid) return false;
 
+    // ✅ Backend contract:
+    // POST /notifications expects: { title, message, recipients: [] }
+    // recipients can be userId OR user name (your App-level filter supports both)
     const payload = {
-      // common shapes (server can ignore extras)
-      userId: uid,
-      userIds: [uid],
       title: String(title || "Leave update"),
       message: String(message || ""),
+      recipients: [uid], // ✅ FIX: required by backend
+
+      // Normalized meta used by your toast/sound rules
       urgent: !!urgent,
       category: "leave",
+
+      // Extra metadata (backend will ignore unknown fields safely)
       type: "leave",
       createdAt: new Date().toISOString(),
       createdById: currentAdmin?.id ? String(currentAdmin.id) : null,
       createdByName: currentAdmin?.name || "Admin",
+      userId: uid,
+      userIds: [uid],
       ...extra,
     };
 
@@ -835,6 +842,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
         throw new Error(txt || `HTTP ${res.status}`);
@@ -843,11 +851,11 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     };
 
     try {
-      // Most common
+      // ✅ Primary (your backend index.js supports this)
       return await tryPost(`${API_BASE}/notifications`);
     } catch (e1) {
       try {
-        // Fallback (some builds expose /notifications/send)
+        // ✅ Fallback (older builds / alias route)
         return await tryPost(`${API_BASE}/notifications/send`);
       } catch (e2) {
         console.warn("Leave notification failed (non-fatal):", e2?.message || e2);

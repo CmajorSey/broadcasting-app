@@ -1,37 +1,285 @@
 [
   {
-    "title": "🆕 New Request Created",
-    "message": "Test3 • 2026-02-10 14:30 • Astro Turf",
+    "title": "🔑 Password Reset Request",
+    "message": "User requested a password reset: Jennifer Arnephy",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "1752899830266",
+      "1752900107023",
+      "1756461558811",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "Irene Jean-Baptiste",
+      "Nelson Joseph",
+      "Jennifer Arnephy",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2026-02-11T07:19:36.584Z",
+    "kind": "password_reset_request",
+    "displayRecipients": [
+      "Admins"
+    ],
+    "action": {
+      "type": "open_user_management",
+      "userId": "1756461558811",
+      "userName": "Jennifer Arnephy",
+      "url": "/settings?resetUser=1756461558811"
+    }
+  },
+  {
+    "title": "🔑 Password Reset Request",
+    "message": "User requested a password reset: Jennifer Arnephy",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "1752899830266",
+      "1752900107023",
+      "1756461558811",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "Irene Jean-Baptiste",
+      "Nelson Joseph",
+      "Jennifer Arnephy",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2026-02-11T07:41:12.080Z",
+    "kind": "password_reset_request",
+    "displayRecipients": [
+      "Admins"
+    ],
+    "action": {
+      "type": "open_user_management",
+      "userId": "1756461558811",
+      "userName": "Jennifer Arnephy",
+      "url": "/settings?resetUser=1756461558811"
+    }
+  },
+  {
+    "title": "🔑 Password Reset Request",
+    "message": "User requested a password reset: Jennifer Arnephy",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "1752899830266",
+      "1752900107023",
+      "1756461558811",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "Irene Jean-Baptiste",
+      "Nelson Joseph",
+      "Jennifer Arnephy",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2026-02-11T07:42:34.174Z",
+    "kind": "password_reset_request",
+    "displayRecipients": [
+      "Admins"
+    ],
+    "action": {
+      "type": "open_user_management",
+      "userId": "1756461558811",
+      "userName": "Jennifer Arnephy",
+      "url": "/settings?resetUser=1756461558811"
+    }
+  },
+  {
+    "title": "🔑 Password Reset Request",
+    "message": "User requested a password reset: Jennifer Arnephy",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "1752899830266",
+      "1752900107023",
+      "1756461558811",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "Irene Jean-Baptiste",
+      "Nelson Joseph",
+      "Jennifer Arnephy",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2026-02-11T07:52:42.969Z",
+    "kind": "password_reset_request",
+    "displayRecipients": [
+      "Admins"
+    ],
+    "action": {
+      "type": "open_user_management",
+      "userId": "1756461558811",
+      "userName": "Jennifer Arnephy",
+      "url": "/settings?resetUser=1756461558811"
+    }
+  },
+  {
+    "title": "🔑 Password Reset Request",
+    "message": "User requested a password reset: Jennifer Arnephy",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "1752899830266",
+      "1752900107023",
+      "1756461558811",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "Irene Jean-Baptiste",
+      "Nelson Joseph",
+      "Jennifer Arnephy",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2026-02-11T07:59:50.115Z",
+    "kind": "password_reset_request",
+    "displayRecipients": [
+      "Admins"
+    ],
+    "action": {
+      "type": "open_user_management",
+      "userId": "1756461558811",
+      "userName": "Jennifer Arnephy",
+      "url": "/settings?resetUser=1756461558811"
+    }
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → In Garage",
     "recipients": [
       "Admin",
-      "Ronny Solin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
       "Admins",
-      "admin",
-      "admins"
+      "admins",
+      "admin"
     ],
-    "timestamp": "2026-02-10T10:27:10.236Z",
+    "timestamp": "2026-02-11T08:13:55.153Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "🆕 New Request Created",
+    "message": "test • 2026-02-11 12:30 • Victoria Gym",
+    "recipients": [
+      "1752899657878",
+      "Kerine Savy"
+    ],
+    "timestamp": "2026-02-11T08:27:27.941Z",
     "category": "ticket",
     "urgent": false
   },
   {
-    "title": "Ticket updated",
-    "message": "Test3",
+    "title": "🆕 New Request Created",
+    "message": "test • 2026-02-11 12:30 • Victoria Gym",
     "recipients": [
       "Admin",
-      "Christopher Gabriel",
-      "Nelson Joseph",
-      "Ronny Solin",
+      "Kerine Savy",
       "Admins",
       "admin",
       "admins"
     ],
-    "timestamp": "2026-02-10T10:27:40.141Z",
+    "timestamp": "2026-02-11T08:27:27.966Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "test",
+    "message": "test",
+    "recipients": [
+      "Jennifer Arnephy"
+    ],
+    "timestamp": "2026-02-11T08:31:09.649Z",
     "category": "admin",
     "urgent": false
   },
   {
-    "title": "Fleet updated",
-    "message": "Kia Niro status changed: Available → In Garage",
+    "title": "💡 New User Suggestion",
+    "message": "Jennifer Arnephy sent a suggestion in Admin.",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "1752899830266",
+      "1752900107023",
+      "1756461558811",
+      "1770797528331",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "Irene Jean-Baptiste",
+      "Nelson Joseph",
+      "Jennifer Arnephy",
+      "p j",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2026-02-11T08:43:36.560Z",
+    "kind": "user_suggestion",
+    "displayRecipients": [
+      "Admins"
+    ],
+    "action": {
+      "type": "open_suggestions",
+      "id": "ts:2026-02-11T08:43:36",
+      "url": "/admin?tab=notifications#suggestions"
+    }
+  },
+  {
+    "title": "💡 New User Suggestion",
+    "message": "Jennifer Arnephy sent a suggestion in Admin.",
+    "recipients": [
+      "1",
+      "1752899481148",
+      "1752899481152",
+      "1752899830266",
+      "1752900107023",
+      "1756461558811",
+      "1770797528331",
+      "Admin",
+      "Clive Camille",
+      "Gilmer Philoe",
+      "Irene Jean-Baptiste",
+      "Nelson Joseph",
+      "Jennifer Arnephy",
+      "p j",
+      "admin",
+      "admins",
+      "ALL"
+    ],
+    "timestamp": "2026-02-11T08:49:21.129Z",
+    "kind": "user_suggestion",
+    "displayRecipients": [
+      "Admins"
+    ],
+    "action": {
+      "type": "open_suggestions",
+      "id": "ts:2026-02-11T08:49:21",
+      "url": "/admin?tab=notifications#suggestions"
+    }
+  },
+  {
+    "title": "Fleet note updated",
+    "message": "Kia Niro note changed: Cleaned and Fueled → Maintenance Scheduled",
     "recipients": [
       "Admin",
       "Drivers",
@@ -42,7 +290,24 @@
       "admins",
       "admin"
     ],
-    "timestamp": "2026-02-10T10:28:23.271Z",
+    "timestamp": "2026-02-11T08:58:30.793Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet note updated",
+    "message": "Kia Niro note changed: Maintenance Scheduled → Cleaned and Fueled",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-11T08:58:51.016Z",
     "category": "fleet",
     "urgent": false
   },
@@ -59,13 +324,13 @@
       "admins",
       "admin"
     ],
-    "timestamp": "2026-02-10T18:03:56.992Z",
+    "timestamp": "2026-02-11T08:59:34.944Z",
     "category": "fleet",
     "urgent": false
   },
   {
-    "title": "Fleet updated",
-    "message": "Kia Niro status changed: Available → In Garage",
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-10-15 → 2026-09-15",
     "recipients": [
       "Admin",
       "Drivers",
@@ -76,13 +341,13 @@
       "admins",
       "admin"
     ],
-    "timestamp": "2026-02-10T18:08:58.795Z",
+    "timestamp": "2026-02-11T09:00:15.084Z",
     "category": "fleet",
     "urgent": false
   },
   {
-    "title": "Fleet updated",
-    "message": "Kia Niro status changed: In Garage → Available",
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-09-15 → 2026-08-15",
     "recipients": [
       "Admin",
       "Drivers",
@@ -93,37 +358,660 @@
       "admins",
       "admin"
     ],
-    "timestamp": "2026-02-10T18:09:04.271Z",
+    "timestamp": "2026-02-11T09:00:16.235Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-08-15 → 2026-07-15",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-11T09:00:17.035Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-07-15 → 2026-06-15",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-11T09:00:17.953Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-06-15 → 2026-05-15",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-11T09:00:18.597Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-05-15 → 2026-04-15",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-11T09:00:19.279Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-04-15 → 2026-03-15",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-11T09:00:25.225Z",
+    "category": "fleet",
+    "urgent": true
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-03-15 → 2026-04-15",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-11T09:02:26.465Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-03-15 → 2026-05-15",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-11T09:02:26.504Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-05-15 → 2026-06-15",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-11T09:02:26.581Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-06-15 → 2026-07-15",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-11T09:02:27.316Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-07-15 → 2026-08-15",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-11T09:02:27.958Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-08-15 → 2026-09-15",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-11T09:02:28.691Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "Kia Niro insuranceExpiry changed: 2026-09-15 → 2026-10-15",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-11T09:02:29.507Z",
     "category": "fleet",
     "urgent": false
   },
   {
     "title": "🆕 New Request Created",
-    "message": "tata • 2026-02-10 22:10 • Unity House",
+    "message": "teste • 2026-02-11 13:20 • Unity House",
+    "recipients": [
+      "1752900071166",
+      "1752899122160",
+      "Joshua Dodin",
+      "Emma Laporte"
+    ],
+    "timestamp": "2026-02-11T09:17:30.034Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "🆕 New Request Created",
+    "message": "teste • 2026-02-11 13:20 • Unity House",
     "recipients": [
       "Admin",
-      "Joshua Sofola",
+      "Joshua Dodin",
+      "Emma Laporte",
       "Admins",
       "admin",
       "admins"
     ],
-    "timestamp": "2026-02-10T18:10:25.937Z",
+    "timestamp": "2026-02-11T09:17:30.091Z",
     "category": "ticket",
     "urgent": false
   },
   {
     "title": "Ticket updated",
-    "message": "tata",
+    "message": "teste • 2026-02-11 13:20 • Unity House",
+    "recipients": [
+      "1752900107023",
+      "1752900071166",
+      "1752899122160",
+      "Nelson Joseph",
+      "Joshua Dodin",
+      "Emma Laporte"
+    ],
+    "timestamp": "2026-02-11T09:18:04.978Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "teste",
     "recipients": [
       "Admin",
-      "Christopher Gabriel",
+      "Joshua Dodin",
+      "Nelson Joseph",
+      "Emma Laporte",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-11T09:18:05.087Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "teste • 2026-02-11 13:20 • Unity House",
+    "recipients": [
+      "1752899657889",
+      "George Francois"
+    ],
+    "timestamp": "2026-02-11T09:26:09.572Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "Ticket Title: teste\nDate: 11-Feb-2026\nTime: 13:20\nDeparture Time: 13:20\nLocation: Unity House\nJournalist / Producer: George Francois\nDriver: Nelson Joseph\nCam Ops: Joshua Dodin",
+    "recipients": [
+      "Admin",
+      "Joshua Dodin",
+      "Nelson Joseph",
+      "George Francois",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-11T09:26:09.659Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "teste • 2026-02-11 13:20 • Unity House",
+    "recipients": [
+      "1752899657889",
+      "1752899122153",
+      "George Francois",
+      "Jana Mondon"
+    ],
+    "timestamp": "2026-02-11T09:31:04.080Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Request updated",
+    "message": "**Request Title:** teste\nDate: 11-Feb-2026\nTime: 13:20\nDeparture Time: 13:20\nLocation: Unity House\nJournalist / Producer: George Francois, Jana Mondon\nDriver: Nelson Joseph\nCam Ops: Joshua Dodin",
+    "recipients": [
+      "Admin",
+      "Joshua Dodin",
+      "Nelson Joseph",
+      "George Francois",
+      "Jana Mondon",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-11T09:31:04.171Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "teste • 2026-02-11 13:20 • Unity House",
+    "recipients": [
+      "1752899122160",
+      "Emma Laporte"
+    ],
+    "timestamp": "2026-02-11T09:37:13.012Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Request updated",
+    "message": "**Request Title:** teste\nDate: 11-Feb-2026\nTime: 13:20\nDeparture Time: 13:20\nLocation: Unity House\nJournalist / Producer: Emma Laporte\nDriver: Nelson Joseph\nCam Ops: Joshua Dodin",
+    "recipients": [
+      "Admin",
+      "Joshua Dodin",
+      "Nelson Joseph",
+      "Emma Laporte",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-11T09:37:13.064Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "teste • 2026-02-11 13:20 • Welele",
+    "recipients": [
+      "1752900071166",
+      "1752899122160",
+      "1752900107023",
+      "Joshua Dodin",
+      "Emma Laporte",
+      "Nelson Joseph"
+    ],
+    "timestamp": "2026-02-11T09:40:13.694Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Request updated",
+    "message": "**Request Title:** teste\nDate: 11-Feb-2026\nTime: 13:20\nDeparture Time: 13:20\nLocation: Welele\nJournalist / Producer: Emma Laporte\nDriver: Nelson Joseph\nCam Ops: Joshua Dodin",
+    "recipients": [
+      "Admin",
+      "Joshua Dodin",
+      "Nelson Joseph",
+      "Emma Laporte",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-11T09:40:13.787Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "teste • 2026-02-11 13:20 • Welele",
+    "recipients": [
+      "1752899122157",
+      "Joshua Sofola"
+    ],
+    "timestamp": "2026-02-11T09:44:59.478Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Request updated",
+    "message": "Request Title: teste\nDate: 11-Feb-2026\nTime: 13:20\nDeparture Time: 13:20\nLocation: Welele\nJournalist / Producer: Joshua Sofola\nDriver: Nelson Joseph\nCam Ops: Joshua Dodin",
+    "recipients": [
+      "Admin",
+      "Joshua Dodin",
       "Nelson Joseph",
       "Joshua Sofola",
       "Admins",
       "admin",
       "admins"
     ],
-    "timestamp": "2026-02-10T18:10:49.163Z",
+    "timestamp": "2026-02-11T09:44:59.581Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "teste • 2026-02-11 13:20 • Welelee",
+    "recipients": [
+      "1752900071166",
+      "1752899122157",
+      "1752900107023",
+      "Joshua Dodin",
+      "Joshua Sofola",
+      "Nelson Joseph"
+    ],
+    "timestamp": "2026-02-11T09:52:25.172Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Request updated",
+    "message": "Request Title: teste\nDate: 11-Feb-2026\nTime: 13:20\nDeparture Time: 13:20\nLocation: Welelee\nJournalist / Producer: Joshua Sofola\nDriver: Nelson Joseph\nCam Ops: Joshua Dodin",
+    "recipients": [
+      "Admin",
+      "Joshua Dodin",
+      "Nelson Joseph",
+      "Joshua Sofola",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-11T09:52:25.268Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "teste • 2026-02-11 13:20 • Welelee",
+    "recipients": [
+      "1752900071147",
+      "Shereen Florentine"
+    ],
+    "timestamp": "2026-02-11T10:36:57.690Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Request updated",
+    "message": "Request Title: teste\nDate: 11-Feb-2026\nTime: 13:20\nDeparture Time: 13:20\nLocation: Welelee\nJournalist / Producer: Joshua Sofola\nDriver: Nelson Joseph\nCam Ops: Shereen Florentine",
+    "recipients": [
+      "Admin",
+      "Shereen Florentine",
+      "Nelson Joseph",
+      "Joshua Sofola",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-11T10:36:57.725Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "teste • 2026-02-11 13:20 • Welelee",
+    "recipients": [
+      "1752900071147",
+      "1752900071166",
+      "Shereen Florentine",
+      "Joshua Dodin"
+    ],
+    "timestamp": "2026-02-11T10:37:24.892Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Request updated",
+    "message": "Request Title: teste\nDate: 11-Feb-2026\nTime: 13:20\nDeparture Time: 13:20\nLocation: Welelee\nJournalist / Producer: Joshua Sofola\nDriver: Nelson Joseph\nCam Ops: Shereen Florentine, Joshua Dodin",
+    "recipients": [
+      "Admin",
+      "Shereen Florentine",
+      "Joshua Dodin",
+      "Nelson Joseph",
+      "Joshua Sofola",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-11T10:37:24.925Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "teste • 2026-02-11 13:20 • Welelee",
+    "recipients": [
+      "1752900071147",
+      "1752900071166",
+      "1752900071153",
+      "Shereen Florentine",
+      "Joshua Dodin",
+      "Julius Payet"
+    ],
+    "timestamp": "2026-02-11T10:37:39.979Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Request updated",
+    "message": "Request Title: teste\nDate: 11-Feb-2026\nTime: 13:20\nDeparture Time: 13:20\nLocation: Welelee\nJournalist / Producer: Joshua Sofola\nDriver: Nelson Joseph\nCam Ops: Shereen Florentine, Joshua Dodin, Julius Payet",
+    "recipients": [
+      "Admin",
+      "Shereen Florentine",
+      "Joshua Dodin",
+      "Julius Payet",
+      "Nelson Joseph",
+      "Joshua Sofola",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-11T10:37:40.011Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "teste • 2026-02-11 07:20 • Welelee",
+    "recipients": [
+      "1752900071147",
+      "1752900071166",
+      "1752900071153",
+      "1752899122157",
+      "1752900107023",
+      "Shereen Florentine",
+      "Joshua Dodin",
+      "Julius Payet",
+      "Joshua Sofola",
+      "Nelson Joseph"
+    ],
+    "timestamp": "2026-02-11T10:38:40.479Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Request updated",
+    "message": "Request Title: teste\nDate: 11-Feb-2026\nTime: 13:20\nDeparture Time: 07:00\nLocation: Welelee\nJournalist / Producer: Joshua Sofola\nDriver: Nelson Joseph\nCam Ops: Shereen Florentine, Joshua Dodin, Julius Payet",
+    "recipients": [
+      "Admin",
+      "Shereen Florentine",
+      "Joshua Dodin",
+      "Julius Payet",
+      "Nelson Joseph",
+      "Joshua Sofola",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-11T10:38:40.519Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "🆕 New Request Created",
+    "message": "TEST • 2026-02-02 13:45 • State House",
+    "recipients": [
+      "1752896585613",
+      "Melissa Hassan"
+    ],
+    "timestamp": "2026-02-11T10:41:04.833Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "🆕 New Request Created",
+    "message": "TEST • 2026-02-02 13:45 • State House",
+    "recipients": [
+      "Admin",
+      "Melissa Hassan",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-11T10:41:04.866Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "TEST • 2026-02-02 13:45 • State House",
+    "recipients": [
+      "1752900071153",
+      "1752900071157",
+      "1752900107023",
+      "1752896585613",
+      "Julius Payet",
+      "Alexander Moumou",
+      "Nelson Joseph",
+      "Melissa Hassan"
+    ],
+    "timestamp": "2026-02-11T10:41:22.741Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Request updated",
+    "message": "Request Title: TEST\nDate: 02-Feb-2026\nTime: 13:45\nDeparture Time: 13:15\nLocation: State House\nJournalist / Producer: Melissa Hassan\nDriver: Nelson Joseph\nCam Ops: Julius Payet, Alexander Moumou",
+    "recipients": [
+      "Admin",
+      "Julius Payet",
+      "Alexander Moumou",
+      "Nelson Joseph",
+      "Melissa Hassan",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-11T10:41:22.772Z",
+    "category": "admin",
+    "urgent": false
+  },
+  {
+    "title": "Ticket updated",
+    "message": "TEST • 2026-02-02 13:45 • State House",
+    "recipients": [
+      "1752896585613",
+      "1752899481148",
+      "Melissa Hassan",
+      "Clive Camille"
+    ],
+    "timestamp": "2026-02-11T11:13:14.632Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Request updated",
+    "message": "Request Title: TEST\nDate: 02-Feb-2026\nTime: 13:45\nDeparture Time: 13:15\nLocation: State House\nJournalist / Producer: Melissa Hassan, Clive Camille\nDriver: Nelson Joseph\nCam Ops: Julius Payet, Alexander Moumou",
+    "recipients": [
+      "Admin",
+      "Julius Payet",
+      "Alexander Moumou",
+      "Nelson Joseph",
+      "Melissa Hassan",
+      "Clive Camille",
+      "Admins",
+      "admin",
+      "admins"
+    ],
+    "timestamp": "2026-02-11T11:13:14.723Z",
     "category": "admin",
     "urgent": false
   }

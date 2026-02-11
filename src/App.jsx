@@ -29,6 +29,110 @@ import { requestPermission, onMessage } from "@/lib/firebase";
 import AdminGlobalToasts from "@/components/AdminGlobalToasts";
 import { playSoundFor, installSoundUnlockOnGesture } from "@/lib/soundRouter";
 
+/* ===========================
+   🧩 Notification helpers start here
+   - Fixes missing makeNotifKey / recipientsMatchUser crashes
+   - Keeps classic toast pipeline stable (poll + local events)
+   =========================== */
+
+// Normalize to second precision (stable dedupe keys)
+const isoSec = (d) => {
+  try {
+    return new Date(d).toISOString().split(".")[0];
+  } catch {
+    return "";
+  }
+};
+
+// ✅ Notification dedupe key builder
+const makeNotifKey = ({ timestamp, title, message, fallbackTs }) => {
+  const ts = isoSec(timestamp) || isoSec(fallbackTs) || "";
+  const t = String(title || "").trim();
+  const m = String(message || "").trim();
+  return `${ts}||${t}||${m}`;
+};
+
+// ✅ Recipient matcher used by polling (classic behavior)
+const recipientsMatchUser = ({
+  recipients,
+  userName,
+  userId,
+  userRoles,
+  userSection,
+}) => {
+  try {
+    const list = Array.isArray(recipients)
+      ? recipients
+      : typeof recipients === "string"
+      ? recipients
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+
+    // If backend sent no recipients, allow (prevents “silent nothing”)
+    if (list.length === 0) return true;
+
+    const norm = (s) => String(s || "").trim().toLowerCase();
+
+    const name = norm(userName);
+    const id = norm(userId);
+    const section = norm(userSection);
+
+    const roles = Array.isArray(userRoles)
+      ? userRoles.map(norm).filter(Boolean)
+      : [];
+
+    // “Everyone / All” buckets
+    const universal = new Set([
+      "all",
+      "everyone",
+      "everybody",
+      "broadcast",
+      "lo board",
+      "loboard",
+      "team",
+      "staff",
+      "users",
+    ]);
+
+    // Admin buckets (because you frequently use these)
+    const adminBuckets = new Set(["admin", "admins", "administrators"]);
+
+    for (const r of list) {
+      const rr = norm(r);
+      if (!rr) continue;
+
+      if (universal.has(rr)) return true;
+
+      // direct match (name/id)
+      if (name && rr === name) return true;
+      if (id && rr === id) return true;
+
+      // section match
+      if (section && rr === section) return true;
+
+      // role match
+      if (roles.length && roles.includes(rr)) return true;
+
+      // admin bucket match
+      if (adminBuckets.has(rr) && roles.includes("admin")) return true;
+
+      // soft match: sometimes recipients contain “Admins” or “Newsroom” etc.
+      if (name && rr.includes(name)) return true;
+      if (section && rr.includes(section)) return true;
+    }
+
+    return false;
+  } catch {
+    // Fail open so classic toasts don't die
+    return true;
+  }
+};
+
+/* ===========================
+   🧩 Notification helpers end here
+   =========================== */
 
 function AppWrapper() {
   return (
@@ -37,6 +141,7 @@ function AppWrapper() {
     </Router>
   );
 }
+
 
 function App() {
   const [loggedInUser, setLoggedInUser] = useState(() => {
@@ -280,9 +385,58 @@ function App() {
     }
   };
 
-  const [debugBanner, setDebugBanner] = useState(null);
+   const [debugBanner, setDebugBanner] = useState(null);
 
-    const fireGlobalAlert = useCallback(
+  // ✅ Per-session dedupe bucket (prevents double toasts from poll + event)
+  const handledNotifKeysRef = useRef(new Set());
+
+  /* ===========================
+     🧭 Toast click routing starts here
+     - Click toast body → navigate to relevant page
+     - Click close X (button) → does NOT navigate
+     =========================== */
+  const shouldIgnoreToastClick = (evt) => {
+    try {
+      const el = evt?.target;
+      if (!el) return false;
+      if (typeof el.closest === "function" && el.closest("button")) return true;
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  const resolveToastRoute = (note, category) => {
+    try {
+      const c = String(category || "admin").toLowerCase();
+
+      if (c === "ticket") return "/tickets";
+      if (c === "fleet") return "/fleet";
+      if (c === "roster") return "/operations";
+
+      if (c === "suggestion") return "/admin?tab=history";
+
+      // Password reset request → User Management highlight
+      // Supports either note.action.userId / note.action.userName
+      if (c === "password-reset-request" || c === "password_reset_request") {
+        const uid = note?.action?.userId ? String(note.action.userId) : "";
+        const uname = note?.action?.userName ? String(note.action.userName) : "";
+        if (uid) return `/admin?tab=user-management&highlight=${encodeURIComponent(uid)}`;
+        if (uname) return `/admin?tab=user-management&highlightName=${encodeURIComponent(uname)}`;
+        return "/admin?tab=user-management";
+      }
+
+      // Default: admin/user notifications → My Profile (your route is /profile)
+      return "/profile";
+    } catch {
+      return "/profile";
+    }
+  };
+  /* ===========================
+     🧭 Toast click routing ends here
+     =========================== */
+
+  const fireGlobalAlert = useCallback(
     async (note) => {
       if (!note) return;
 
@@ -327,6 +481,9 @@ function App() {
 
         // Optional safety aliases (won't change behavior unless you emit these later)
         if (c === "leaves") return "leave";
+
+        // Keep both styles supported
+        if (c === "password_reset_request") return "password-reset-request";
 
         return c;
       };
@@ -412,10 +569,17 @@ function App() {
         const description =
           extras && base ? `${base}\n${extras}` : extras ? extras : base;
 
+        const route = resolveToastRoute(note, category);
+
         toast({
           title: note.title || "New notification",
           description,
           variant: urgent ? "destructive" : undefined,
+          className: "cursor-pointer",
+          onClick: (evt) => {
+            if (shouldIgnoreToastClick(evt)) return;
+            navigate(route);
+          },
         });
       }
 
@@ -449,8 +613,9 @@ function App() {
         // ignore
       }
     },
-    [toast, loggedInUser?.name, tickets]
+    [toast, loggedInUser?.name, tickets, navigate]
   );
+
 
   // ✅ NEW: Global notifications wiring (POLL + PUSH + EVENTS) lives here
   // ✅ IMPORTANT: Uses effectiveUser (Admin "View As") for filtering + matching
@@ -490,310 +655,308 @@ function App() {
     };
 
     /* ===========================
-       📣 NotificationsPanel → App.jsx event bridge starts here
-       Listens for: window.dispatchEvent(new CustomEvent("loBoard:notify", { detail: note }))
-       Routes into: fireGlobalAlert(note)
+   📣 NotificationsPanel → App.jsx event bridge starts here
+   Listens for: window.dispatchEvent(new CustomEvent("loBoard:notify", { detail: note }))
+   Routes into: fireGlobalAlert(note)
+   =========================== */
+const onLocalNotifyEvent = (evt) => {
+  try {
+    const note = evt?.detail || null;
+
+    // ✅ Debug: proves the listener is actually firing
+    console.log("📣 loBoard:notify received in App.jsx:", note);
+
+    if (!note) return;
+
+    // ✅ CLASSIC MODE:
+    // Local events must ALWAYS show immediately.
+    // No recipient matching here (keeps bridge safe and avoids undefined helper issues).
+    fireGlobalAlert({
+      ...note,
+      __source: note.__source || "event",
+      __recipientMatch: true,
+      __note: "From loBoard:notify event (forced immediate)",
+      __forceImmediate: true,
+    });
+  } catch (err) {
+    console.log("📣 loBoard:notify handler error:", err);
+  }
+};
+
+try {
+  window.addEventListener("loBoard:notify", onLocalNotifyEvent);
+} catch {
+  // ignore
+}
+/* ===========================
+   📣 NotificationsPanel → App.jsx event bridge ends here
+   =========================== */
+
+
+const poll = async () => {
+  // 💤 Skip when tab is hidden to reduce network/battery
+  if (document.hidden) return;
+
+  try {
+    /* ===========================
+       🔄 Polling watermark starts here
        =========================== */
-        const onLocalNotifyEvent = (evt) => {
-      try {
-        const note = evt?.detail || null;
-        if (!note) return;
+    const LAST_SEEN_KEY = "loBoard.lastSeenNotifTs.global";
 
-        const section = String(
-          effectiveUser?.section ||
-            effectiveUser?.description ||
-            effectiveUser?.team ||
-            ""
-        ).trim();
+    const now = Date.now();
+    let lastSeen = Number(localStorage.getItem(LAST_SEEN_KEY) || 0);
 
-        const matches = recipientsMatchUser({
-          recipients: note?.recipients,
-          userName: myName,
-          userId: myId,
-          userRoles: effectiveUser?.roles || [],
-          userSection: section,
+    // ✅ If lastSeen is somehow in the future (device clock / old bad value),
+    // reset it so users don't miss all live toasts forever.
+    if (Number.isFinite(lastSeen) && lastSeen > now + 5 * 60 * 1000) {
+      lastSeen = 0;
+      localStorage.setItem(LAST_SEEN_KEY, "0");
+    }
+
+    const afterISO =
+      lastSeen > 0
+        ? new Date(lastSeen).toISOString()
+        : new Date(0).toISOString();
+    /* ===========================
+       🔄 Polling watermark ends here
+       =========================== */
+
+    const res = await fetch(
+      `${API_BASE}/notifications?after=${encodeURIComponent(afterISO)}`
+    );
+
+    if (!res.ok) {
+      setDebugBanner((prev) => ({
+        ...(prev || {}),
+        at: new Date().toISOString(),
+        source: "poll",
+        note: `Fetch failed (${res.status})`,
+      }));
+      return;
+    }
+
+    const all = await res.json().catch(() => []);
+    const list = Array.isArray(all) ? all : [];
+
+    const mine = list.filter((n) => {
+      const section = String(
+        effectiveUser?.section || effectiveUser?.description || effectiveUser?.team || ""
+      ).trim();
+
+      return recipientsMatchUser({
+        recipients: n?.recipients,
+        userName: myName,
+        userId: myId,
+        userRoles: effectiveUser?.roles || [],
+        userSection: section,
+      });
+    });
+
+    // ✅ Apply local dismiss filters (same behavior as before)
+    const dismissedRaw =
+      JSON.parse(localStorage.getItem("dismissedNotifications") || "[]") || [];
+    const dismissed = new Set(
+      Array.isArray(dismissedRaw) ? dismissedRaw.filter(Boolean) : []
+    );
+
+    const visible = mine
+      .filter((n) => {
+        const k = makeNotifKey({
+          timestamp: n?.timestamp,
+          title: n?.title,
+          message: n?.message,
+          fallbackTs: n?._ts || n?.ts,
         });
+        return !dismissed.has(k);
+      })
+      .sort((a, b) => {
+        const ta = new Date(a?.timestamp || 0).getTime();
+        const tb = new Date(b?.timestamp || 0).getTime();
+        return tb - ta;
+      });
 
-        fireGlobalAlert({
-          ...note,
-          __source: note.__source || "event",
-          __recipientMatch: matches,
-          __note: "From loBoard:notify event",
-          __forceImmediate: true, // ✅ NEVER let local emits be blocked by lastSeen
-        });
-      } catch {
-        // ignore
-      }
-    };
+    // ✅ Update unread bubble count from what we got
+    syncUnread(visible);
 
+    // ✅ Fire alerts for the NEW batch only
+    let maxTs = lastSeen;
+
+    for (const n of visible) {
+      if (cancelled) break;
+
+      const ts = new Date(n?.timestamp || n?._ts || n?.ts || 0).getTime();
+      if (Number.isFinite(ts) && ts > maxTs) maxTs = ts;
+
+      await fireGlobalAlert({
+        ...n,
+        __source: "poll",
+        __recipientMatch: true,
+      });
+    }
+
+    // ✅ Advance watermark based on what we processed
+    if (Number.isFinite(maxTs) && maxTs > lastSeen) {
+      localStorage.setItem(LAST_SEEN_KEY, String(maxTs));
+    }
+
+    setDebugBanner((prev) => ({
+      ...(prev || {}),
+      at: new Date().toISOString(),
+      source: "poll",
+      note: `OK (+${visible.length} new)`,
+    }));
+  } catch (err) {
+    setDebugBanner((prev) => ({
+      ...(prev || {}),
+      at: new Date().toISOString(),
+      source: "poll",
+      note: err?.message || "Poll error",
+    }));
+  }
+};
+
+/* ===========================
+   🧯 FCM foreground listener disabled (classic mode)
+   - We’re intentionally focusing on classic Poll + Local Event toasts/sounds.
+   - Once classic is stable, we can re-enable FCM to call fireGlobalAlert()
+     without rewiring UI again.
+   =========================== */
+let unsubscribe = null;
+/*
+try {
+  unsubscribe = onMessage((payload) => {
     try {
-      window.addEventListener("loBoard:notify", onLocalNotifyEvent);
+      const title =
+        payload?.notification?.title ||
+        payload?.data?.title ||
+        "New notification";
+
+      const message =
+        payload?.notification?.body ||
+        payload?.data?.message ||
+        payload?.data?.body ||
+        "";
+
+      const category = payload?.data?.category || "admin";
+      const urgent =
+        payload?.data?.urgent === "true" || payload?.data?.urgent === true;
+
+      // ✅ recipients parsing (unchanged behavior)
+      let recipients = [];
+      const rawRec = payload?.data?.recipients;
+      if (typeof rawRec === "string") {
+        try {
+          const parsed = JSON.parse(rawRec);
+          recipients = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          recipients = rawRec
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+        }
+      } else if (Array.isArray(rawRec)) {
+        recipients = rawRec;
+      }
+
+      const section = String(
+        effectiveUser?.section || effectiveUser?.description || effectiveUser?.team || ""
+      ).trim();
+
+      const matches = recipientsMatchUser({
+        recipients,
+        userName: myName,
+        userId: myId,
+        userRoles: effectiveUser?.roles || [],
+        userSection: section,
+      });
+
+      const d = payload?.data || {};
+      const ticketId =
+        d.ticketId || d.id || d.ticket_id || d.ticketID || d._id || "";
+
+      let assignedCamOps = [];
+      if (typeof d.assignedCamOps === "string" && d.assignedCamOps.trim()) {
+        try {
+          const parsed = JSON.parse(d.assignedCamOps);
+          assignedCamOps = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          assignedCamOps = d.assignedCamOps
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+        }
+      } else if (Array.isArray(d.assignedCamOps)) {
+        assignedCamOps = d.assignedCamOps;
+      }
+
+      fireGlobalAlert({
+        title,
+        message,
+        category,
+        urgent,
+        timestamp: d.timestamp || new Date().toISOString(),
+        recipients,
+        ticketId: ticketId || undefined,
+        __ticket: {
+          id: ticketId || undefined,
+          date: d.date || d.ticketDate || undefined,
+          filmingTime: d.filmingTime || d.ticketFilmingTime || undefined,
+          departureTime: d.departureTime || d.ticketDepartureTime || undefined,
+          location: d.location || d.ticketLocation || undefined,
+          vehicle: d.vehicle || d.ticketVehicle || undefined,
+          camCount: d.camCount || d.cameras || undefined,
+          assignedDriver: d.assignedDriver || d.driver || undefined,
+          assignedReporter: d.assignedReporter || d.reporter || undefined,
+          assignedCamOps: assignedCamOps.length ? assignedCamOps : undefined,
+        },
+        __source: "push",
+        __recipientMatch: matches,
+      });
     } catch {
       // ignore
     }
-    /* ===========================
-       📣 NotificationsPanel → App.jsx event bridge ends here
-       =========================== */
+  });
+} catch {
+  unsubscribe = null;
+}
+*/
 
-    const poll = async () => {
-      // 💤 Skip when tab is hidden to reduce network/battery
-      if (document.hidden) return;
+// ✅ Run an immediate poll so View As updates instantly
+poll();
 
-      try {
-        // -----------------------------
-        // 🔄 Polling watermark (self-healing)
-        // -----------------------------
-        const LAST_SEEN_KEY = "loBoard.lastSeenNotifTs.global";
+// ✅ Poll every 8 seconds (same as before)
+const interval = setInterval(poll, 8000);
 
-        const now = Date.now();
-        let lastSeen = Number(localStorage.getItem(LAST_SEEN_KEY) || 0);
+return () => {
+  cancelled = true;
 
-        // ✅ If lastSeen is somehow in the future (device clock / old bad value),
-        // reset it so users don't miss all live toasts forever.
-        if (Number.isFinite(lastSeen) && lastSeen > now + 5 * 60 * 1000) {
-          lastSeen = 0;
-          localStorage.setItem(LAST_SEEN_KEY, "0");
-        }
+  try {
+    window.removeEventListener("loBoard:notify", onLocalNotifyEvent);
+  } catch {
+    // ignore
+  }
 
-        const afterISO =
-          lastSeen > 0 ? new Date(lastSeen).toISOString() : new Date(0).toISOString();
+  try {
+    if (typeof unsubscribe === "function") unsubscribe();
+  } catch {
+    // ignore
+  }
 
-        const res = await fetch(
-          `${API_BASE}/notifications?after=${encodeURIComponent(afterISO)}`
-        );
-
-        if (!res.ok) {
-          setDebugBanner((prev) => ({
-            ...(prev || {}),
-            at: new Date().toISOString(),
-            source: "poll",
-            note: `Fetch failed (${res.status})`,
-          }));
-          return;
-        }
-
-        const all = await res.json().catch(() => []);
-        const list = Array.isArray(all) ? all : [];
-
-        const mine = list.filter((n) => {
-          const section = String(
-            effectiveUser?.section ||
-              effectiveUser?.description ||
-              effectiveUser?.team ||
-              ""
-          ).trim();
-
-          return recipientsMatchUser({
-            recipients: n?.recipients,
-            userName: myName,
-            userId: myId,
-            userRoles: effectiveUser?.roles || [],
-            userSection: section,
-          });
-        });
-
-        // ✅ Apply local dismiss filters (same behavior as before)
-        const dismissedRaw =
-          JSON.parse(localStorage.getItem("dismissedNotifications") || "[]") || [];
-        const dismissed = new Set(
-          Array.isArray(dismissedRaw) ? dismissedRaw.filter(Boolean) : []
-        );
-
-        const visible = mine
-          .filter((n) => {
-            const k = makeNotifKey({
-              timestamp: n?.timestamp,
-              title: n?.title,
-              message: n?.message,
-              fallbackTs: n?._ts || n?.ts,
-            });
-            return !dismissed.has(k);
-          })
-          .sort((a, b) => {
-            const ta = new Date(a?.timestamp || 0).getTime();
-            const tb = new Date(b?.timestamp || 0).getTime();
-            return tb - ta;
-          });
-
-        // ✅ Update unread bubble count from what we got
-        syncUnread(visible);
-
-        // ✅ Fire alerts for the NEW batch only
-        let maxTs = lastSeen;
-
-        for (const n of visible) {
-          if (cancelled) break;
-
-          const ts = new Date(n?.timestamp || n?._ts || n?.ts || 0).getTime();
-          if (Number.isFinite(ts) && ts > maxTs) maxTs = ts;
-
-          await fireGlobalAlert({
-            ...n,
-            __source: "poll",
-            __recipientMatch: true,
-          });
-        }
-
-        // ✅ Advance watermark based on what we processed
-        if (Number.isFinite(maxTs) && maxTs > lastSeen) {
-          localStorage.setItem(LAST_SEEN_KEY, String(maxTs));
-        }
-
-        setDebugBanner((prev) => ({
-          ...(prev || {}),
-          at: new Date().toISOString(),
-          source: "poll",
-          note: `OK (+${visible.length} new)`,
-        }));
-      } catch (err) {
-        setDebugBanner((prev) => ({
-          ...(prev || {}),
-          at: new Date().toISOString(),
-          source: "poll",
-          note: err?.message || "Poll error",
-        }));
-      }
-    };
-
-    // 🔔 PUSH listener (foreground messages)
-    const unsubscribe = onMessage((payload) => {
-      try {
-        const title =
-          payload?.notification?.title ||
-          payload?.data?.title ||
-          "New notification";
-
-        const message =
-          payload?.notification?.body ||
-          payload?.data?.message ||
-          payload?.data?.body ||
-          "";
-
-        const category = payload?.data?.category || "admin";
-        const urgent =
-          payload?.data?.urgent === "true" || payload?.data?.urgent === true;
-
-        // ✅ recipients parsing (unchanged behavior)
-        let recipients = [];
-        const rawRec = payload?.data?.recipients;
-        if (typeof rawRec === "string") {
-          try {
-            const parsed = JSON.parse(rawRec);
-            recipients = Array.isArray(parsed) ? parsed : [];
-          } catch {
-            recipients = rawRec
-              .split(",")
-              .map((s) => s.trim())
-              .filter(Boolean);
-          }
-        } else if (Array.isArray(rawRec)) {
-          recipients = rawRec;
-        }
-
-              // ✅ Match against effectiveUser (Admin "View As") — supports role/section buckets too
-        const section =
-          String(
-            effectiveUser?.section ||
-              effectiveUser?.description ||
-              effectiveUser?.team ||
-              ""
-          ).trim();
-
-        const matches = recipientsMatchUser({
-          recipients,
-          userName: myName,
-          userId: myId,
-          userRoles: effectiveUser?.roles || [],
-          userSection: section,
-        });
-
-        // ✅ Pull ticket fields if present (supports BOTH explicit fields and JSON-encoded arrays)
-        const d = payload?.data || {};
-        const ticketId =
-          d.ticketId || d.id || d.ticket_id || d.ticketID || d._id || "";
-
-        let assignedCamOps = [];
-        if (typeof d.assignedCamOps === "string" && d.assignedCamOps.trim()) {
-          try {
-            const parsed = JSON.parse(d.assignedCamOps);
-            assignedCamOps = Array.isArray(parsed) ? parsed : [];
-          } catch {
-            assignedCamOps = d.assignedCamOps
-              .split(",")
-              .map((s) => s.trim())
-              .filter(Boolean);
-          }
-        } else if (Array.isArray(d.assignedCamOps)) {
-          assignedCamOps = d.assignedCamOps;
-        }
-
-        fireGlobalAlert({
-          title,
-          message,
-          category,
-          urgent,
-          timestamp: d.timestamp || new Date().toISOString(),
-          recipients,
-
-          // ✅ pass ticketId + a ticket-like object so toast can show “all info”
-          ticketId: ticketId || undefined,
-          __ticket: {
-            id: ticketId || undefined,
-            date: d.date || d.ticketDate || undefined,
-            filmingTime: d.filmingTime || d.ticketFilmingTime || undefined,
-            departureTime: d.departureTime || d.ticketDepartureTime || undefined,
-            location: d.location || d.ticketLocation || undefined,
-            vehicle: d.vehicle || d.ticketVehicle || undefined,
-            camCount: d.camCount || d.cameras || undefined,
-            assignedDriver: d.assignedDriver || d.driver || undefined,
-            assignedReporter: d.assignedReporter || d.reporter || undefined,
-            assignedCamOps: assignedCamOps.length ? assignedCamOps : undefined,
-          },
-
-          __source: "push",
-          __recipientMatch: matches,
-        });
-      } catch {
-        // ignore
-      }
-    });
-
-    // ✅ Run an immediate poll so View As updates instantly
-    poll();
-
-    // ✅ Poll every 8 seconds (same as before)
-    const interval = setInterval(poll, 8000);
-
-    return () => {
-      cancelled = true;
-
-      try {
-        window.removeEventListener("loBoard:notify", onLocalNotifyEvent);
-      } catch {
-        // ignore
-      }
-
-      try {
-        if (typeof unsubscribe === "function") unsubscribe();
-      } catch {
-        // ignore
-      }
-
-      try {
-        clearInterval(interval);
-      } catch {
-        // ignore
-      }
-    };
-  }, [
-    effectiveUser?.name,
-    effectiveUser?.id,
-    JSON.stringify(effectiveUser?.roles || []),
-    effectiveUser?.section,
-    effectiveUser?.description,
-    adminViewAs ? JSON.stringify(adminViewAs) : "",
-    fireGlobalAlert,
-  ]);
+  try {
+    clearInterval(interval);
+  } catch {
+    // ignore
+  }
+};
+}, [
+effectiveUser?.name,
+effectiveUser?.id,
+JSON.stringify(effectiveUser?.roles || []),
+effectiveUser?.section,
+effectiveUser?.description,
+adminViewAs ? JSON.stringify(adminViewAs) : "",
+fireGlobalAlert,
+]);
 
   /* ===========================
      🔔 FCM token sync starts here

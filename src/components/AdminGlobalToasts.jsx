@@ -1,6 +1,7 @@
 // src/components/AdminGlobalToasts.jsx
-// v0.6.4+ — Singleton poller (30s), tab-aware pause, password-reset toasts,
-//            + rental ending toasts (admins & drivers) with "View" → /fleet
+// v0.7.2 — Singleton poller (30s), tab-aware pause,
+//          password-reset toasts (CLICK toast to open User Management),
+//          + rental ending toasts (admins & drivers) (CLICK toast to open Fleet)
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import API_BASE from "@/api";
@@ -33,7 +34,11 @@ const isoDay = (d) => {
 
 // Whole-day difference (end - start) using local midnight boundaries
 const daysBetween = (fromDate, toDate) => {
-  const a = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
+  const a = new Date(
+    fromDate.getFullYear(),
+    fromDate.getMonth(),
+    fromDate.getDate()
+  );
   const b = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate());
   return Math.round((b - a) / (1000 * 60 * 60 * 24));
 };
@@ -42,9 +47,26 @@ const daysBetween = (fromDate, toDate) => {
 const fmtShort = (dateLike) => {
   try {
     const d = new Date(dateLike);
-    return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+    return d.toLocaleDateString(undefined, {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
   } catch {
     return String(dateLike ?? "");
+  }
+};
+
+// ✅ Click guard: ignore clicks on the toast close button (or any button)
+const shouldIgnoreToastClick = (evt) => {
+  try {
+    const el = evt?.target;
+    if (!el) return false;
+    // If the click started on a button (ToastClose is a button), ignore it
+    if (typeof el.closest === "function" && el.closest("button")) return true;
+    return false;
+  } catch {
+    return false;
   }
 };
 
@@ -60,15 +82,25 @@ export default function AdminGlobalToasts({ loggedInUser }) {
   const navigate = useNavigate();
 
   const roles = Array.isArray(loggedInUser?.roles) ? loggedInUser.roles : [];
-  const isAdmin = roles.includes("admin");
-  const canSeeRentalToasts =
-    isAdmin || roles.includes("driver") || roles.includes("driver_limited");
+  const rolesLower = roles.map((r) => String(r || "").toLowerCase()).filter(Boolean);
+
+  const isAdmin = rolesLower.includes("admin");
+  const isDriver = rolesLower.includes("driver");
+  const isLimitedDriver = rolesLower.includes("driver_limited");
+
+  // admins + drivers should receive fleet notifications via /notifications polling
+  const canPollNotifications = isAdmin || isDriver || isLimitedDriver;
+
+  const canSeeRentalToasts = canPollNotifications;
 
   // ============================================================
-  // A) Notifications poller (your original behavior, unchanged)
+  // A) Notifications poller (admin + drivers for Fleet)
+  //    - Password reset → User Management
+  //    - Suggestions → Notifications > History (scroll)
+  //    - Fleet → Fleet page
   // ============================================================
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!canPollNotifications) return;
 
     // 🚦 Singleton guard to prevent multiple intervals across the app
     if (window.__loBoardNotificationsPoller) return;
@@ -80,7 +112,7 @@ export default function AdminGlobalToasts({ loggedInUser }) {
       value: isoSec(localStorage.getItem(STORAGE_LAST_SEEN)) || isoSec(new Date(0)),
     };
 
-    // Initialize seen set from storage
+    // Initialize played/seen set from storage
     const seenSet = new Set();
     try {
       const raw = localStorage.getItem(STORAGE_SEEN_SET);
@@ -110,11 +142,18 @@ export default function AdminGlobalToasts({ loggedInUser }) {
     const goToUserManagement = (n) => {
       const userId = n?.action?.userId;
       const userName = n?.action?.userName;
+
       if (userId) {
-        navigate(`/admin?tab=user-management&highlight=${encodeURIComponent(String(userId))}`);
+        navigate(
+          `/admin?tab=user-management&highlight=${encodeURIComponent(
+            String(userId)
+          )}`
+        );
       } else if (userName) {
         navigate(
-          `/admin?tab=user-management&highlightName=${encodeURIComponent(String(userName))}`
+          `/admin?tab=user-management&highlightName=${encodeURIComponent(
+            String(userName)
+          )}`
         );
       } else if (n?.action?.url) {
         navigate(n.action.url);
@@ -139,38 +178,99 @@ export default function AdminGlobalToasts({ loggedInUser }) {
         const items = Array.isArray(data) ? data : [];
         if (items.length === 0) return;
 
-        // Mark everything we fetched as "seen-able" and advance the watermark
-        for (const n of items) {
-          const t = isoSec(n?.timestamp || n?.createdAt || n?.date);
-          if (t) seenSet.add(t);
-        }
-        persistSeen();
+        // Advance watermark regardless (prevents re-fetch loops)
         advanceWatermark(items);
 
-        // 🔎 Only surface admin-relevant password reset requests
-        const adminItems = items.filter((n) => {
-          const recips = Array.isArray(n?.recipients)
-            ? n.recipients.map((x) => String(x).toLowerCase())
+        /* ===========================
+           🧭 Toast routing rules start
+           - Password reset → User Management (highlight)
+           - Suggestion-related → Admin > Notifications > History and scroll to Suggestions
+           - Fleet → Fleet page
+           =========================== */
+
+        const isSuggestionNotif = (n) => {
+          const kind = String(n?.kind || "").toLowerCase();
+          const cat = String(n?.category || n?.type || "").toLowerCase();
+          return kind.includes("suggestion") || cat === "suggestion" || cat === "suggestions";
+        };
+
+        const isFleetNotif = (n) => {
+          const kind = String(n?.kind || "").toLowerCase();
+          const cat = String(n?.category || n?.type || "").toLowerCase();
+          return kind.includes("fleet") || cat === "fleet";
+        };
+
+        // recipients matching (supports: name, id, roles, role buckets)
+        const isRelevantForMe = (n) => {
+          const recipsLower = Array.isArray(n?.recipients)
+            ? n.recipients.map((x) => String(x || "").toLowerCase()).filter(Boolean)
             : [];
-          const relevant =
-            recips.includes("admin") ||
-            recips.includes("admins") ||
-            recips.includes(String(loggedInUser?.id || "").toLowerCase()) ||
-            recips.includes(String(loggedInUser?.name || "").toLowerCase());
-          return relevant && n?.kind === "password_reset_request";
+
+          const meId = String(loggedInUser?.id || "").toLowerCase();
+          const meName = String(loggedInUser?.name || "").toLowerCase();
+
+          // roles + common bucket aliases
+          const roleSignals = new Set([
+            ...rolesLower,
+            ...rolesLower.map((r) => `${r}s`), // admin -> admins, driver -> drivers
+            "admins",
+            "drivers",
+          ]);
+
+          const hitMe =
+            (meId && recipsLower.includes(meId)) ||
+            (meName && recipsLower.includes(meName));
+
+          const hitRole = recipsLower.some((r) => roleSignals.has(r));
+
+          return hitMe || hitRole;
+        };
+
+        // 🔎 Only surface items we actually want to toast here
+        const relevantItems = items.filter((n) => {
+          const isReset = n?.kind === "password_reset_request";
+          const isSuggestion = isSuggestionNotif(n);
+          const fleet = isFleetNotif(n);
+
+          // drivers should primarily see fleet; admins can see all 3
+          const allowedByRole =
+            (isAdmin && (isReset || isSuggestion || fleet)) ||
+            (!isAdmin && fleet);
+
+          return allowedByRole && isRelevantForMe(n);
         });
 
-        // 🚫 Deduplicate by timestamp at second resolution
-        const unseen = adminItems.filter((n) => {
+        /* ===========================
+           🧭 Toast routing rules end
+           =========================== */
+
+        // ✅ Unseen = not yet played
+        const unseen = relevantItems.filter((n) => {
           const t = isoSec(n?.timestamp || n?.createdAt || n?.date);
           return t && !seenSet.has(t);
         });
 
         for (const n of unseen) {
-                             const title = n?.title || "🔑 Password Reset Request";
-          const message = n?.message || "A user requested a password reset.";
+          const suggestion = isSuggestionNotif(n);
+          const fleet = isFleetNotif(n);
 
-          // 🔊 sound (best effort)
+          const title =
+            n?.title ||
+            (suggestion
+              ? "💡 New Suggestion Received"
+              : fleet
+              ? "🚚 Fleet update"
+              : "🔑 Password Reset Request");
+
+          const message =
+            n?.message ||
+            (suggestion
+              ? "A user submitted a new suggestion."
+              : fleet
+              ? "A fleet update was posted."
+              : "A user requested a password reset.");
+
+          // 🔊 sound (best effort) — keep current behavior
           try {
             const enabled = localStorage.getItem("notificationSoundsEnabled");
             if (enabled !== "false") {
@@ -185,13 +285,29 @@ export default function AdminGlobalToasts({ loggedInUser }) {
             console.warn("[sound] play failed:", e);
           }
 
-          toast({ title, description: message, duration: 6000 });
+          toast({
+            title,
+            description: message,
+            duration: 7000,
+            className: "cursor-pointer",
+            onClick: (evt) => {
+              if (shouldIgnoreToastClick(evt)) return;
 
-          const who = n?.action?.userName || "this user";
-          const ok = window.confirm(`Open User Management to handle ${who} now?`);
-          if (ok) goToUserManagement(n);
+              if (suggestion) {
+                navigate(`/admin?tab=notifications&subtab=history&scroll=suggestions`);
+                return;
+              }
 
-          // mark as seen so it never replays
+              if (fleet) {
+                navigate("/fleet");
+                return;
+              }
+
+              goToUserManagement(n);
+            },
+          });
+
+          // mark as played so it never replays
           const t = isoSec(n?.timestamp || n?.createdAt || n?.date);
           if (t) {
             seenSet.add(t);
@@ -224,13 +340,20 @@ export default function AdminGlobalToasts({ loggedInUser }) {
         window.__loBoardNotificationsPoller = null;
       }
     };
-  }, [isAdmin, loggedInUser?.id, loggedInUser?.name, navigate, toast]);
+  }, [
+    canPollNotifications,
+    isAdmin,
+    loggedInUser?.id,
+    loggedInUser?.name,
+    navigate,
+    toast,
+    rolesLower.join("|"),
+  ]);
 
   // ============================================================
   // B) Rental ending toasts on login (admins & drivers)
-  //    - Triggers for each vehicle if rentEndISO is: yesterday (-1), today (0), or tomorrow (1)
-  //    - De-duped: one toast per vehicle per local day
-  //    - "View" button routes to /fleet
+  //    - Click toast → /fleet
+  //    - FIX: prevent double-sound (remove manual Audio play)
   // ============================================================
   useEffect(() => {
     if (!canSeeRentalToasts) return;
@@ -277,7 +400,7 @@ export default function AdminGlobalToasts({ loggedInUser }) {
           const end = new Date(endISO);
           const diff = daysBetween(today, end); // 1 = tomorrow, 0 = today, -1 = yesterday
 
-          if (![ -1, 0, 1 ].includes(diff)) return; // only nudge around the end date
+          if (![-1, 0, 1].includes(diff)) return; // only nudge around the end date
           if (seen[v.id] === todayKey) return; // de-dupe per day
 
           const startLabel = v?.rentStartISO ? fmtShort(v.rentStartISO) : "Unknown";
@@ -285,37 +408,25 @@ export default function AdminGlobalToasts({ loggedInUser }) {
           const plate = v?.licensePlate || v?.plate || v?.name || "Vehicle";
 
           const title =
-            diff === 1 ? "Rental ends tomorrow"
-            : diff === 0 ? "Rental ends today"
-            : "Rental expired yesterday";
+            diff === 1
+              ? "Rental ends tomorrow"
+              : diff === 0
+              ? "Rental ends today"
+              : "Rental expired yesterday";
 
           const description = `${plate} • ${startLabel} → ${endLabel}`;
-
-          // Use action button to jump to Fleet
-                          // 🔊 sound (best effort)
-          try {
-            const enabled = localStorage.getItem("notificationSoundsEnabled");
-            if (enabled !== "false") {
-              const a = new Audio("/sounds/lo_notify_new.mp3");
-              a.volume = 1;
-              const p = a.play();
-              if (p && typeof p.catch === "function") {
-                p.catch((e) => console.warn("[sound] play blocked:", e));
-              }
-            }
-          } catch (e) {
-            console.warn("[sound] play failed:", e);
-          }
 
           toast({
             title,
             description,
-            action: {
-              label: "View",
-              onClick: () => navigate("/fleet"),
+            className: "cursor-pointer",
+            onClick: (evt) => {
+              if (shouldIgnoreToastClick(evt)) return;
+              navigate("/fleet");
             },
           });
 
+          // ✅ Single sound path (no double play)
           if (isSoundEnabled()) {
             playSoundFor({ title, message: description }, { enabled: true });
           }
@@ -340,3 +451,5 @@ export default function AdminGlobalToasts({ loggedInUser }) {
 
   return null;
 }
+
+

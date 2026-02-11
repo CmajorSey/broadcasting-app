@@ -93,9 +93,24 @@ const router = Router();
  *  }
  */
 router.post("/login", async (req, res) => {
+  /* ===========================
+     🔐 Login validation starts here
+     - IMPORTANT: password must be PLAINTEXT (user typed)
+     - If frontend accidentally sends a bcrypt hash, we hard-reject with 400
+     =========================== */
+
   const { identifier, password } = req.body || {};
   if (!identifier || !password) {
     return res.status(400).json({ error: "Missing identifier or password" });
+  }
+
+  // ✅ Guard: frontend must NOT send the stored bcrypt hash back as "password"
+  // This is the exact bug you showed in DevTools payload.
+  if (isBcryptHash(password)) {
+    return res.status(400).json({
+      error:
+        "Invalid login payload: password must be plaintext (user typed), not a bcrypt hash.",
+    });
   }
 
   const users = readUsers();
@@ -120,22 +135,37 @@ router.post("/login", async (req, res) => {
   // Compute signals
   const firstName = String(user.name || "").trim().split(/\s+/)[0] || "";
   const defaultPassword = firstName ? `${firstName}1` : null;
-  const isDefaultPassword = !isBcryptHash(stored) && defaultPassword && stored === defaultPassword;
-  const hasMustChangeFlag = !!(user.forcePasswordChange || user.requiresPasswordReset || user.passwordIsTemp === true);
+  const isDefaultPassword =
+    !isBcryptHash(stored) && defaultPassword && stored === defaultPassword;
+  const hasMustChangeFlag = !!(
+    user.forcePasswordChange ||
+    user.requiresPasswordReset ||
+    user.passwordIsTemp === true
+  );
 
   // If any must-change flag is set, and it has an expiry that passed → block with 410
   if (hasMustChangeFlag && isExpired(user.tempPasswordExpires)) {
     return res.status(410).json({ error: "Temporary password has expired" });
   }
 
-  // 🩹 Self-heal: if user already set a new password earlier (has passwordUpdatedAt),
-  // but flags remained due to a previous write glitch, clear them now.
-  if (hasMustChangeFlag && user.passwordUpdatedAt) {
+  // 🩹 Safe self-heal:
+  // Only auto-clear stale flags if there is clearly NO active reset flow.
+  // If an admin just reset the user, we MUST NOT clear the flags here.
+  if (
+    hasMustChangeFlag &&
+    user.passwordUpdatedAt &&
+    !user.passwordIsTemp &&
+    !user.forcePasswordChange &&
+    !user.requiresPasswordReset &&
+    !user.tempPasswordExpires
+  ) {
     user.forcePasswordChange = false;
     user.requiresPasswordReset = false;
     user.passwordIsTemp = false;
     user.tempPasswordExpires = null;
-    try { writeUsers(users); } catch {}
+    try {
+      writeUsers(users);
+    } catch {}
   }
 
   // Re-evaluate after self-heal
@@ -146,22 +176,26 @@ router.post("/login", async (req, res) => {
     isDefaultPassword
   );
 
-  // Hard gate: if a change is required, return 200 with a "mustChangePassword" signal
-// so the frontend can redirect to /set-password (old flow compatibility).
-if (mustChangePassword) {
-  return res.json({
-    ok: true,                       // keep 200 OK so UI can branch cleanly
-    message: "Password change required",
-    mustChangePassword: true,
-    requiresPasswordChange: true,   // legacy alias
-    forcePasswordChange: !!user.forcePasswordChange,
-    requiresPasswordReset: !!user.requiresPasswordReset,
-    passwordIsTemp: !!user.passwordIsTemp,
-    tempPasswordExpires: user.tempPasswordExpires || null,
-    user: { id: String(user.id), name: user.name }, // minimal identity for set-password screen
-    nextPath: "/set-password",      // optional hint for the client router
-  });
-}
+  // Hard gate: if a change is required, FORCE the client into /set-password.
+  // Use 428 so it is never treated as a normal login session.
+  if (mustChangePassword) {
+    // Helpful header hints (your LoginPage checks these too)
+    res.setHeader("X-Requires-Password-Change", "true");
+    res.setHeader("Cache-Control", "no-store");
+
+    return res.status(428).json({
+      ok: true,
+      message: "Password change required",
+      mustChangePassword: true,
+      requiresPasswordChange: true, // legacy alias
+      forcePasswordChange: !!user.forcePasswordChange,
+      requiresPasswordReset: !!user.requiresPasswordReset,
+      passwordIsTemp: !!user.passwordIsTemp,
+      tempPasswordExpires: user.tempPasswordExpires || null,
+      user: { id: String(user.id), name: user.name }, // minimal identity for set-password screen
+      nextPath: "/set-password",
+    });
+  }
 
   // Normal login path
   try {
@@ -181,7 +215,6 @@ if (mustChangePassword) {
 });
 
 
-
 /**
  * POST /auth/admin/users/:id/temp-password
  * Admin issues a one-time temporary password (forces change at next login)
@@ -194,25 +227,27 @@ router.post("/admin/users/:id/temp-password", async (req, res) => {
   const { id } = req.params;
   const { hours } = req.body || {};
   const ttlHours = Number.isFinite(hours) && hours > 0 ? hours : 72;
-  const tempPasswordExpires = new Date(Date.now() + ttlHours * 60 * 60 * 1000).toISOString();
+  const tempPasswordExpires = new Date(
+    Date.now() + ttlHours * 60 * 60 * 1000
+  ).toISOString();
 
   const users = readUsers();
   const idx = users.findIndex((u) => String(u.id) === String(id));
   if (idx === -1) return res.status(404).json({ error: "User not found" });
 
-  const base = (users[idx].name?.split(/\s+/)[0] || "User").replace(/[^A-Za-z]/g, "") || "User";
+  const base =
+    (users[idx].name?.split(/\s+/)[0] || "User").replace(/[^A-Za-z]/g, "") ||
+    "User";
   const rand = Math.floor(100 + Math.random() * 900);
   const temp = `${base}${rand}`;
 
-  const hash = await bcrypt.hash(temp, 10);
-
+  // ✅ IMPORTANT: store PLAINTEXT temp password (matches server/index.js /auth/login)
   users[idx] = {
     ...users[idx],
-    password: hash,
-    // Flags + explicit marker so login can gate hard even if someone forgets flags
+    password: temp,
     forcePasswordChange: true,
-    requiresPasswordReset: true,   // legacy alias
-    passwordIsTemp: true,          // 👈 new marker
+    requiresPasswordReset: true, // legacy alias
+    passwordIsTemp: true,
     tempPasswordExpires,
     updatedAt: new Date().toISOString(),
   };
@@ -234,6 +269,7 @@ router.post("/admin/users/:id/temp-password", async (req, res) => {
     message: `Temporary password set. Expires in ${ttlHours} hours.`,
   });
 });
+
 
 /**
  * POST /auth/set-password
@@ -269,9 +305,12 @@ router.post("/set-password", async (req, res) => {
       return res.status(400).json({ error: "Current password required" });
     }
     const stored = String(user.password || "");
+
+    // Accept either legacy plaintext or bcrypt-hashed stored values
     const ok = isBcryptHash(stored)
-      ? await bcrypt.compare(currentPassword, stored)
-      : currentPassword === stored;
+      ? await bcrypt.compare(String(currentPassword), stored)
+      : String(currentPassword) === stored;
+
     if (!ok) {
       return res.status(401).json({ error: "Current password is incorrect" });
     }
@@ -282,8 +321,10 @@ router.post("/set-password", async (req, res) => {
     }
   }
 
-  // Save new password (bcrypt) and CLEAR all flags.
-  users[idx].password = await bcrypt.hash(newPassword, 10);
+  // ✅ IMPORTANT: store PLAINTEXT new password (matches server/index.js /auth/login)
+  users[idx].password = String(newPassword).trim();
+
+  // Clear all flags
   users[idx].forcePasswordChange = false;
   users[idx].requiresPasswordReset = false;
   users[idx].passwordIsTemp = false;
@@ -294,5 +335,6 @@ router.post("/set-password", async (req, res) => {
   writeUsers(users);
   return res.json({ success: true });
 });
+
 
 export default router;

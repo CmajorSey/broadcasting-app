@@ -300,18 +300,102 @@ app.options(new RegExp(".*"), cors(corsOptions));
 
 app.use(express.json());
 
+/* ===========================
+   🔐 Auth + forced password change starts here
+   - This route ensures the frontend always receives:
+     forcePasswordChange / requiresPasswordReset / passwordIsTemp / tempPasswordExpires
+   - It also enforces temp-password expiry (410 Gone)
+   - IMPORTANT: defined BEFORE app.use("/auth", authRouter) so it wins.
+   =========================== */
+app.post("/auth/login", (req, res) => {
+  try {
+    const body = req.body || {};
+    const name = String(body.name || body.username || body.identifier || "").trim();
+    const password = String(body.password || "").trim();
+
+    if (!name || !password) {
+      return res.status(400).json({ success: false, error: "Missing name or password" });
+    }
+
+    const users = readUsersSafe();
+    const lower = name.toLowerCase();
+
+    // match by name OR username OR email (case-insensitive)
+    const user = users.find((u) => {
+      const n = String(u?.name || "").trim().toLowerCase();
+      const un = String(u?.username || "").trim().toLowerCase();
+      const em = String(u?.email || "").trim().toLowerCase();
+      return n === lower || (un && un === lower) || (em && em === lower);
+    });
+
+    if (!user) {
+      return res.status(401).json({ success: false, error: "Invalid credentials" });
+    }
+
+    // password check (plain-text for now, as your app currently uses)
+    if (String(user.password || "") !== password) {
+      return res.status(401).json({ success: false, error: "Invalid credentials" });
+    }
+
+    // ✅ Enforce temp password expiry (if applicable)
+    const isTemp = user.passwordIsTemp === true || user.requiresPasswordReset === true || user.forcePasswordChange === true;
+
+    if (isTemp && user.tempPasswordExpires) {
+      const exp = Date.parse(user.tempPasswordExpires);
+      const now = Date.now();
+      if (Number.isFinite(exp) && now > exp) {
+        return res.status(410).json({
+          success: false,
+          error: "Temporary password has expired",
+          code: "TEMP_PASSWORD_EXPIRED",
+          user: {
+            id: String(user.id),
+            name: user.name,
+          },
+        });
+      }
+    }
+
+    // ✅ Always return flags so frontend can force SetPasswordPage
+    const safeUser = {
+      ...user,
+      id: String(user.id),
+      roles: Array.isArray(user.roles) ? user.roles : [],
+      forcePasswordChange: user.forcePasswordChange === true,
+      requiresPasswordReset: user.requiresPasswordReset === true,
+      passwordIsTemp: user.passwordIsTemp === true,
+      tempPasswordExpires: user.tempPasswordExpires || null,
+      passwordUpdatedAt: user.passwordUpdatedAt || null,
+    };
+
+    return res.json({
+      success: true,
+      user: safeUser,
+
+      // Extra hint (harmless if frontend ignores)
+      mustSetPassword: safeUser.forcePasswordChange || safeUser.requiresPasswordReset,
+    });
+  } catch (err) {
+    console.error("auth/login failed:", err);
+    return res.status(500).json({ success: false, error: "Login failed" });
+  }
+});
+/* ===========================
+   🔐 Auth + forced password change ends here
+   =========================== */
+
+
 // ✅ Mount password reset routes
 app.use("/auth", authRouter);
 app.use("/user-prefs", userPrefsRouter);
 app.use("/holidays", holidaysRouter);
 
-// 👉 NEW (v0.7.1): settings + leave endpoints
+// 👉 NEW (v0.7.1): settings + leave management
 // - /settings           GET, PATCH     (site rules + holiday source)
 // - /leave-requests     GET, POST, PATCH (leave workflow)
 app.use("/settings", settingsRouter);
 app.use("/leave-requests", leaveRouter);
 app.use("/leave", leaveRouter); // alias for older frontend calls
-
 
 
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
@@ -321,8 +405,6 @@ const ROSTERS_FILE = path.join(DATA_DIR, "rosters.json");
 const PASSWORD_RESET_REQUESTS_FILE = path.join(DATA_DIR, "passwordResetRequests.json");
 const groupsPath = path.join(DATA_DIR, "notificationGroups.json");
 
-
-// 🔧 Ensure data directory and files exist
 // 🔧 Ensure data directory and files exist (all under /data)
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -373,6 +455,137 @@ const SUGGESTIONS_FILE = path.join(DATA_DIR, "suggestions.json");
 if (!fs.existsSync(SUGGESTIONS_FILE)) {
   fs.writeFileSync(SUGGESTIONS_FILE, JSON.stringify([], null, 2));
 }
+
+/* ===========================
+   📅 Rosters API starts here
+   - Fixes missing /rosters/:weekStart routes (OperationsPage 404)
+   - Storage: rosters.json as an OBJECT:
+       { "YYYY-MM-DD": [ {date, primary, backup, otherOnDuty, afternoonShift, off}, ... ] }
+   - Contract:
+       GET  /rosters/:weekStart  -> array (never HTML)
+       PATCH/rosters/:weekStart  -> upserts week array
+   =========================== */
+
+const safeYmd = (v) => {
+  const s = String(v || "").trim();
+  // keep very strict: we only accept YYYY-MM-DD keys
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const dt = new Date(`${s}T00:00:00.000Z`);
+  if (Number.isNaN(dt.getTime())) return null;
+  return s;
+};
+
+const ensureRostersFile = () => {
+  try {
+    fs.mkdirSync(path.dirname(ROSTERS_FILE), { recursive: true });
+    if (!fs.existsSync(ROSTERS_FILE)) {
+      fs.writeFileSync(ROSTERS_FILE, JSON.stringify({}, null, 2), "utf-8");
+    }
+  } catch (e) {
+    console.error("ensureRostersFile failed:", e);
+  }
+};
+
+// ✅ Always returns an OBJECT map: { [weekStart]: weekArray }
+const readRostersSafe = () => {
+  try {
+    ensureRostersFile();
+    const raw = fs.readFileSync(ROSTERS_FILE, "utf-8") || "{}";
+    const parsed = JSON.parse(raw);
+
+    // Preferred shape: object map
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
+    }
+
+    // Legacy fallback: array -> migrate to object map if possible
+    if (Array.isArray(parsed)) {
+      const migrated = {};
+      parsed.forEach((w) => {
+        const key = safeYmd(w?.weekStart);
+        const days = Array.isArray(w?.days) ? w.days : Array.isArray(w) ? w : null;
+        if (key && Array.isArray(days)) migrated[key] = days;
+      });
+      // Best effort write-back
+      fs.writeFileSync(ROSTERS_FILE, JSON.stringify(migrated, null, 2), "utf-8");
+      return migrated;
+    }
+
+    return {};
+  } catch (e) {
+    console.error("readRostersSafe failed:", e);
+    return {};
+  }
+};
+
+const writeRostersSafe = (obj) => {
+  try {
+    ensureRostersFile();
+    const out = obj && typeof obj === "object" && !Array.isArray(obj) ? obj : {};
+    fs.writeFileSync(ROSTERS_FILE, JSON.stringify(out, null, 2), "utf-8");
+    return true;
+  } catch (e) {
+    console.error("writeRostersSafe failed:", e);
+    return false;
+  }
+};
+
+// ✅ GET roster for a week (array; never 404 for missing week)
+app.get("/rosters/:weekStart", (req, res) => {
+  try {
+    const key = safeYmd(req.params.weekStart);
+    if (!key) return res.status(400).json({ error: "Invalid weekStart (expected YYYY-MM-DD)" });
+
+    const store = readRostersSafe();
+    const week = Array.isArray(store[key]) ? store[key] : [];
+
+    // Always return array (OperationsPage expects JSON array)
+    return res.json(week);
+  } catch (e) {
+    console.error("GET /rosters/:weekStart failed:", e);
+    return res.status(200).json([]); // keep frontend safe
+  }
+});
+
+// ✅ PATCH roster for a week (upsert)
+app.patch("/rosters/:weekStart", (req, res) => {
+  try {
+    const key = safeYmd(req.params.weekStart);
+    if (!key) return res.status(400).json({ error: "Invalid weekStart (expected YYYY-MM-DD)" });
+
+    const body = req.body;
+
+    if (!Array.isArray(body)) {
+      return res.status(400).json({ error: "Roster week must be an array of day objects" });
+    }
+
+    // Light sanitize so your UI never crashes on unexpected shapes
+    const sanitizeDay = (d) => ({
+      date: safeYmd(d?.date) || null,
+      primary: Array.isArray(d?.primary) ? d.primary : [],
+      backup: Array.isArray(d?.backup) ? d.backup : [],
+      otherOnDuty: Array.isArray(d?.otherOnDuty) ? d.otherOnDuty : [],
+      afternoonShift: Array.isArray(d?.afternoonShift) ? d.afternoonShift : [],
+      off: Array.isArray(d?.off) ? d.off : [],
+    });
+
+    const week = body.map(sanitizeDay).filter((d) => !!d.date);
+
+    const store = readRostersSafe();
+    store[key] = week;
+    writeRostersSafe(store);
+
+    return res.json({ success: true, weekStart: key, days: week.length });
+  } catch (e) {
+    console.error("PATCH /rosters/:weekStart failed:", e);
+    return res.status(500).json({ error: "Failed to save roster" });
+  }
+});
+
+/* ===========================
+   📅 Rosters API ends here
+   =========================== */
+
 
 
 
@@ -879,6 +1092,61 @@ app.post("/notifications", (req, res) => {
     return res.status(200).json([]);
   }
 });
+
+/* ===========================
+   📩 Notifications send alias starts here
+   - LeaveManager currently calls:
+       POST /notifications/send
+   - Backend already supports:
+       POST /notifications
+   - This alias keeps old clients working.
+   =========================== */
+app.post("/notifications/send", (req, res) => {
+  try {
+    const body = req.body || {};
+    const title = String(body.title || "").trim();
+    const message = String(body.message || "").trim();
+    const recipients = Array.isArray(body.recipients)
+      ? Array.from(new Set(body.recipients.filter(Boolean).map(String)))
+      : [];
+
+    const createdAt =
+      body.createdAt && !Number.isNaN(new Date(body.createdAt).getTime())
+        ? new Date(body.createdAt).toISOString()
+        : new Date().toISOString();
+
+    if (!title || !message || recipients.length === 0) {
+      return res.status(400).json({ error: "Missing title, message, or recipients" });
+    }
+
+    const all = readNotifsSafe();
+    const { category, urgent } = normalizeNotifMeta(body);
+
+    const newNotification = {
+      title,
+      message,
+      recipients,
+      timestamp: createdAt,
+      category,
+      urgent,
+    };
+
+    all.push(newNotification);
+
+    const ok = writeNotifsSafe(all);
+    if (!ok) return res.status(200).json(newNotification);
+
+    return res.status(201).json(newNotification);
+  } catch (err) {
+    console.error("Failed to create notification (/notifications/send):", err);
+    // ✅ Never break the frontend shape
+    return res.status(200).json([]);
+  }
+});
+/* ===========================
+   📩 Notifications send alias ends here
+   =========================== */
+
 
 
 // 🧭 GET /notifications  (polling supported via ?after=<ISO>)
@@ -1391,7 +1659,7 @@ app.patch("/users/:id/password", (req, res) => {
 });
 
 // ✅ Patch user (admin edit + leave balances; server clamps annualLeave to 0–42 and returns RAW user)
-//    Also accepts an optional ISO string "lastOnline" (safely normalized) for completeness.
+//    Also accepts optional ISO strings: lastOnline, lastLeaveUpdate, tempPasswordExpires, passwordUpdatedAt
 app.patch("/users/:id", (req, res) => {
   const { id } = req.params;
 
@@ -1400,6 +1668,14 @@ app.patch("/users/:id", (req, res) => {
     return Number.isFinite(n) ? Math.round(n) : fb;
   };
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+
+  // ✅ Small helper: validate + normalize ISO
+  const toIso = (v) => {
+    const d = new Date(v);
+    if (typeof v !== "string" && !(v instanceof Date)) return null;
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString();
+  };
 
   try {
     const data = fs.readFileSync(USERS_FILE, "utf-8");
@@ -1411,23 +1687,88 @@ app.patch("/users/:id", (req, res) => {
     const body = req.body || {};
     const u = users[idx];
 
-    // Password flow
-    if (typeof body.password === "string" && body.password.trim()) {
+    /* ===========================
+       🔐 Password reset + temp expiry starts here
+       - This is what fixes the 410 "Gone" issue.
+       - If admin sets a temp password, we MUST:
+         - passwordIsTemp = true
+         - tempPasswordExpires = future ISO
+         - passwordUpdatedAt = now (or provided ISO)
+       =========================== */
+
+    const passwordWasSet =
+      typeof body.password === "string" && body.password.trim().length > 0;
+
+    if (passwordWasSet) {
       u.password = body.password.trim();
-      if (typeof body.forcePasswordChange !== "undefined") {
-        u.forcePasswordChange = !!body.forcePasswordChange;
+    }
+
+    // Flags can be sent with or without password (support both)
+    if (typeof body.forcePasswordChange === "boolean") {
+      u.forcePasswordChange = body.forcePasswordChange;
+    }
+    if (typeof body.requiresPasswordReset === "boolean") {
+      u.requiresPasswordReset = body.requiresPasswordReset;
+    }
+    if (typeof body.passwordIsTemp === "boolean") {
+      u.passwordIsTemp = body.passwordIsTemp;
+    }
+
+    // Expiry timestamp (validate)
+    if (typeof body.tempPasswordExpires !== "undefined") {
+      const iso = toIso(body.tempPasswordExpires);
+      if (!iso) return res.status(400).json({ error: "Invalid tempPasswordExpires" });
+      u.tempPasswordExpires = iso;
+    }
+
+    // Password updated timestamp (validate)
+    if (typeof body.passwordUpdatedAt !== "undefined") {
+      const iso = toIso(body.passwordUpdatedAt);
+      if (!iso) return res.status(400).json({ error: "Invalid passwordUpdatedAt" });
+      u.passwordUpdatedAt = iso;
+    }
+
+    // ✅ If password was set AND reset flow is enabled, ensure temp expiry exists
+    // This covers your current UserManagement reset button which only sends
+    // password + forcePasswordChange + requiresPasswordReset.
+    if (passwordWasSet && (u.requiresPasswordReset === true || u.forcePasswordChange === true)) {
+      // Ensure temp marker
+      if (typeof u.passwordIsTemp !== "boolean") u.passwordIsTemp = true;
+      if (u.passwordIsTemp !== false) u.passwordIsTemp = true;
+
+      // If expiry is missing/invalid/expired, set a fresh TTL
+      const ttlHours =
+        Number.isFinite(Number(body.tempPasswordTtlHours)) && Number(body.tempPasswordTtlHours) > 0
+          ? Number(body.tempPasswordTtlHours)
+          : 72;
+
+      const existingExp = Date.parse(u.tempPasswordExpires);
+      const now = Date.now();
+
+      if (!Number.isFinite(existingExp) || existingExp <= now) {
+        u.tempPasswordExpires = new Date(now + ttlHours * 60 * 60 * 1000).toISOString();
       }
-      if (typeof body.requiresPasswordReset !== "undefined") {
-        u.requiresPasswordReset = !!body.requiresPasswordReset;
+
+      // Stamp passwordUpdatedAt if not provided
+      if (!u.passwordUpdatedAt) {
+        u.passwordUpdatedAt = new Date().toISOString();
       }
     }
+
+    // ✅ If user is being converted to a permanent password via this PATCH,
+    // allow clearing temp fields explicitly.
+    if (body.passwordIsTemp === false) {
+      u.tempPasswordExpires = null;
+    }
+
+    /* ===========================
+       🔐 Password reset + temp expiry ends here
+       =========================== */
 
     // Admin-editable meta
     if (Array.isArray(body.roles)) u.roles = body.roles;
     if (typeof body.description === "string") u.description = body.description;
     if (Array.isArray(body.hiddenRoles)) u.hiddenRoles = body.hiddenRoles;
-    if (typeof body.forcePasswordChange === "boolean") u.forcePasswordChange = body.forcePasswordChange;
-    if (typeof body.requiresPasswordReset === "boolean") u.requiresPasswordReset = body.requiresPasswordReset;
 
     // 🔁 Leave management fields
     if (typeof body.annualLeave !== "undefined") {
@@ -1439,24 +1780,27 @@ app.patch("/users/:id", (req, res) => {
     if (typeof body.currentLeaveStatus === "string") {
       u.currentLeaveStatus = body.currentLeaveStatus;
     }
-    if (typeof body.lastLeaveUpdate === "string" && !Number.isNaN(Date.parse(body.lastLeaveUpdate))) {
-      u.lastLeaveUpdate = new Date(body.lastLeaveUpdate).toISOString();
+    if (typeof body.lastLeaveUpdate === "string") {
+      const iso = toIso(body.lastLeaveUpdate);
+      if (iso) u.lastLeaveUpdate = iso;
     }
 
     // ✅ Optional "lastOnline" passthrough (normalized ISO)
-    if (typeof body.lastOnline === "string" && !Number.isNaN(Date.parse(body.lastOnline))) {
-      u.lastOnline = new Date(body.lastOnline).toISOString();
+    if (typeof body.lastOnline === "string") {
+      const iso = toIso(body.lastOnline);
+      if (iso) u.lastOnline = iso;
     }
 
     u.updatedAt = new Date().toISOString();
 
     fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-    return res.json(u); // ← return RAW user, not { success, user }
+    return res.json(u); // keep RAW user response (matches your current frontend expectations)
   } catch (err) {
     console.error("Failed to patch user:", err);
     res.status(500).json({ error: "Failed to update user" });
   }
 });
+
 
 // ✅ Stamp last login (existing)
 app.patch("/users/:id/last-login", (req, res) => {
