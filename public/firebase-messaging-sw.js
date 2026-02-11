@@ -1,64 +1,92 @@
 /* public/firebase-messaging-sw.js */
 
-  /* ===========================
-     🔔 FCM token sync starts here
-     - (DISABLED for now) You said you're focusing on classic toasts first.
-     - This avoids 404s if backend users routes aren't mounted on Render yet.
-     - Re-enable later when you're ready to test FCM end-to-end.
-     =========================== */
+/* ===========================
+   🔔 Firebase Cloud Messaging Service Worker
+   - Service Worker context (NO React, NO hooks, NO DOM, NO localStorage)
+   - Only handles background push + notification click behavior
+   =========================== */
 
-  // ✅ Feature flag: keep FCM OFF until backend/users routes + SW are fully confirmed
-  const ENABLE_FCM = false;
+/**
+ * IMPORTANT:
+ * - Use compat scripts inside service worker (simplest + stable on Netlify)
+ * - Your React app is responsible for requesting permission + saving FCM token
+ * - This SW is ONLY for background messages and notification clicks
+ */
 
-  useEffect(() => {
-    if (!ENABLE_FCM) return;
+// ✅ Firebase compat libs (SW-friendly)
+importScripts("https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js");
+importScripts("https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js");
 
-    if (!loggedInUser?.id || !String(loggedInUser?.id).trim()) return;
+// ✅ Your Firebase config (MUST match your frontend config)
+firebase.initializeApp({
+  apiKey: "REPLACE_ME",
+  authDomain: "REPLACE_ME",
+  projectId: "REPLACE_ME",
+  storageBucket: "REPLACE_ME",
+  messagingSenderId: "REPLACE_ME",
+  appId: "REPLACE_ME",
+});
 
-    try {
-      const maybePromise = requestPermission(loggedInUser);
+// ✅ Messaging instance
+const messaging = firebase.messaging();
 
-      Promise.resolve(maybePromise)
-        .then(async (token) => {
-          const userId = String(loggedInUser?.id || "").trim();
-          const fcmToken = String(token || "").trim();
-          if (!userId || !fcmToken) return;
+/* ===========================
+   📩 Background message handler
+   =========================== */
+messaging.onBackgroundMessage(function (payload) {
+  // payload.notification is typical when sent via FCM notification fields
+  const title = payload?.notification?.title || "Lo Board";
+  const body = payload?.notification?.body || "";
 
-          const CACHE_KEY = `loBoard.fcmToken.${userId}`;
-          const last = String(localStorage.getItem(CACHE_KEY) || "").trim();
+  // Optional: attach a route so click can open correct page
+  const url =
+    payload?.data?.url ||
+    payload?.fcmOptions?.link ||
+    "/tickets";
 
-          // ✅ If the token didn’t change, don’t hit backend again
-          if (last === fcmToken) return;
+  const options = {
+    body,
+    icon: "/icon-192.png",
+    data: { url },
+  };
 
-          try {
-            const res = await fetch(`${API_BASE}/users/${userId}/fcmToken`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ fcmToken }),
-            });
+  self.registration.showNotification(title, options);
+});
 
-            if (res.ok) {
-              localStorage.setItem(CACHE_KEY, fcmToken);
-              localStorage.setItem(
-                `loBoard.fcmTokenSavedAt.${userId}`,
-                new Date().toISOString()
-              );
-            } else {
-              // Keep silent; token saving shouldn't break the app
-              console.warn("FCM token save failed:", res.status);
-            }
-          } catch {
-            // ignore network issues
+/* ===========================
+   🖱️ Notification click handler
+   - Opens the app (or focuses it) and navigates to url if provided
+   =========================== */
+self.addEventListener("notificationclick", function (event) {
+  event.notification.close();
+
+  const url = event?.notification?.data?.url || "/tickets";
+
+  event.waitUntil(
+    (async () => {
+      const allClients = await clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+
+      // If a tab is already open, focus it
+      for (const client of allClients) {
+        if ("focus" in client) {
+          client.focus();
+          // Optional: navigate open tab
+          if ("navigate" in client) {
+            try {
+              await client.navigate(url);
+            } catch {}
           }
-        })
-        .catch(() => {
-          // ignore token/permission errors
-        });
-    } catch {
-      // ignore
-    }
-  }, [ENABLE_FCM, loggedInUser?.id, loggedInUser?.name]);
+          return;
+        }
+      }
 
-  /* ===========================
-     🔔 FCM token sync ends here
-     =========================== */
+      // Otherwise open a new tab
+      if (clients.openWindow) {
+        return clients.openWindow(url);
+      }
+    })()
+  );
+});
