@@ -2301,7 +2301,7 @@ app.patch("/tickets/:id", async (req, res) => {
           ? `/tickets?ticketId=${encodeURIComponent(ticketId)}`
           : "/tickets";
 
-        const pushTitle = `Ticket Updated: ${newTicket.title}`;
+        const pushTitle = `Request Updated: ${newTicket.title}`;
         const pushBody =
           `One or more updates were made. Check filming, location, or assignment changes.`;
 
@@ -2333,7 +2333,7 @@ app.patch("/tickets/:id", async (req, res) => {
 
           const loc = String(newTicket?.location || "").trim();
 
-          const notifTitle = "Ticket updated";
+          const notifTitle = "Request updated";
           const notifMessage = `${newTicket?.title || "Untitled"}${
             when ? ` • ${when}` : ""
           }${loc ? ` • ${loc}` : ""}`;

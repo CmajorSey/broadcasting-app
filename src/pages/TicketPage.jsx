@@ -805,7 +805,7 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
       incoming === String(t?.title || "").trim() ||
       incoming.toLowerCase() === "changes saved." ||
       incoming.toLowerCase() === "changes saved" ||
-      incoming.toLowerCase() === "ticket updated";
+      incoming.toLowerCase() === "Request updated";
 
     const finalMessage = shouldAuto ? basicEnglish : incoming;
 
@@ -1014,7 +1014,7 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
 
       // ✅ Local/global emit (same-tab + same-origin broadcast)
          await fireTicketAlert({
-        title: "Ticket updated",
+        title: "Request updated",
         message: updatedTicket.title || "Changes saved.",
         action: "Updated",
         ticketId: updatedTicket.id,

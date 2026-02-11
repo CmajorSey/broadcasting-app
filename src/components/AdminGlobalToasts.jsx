@@ -226,7 +226,7 @@ export default function AdminGlobalToasts({ loggedInUser }) {
         : fleet
         ? "🚚 Fleet update"
         : ticket
-        ? "Ticket updated"
+        ? "Request updated"
         : "🔔 Notification");
 
     const message =
@@ -236,7 +236,7 @@ export default function AdminGlobalToasts({ loggedInUser }) {
         : fleet
         ? "A fleet update was posted."
         : ticket
-        ? "A ticket update was posted."
+        ? "A request update was posted."
         : "You have a new notification.");
 
     // 🔊 sound (best effort) — keep current behavior
