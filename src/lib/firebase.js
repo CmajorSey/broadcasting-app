@@ -23,12 +23,26 @@ const hasCoreMessagingConfig = (cfg) =>
 
 // Initialize (or reuse) the app only when config is complete
 const app = hasCoreMessagingConfig(firebaseConfig)
-  ? (getApps().length ? getApp() : initializeApp(firebaseConfig))
+  ? getApps().length
+    ? getApp()
+    : initializeApp(firebaseConfig)
   : null;
 
 // Lazily created messaging + SW registration
 let messaging = null;
 let swRegistration = null;
+
+/* ===========================
+   🧠 FCM singletons / dedupe guards
+   - Prevent double getToken calls (common in StrictMode / multiple callers)
+   - Prevent multiple foreground onMessage listeners
+   =========================== */
+let tokenCache = null; // last minted token (per tab session)
+let tokenPromise = null; // in-flight getToken promise
+
+let foregroundUnsub = null; // actual firebase onMessage unsub
+let foregroundInitPromise = null; // in-flight init promise
+const foregroundHandlers = new Set(); // fanout to many handlers with ONE FCM listener
 
 /**
  * Ensure FCM is supported, SW is ready, and create a Messaging instance.
@@ -50,8 +64,7 @@ async function prepareMessaging() {
       swRegistration =
         (await navigator.serviceWorker.getRegistration(
           "/firebase-messaging-sw.js"
-        )) ||
-        (await navigator.serviceWorker.register("/firebase-messaging-sw.js"));
+        )) || (await navigator.serviceWorker.register("/firebase-messaging-sw.js"));
       await navigator.serviceWorker.ready;
     } catch (swErr) {
       if (import.meta.env.DEV) {
@@ -94,14 +107,16 @@ console.log("Firebase Project ID:", import.meta.env.VITE_FIREBASE_PROJECT_ID);
  * Ask for permission only when appropriate and return the token (or null).
  * ✅ Default: prompt=false (safe for useEffect)
  * ✅ If prompt=true: will trigger Notification.requestPermission() when needed
+ *
+ * DEDUPE:
+ * - If multiple callers request a token at the same time, they will share ONE in-flight promise.
+ * - If a token is already minted during this tab session, return it immediately.
  */
 export const requestPermission = async (opts = {}) => {
   const { supported, registration, messaging: msg } = await prepareMessaging();
   if (!supported || !msg) return null;
 
   const prompt = opts?.prompt === true;
-
-  // ✅ Treat prompt=true as "interactive mode" → surface real errors
   const interactive = prompt === true;
 
   const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
@@ -113,14 +128,38 @@ export const requestPermission = async (opts = {}) => {
     return null;
   }
 
-  // ✅ Already granted → just get token
-  if (Notification.permission === "granted") {
-    try {
-      const token = await getToken(msg, {
+  const mintTokenOnce = async () => {
+    // ✅ Return cached token for this tab session
+    if (tokenCache) return tokenCache;
+
+    // ✅ Share the same in-flight promise across callers
+    if (tokenPromise) return await tokenPromise;
+
+    tokenPromise = (async () => {
+      const t = await getToken(msg, {
         vapidKey,
         serviceWorkerRegistration: registration,
       });
-      return token || null;
+      tokenCache = t || null;
+      return tokenCache;
+    })()
+      .catch((err) => {
+        // important: clear promise so future attempts can retry
+        tokenPromise = null;
+        throw err;
+      })
+      .finally(() => {
+        // clear promise after resolve (but keep cache)
+        tokenPromise = null;
+      });
+
+    return await tokenPromise;
+  };
+
+  // ✅ Already granted → just get token (deduped)
+  if (Notification.permission === "granted") {
+    try {
+      return await mintTokenOnce();
     } catch (err) {
       try {
         console.warn("FCM getToken failed:", err);
@@ -145,11 +184,7 @@ export const requestPermission = async (opts = {}) => {
     if (permission !== "granted") return null;
 
     try {
-      const token = await getToken(msg, {
-        vapidKey,
-        serviceWorkerRegistration: registration,
-      });
-      return token || null;
+      return await mintTokenOnce();
     } catch (err) {
       try {
         console.warn("FCM getToken failed after grant:", err);
@@ -170,37 +205,59 @@ export const requestPermission = async (opts = {}) => {
 
 /* ===========================
    📩 Foreground FCM subscription starts here
-   - AdminGlobalToasts uses this so FCM becomes another "input" to the same toast router
+   - SINGLE listener shared across the app (prevents duplicates)
+   - Multiple callers can subscribe; messages fan out to all handlers
    - Safe no-op if unsupported or not configured
    =========================== */
 export const subscribeToForegroundMessages = (handler) => {
-  let unsub = null;
+  if (typeof handler === "function") {
+    foregroundHandlers.add(handler);
+  }
 
-  (async () => {
-    try {
-      const { supported, messaging: msg } = await prepareMessaging();
-      if (!supported || !msg) return;
+  const initOnce = async () => {
+    const { supported, messaging: msg } = await prepareMessaging();
+    if (!supported || !msg) return;
 
-      // fcmOnMessage returns an unsubscribe function in Firebase v9+
-      unsub = fcmOnMessage(msg, (payload) => {
+    if (foregroundUnsub) return; // already listening
+
+    // One actual Firebase listener, fan-out to handler set
+    foregroundUnsub = fcmOnMessage(msg, (payload) => {
+      for (const h of Array.from(foregroundHandlers)) {
         try {
-          handler?.(payload);
+          h?.(payload);
         } catch (e) {
           if (import.meta.env.DEV) {
             console.warn("Foreground FCM handler error:", e);
           }
         }
-      });
-    } catch (e) {
-      if (import.meta.env.DEV) {
-        console.warn("subscribeToForegroundMessages failed:", e);
       }
-    }
-  })();
+    });
+  };
 
+  // ✅ Ensure only one init in-flight even if called twice quickly
+  if (!foregroundInitPromise) {
+    foregroundInitPromise = initOnce()
+      .catch((e) => {
+        if (import.meta.env.DEV) {
+          console.warn("subscribeToForegroundMessages failed:", e);
+        }
+      })
+      .finally(() => {
+        foregroundInitPromise = null;
+      });
+  }
+
+  // Cleanup removes the handler; if none left, unsubscribe the single listener
   return () => {
     try {
-      if (typeof unsub === "function") unsub();
+      if (typeof handler === "function") {
+        foregroundHandlers.delete(handler);
+      }
+
+      if (foregroundHandlers.size === 0 && typeof foregroundUnsub === "function") {
+        foregroundUnsub();
+        foregroundUnsub = null;
+      }
     } catch {
       // ignore
     }
@@ -212,4 +269,3 @@ export const subscribeToForegroundMessages = (handler) => {
 
 // Optional: export app and messaging reference (messaging may remain null until prepared)
 export { app, messaging };
-
