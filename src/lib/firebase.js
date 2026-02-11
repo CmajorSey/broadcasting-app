@@ -79,16 +79,9 @@ async function prepareMessaging() {
     return { supported: false };
   }
 }
-console.log(
-  "Firebase Project ID:",
-  import.meta.env.VITE_FIREBASE_PROJECT_ID
-);
 
+console.log("Firebase Project ID:", import.meta.env.VITE_FIREBASE_PROJECT_ID);
 
-/**
- * Ask for permission only when appropriate and return the token (or null).
- * Call this from a user action (e.g., button click).
- */
 /* ===========================
    🔔 FCM permission/token starts here
    IMPORTANT:
@@ -129,7 +122,6 @@ export const requestPermission = async (opts = {}) => {
       });
       return token || null;
     } catch (err) {
-      // In prod you were swallowing this; surface when user explicitly asked
       try {
         console.warn("FCM getToken failed:", err);
       } catch {
@@ -176,9 +168,48 @@ export const requestPermission = async (opts = {}) => {
    🔔 FCM permission/token ends here
    =========================== */
 
+/* ===========================
+   📩 Foreground FCM subscription starts here
+   - AdminGlobalToasts uses this so FCM becomes another "input" to the same toast router
+   - Safe no-op if unsupported or not configured
+   =========================== */
+export const subscribeToForegroundMessages = (handler) => {
+  let unsub = null;
 
-// Foreground messages helper (same signature)
-export const onMessage = fcmOnMessage;
+  (async () => {
+    try {
+      const { supported, messaging: msg } = await prepareMessaging();
+      if (!supported || !msg) return;
+
+      // fcmOnMessage returns an unsubscribe function in Firebase v9+
+      unsub = fcmOnMessage(msg, (payload) => {
+        try {
+          handler?.(payload);
+        } catch (e) {
+          if (import.meta.env.DEV) {
+            console.warn("Foreground FCM handler error:", e);
+          }
+        }
+      });
+    } catch (e) {
+      if (import.meta.env.DEV) {
+        console.warn("subscribeToForegroundMessages failed:", e);
+      }
+    }
+  })();
+
+  return () => {
+    try {
+      if (typeof unsub === "function") unsub();
+    } catch {
+      // ignore
+    }
+  };
+};
+/* ===========================
+   📩 Foreground FCM subscription ends here
+   =========================== */
 
 // Optional: export app and messaging reference (messaging may remain null until prepared)
 export { app, messaging };
+

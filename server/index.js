@@ -139,6 +139,10 @@ async function sendPushToUsers(users, title, message, opts = {}) {
   const ticketId = safeStr(opts.ticketId || "").trim();
   const timestamp = safeStr(opts.timestamp || new Date().toISOString()).trim();
 
+  // ✅ Optional: helps client route better + future "fetch-by-id" pattern
+  const kind = safeStr(opts.kind || opts.type || "").trim();
+  const notificationId = safeStr(opts.notificationId || "").trim();
+
   // FCM data must be STRING values
   const dataPayload = {
     title: safeStr(title),
@@ -150,10 +154,14 @@ async function sendPushToUsers(users, title, message, opts = {}) {
     url: safeStr(url),
     timestamp: safeStr(timestamp),
 
-    // Helpful for your App.jsx parsing
+    // Helpful for TicketPage deep-links
     ticketId: ticketId,
 
-    // Send as JSON string so App.jsx can parse
+    // Helpful for routing / dedupe / future pull-by-id
+    kind: safeStr(kind),
+    notificationId: safeStr(notificationId),
+
+    // Send as JSON string so frontend can parse
     recipients: JSON.stringify(recipients),
   };
 
@@ -177,7 +185,6 @@ async function sendPushToUsers(users, title, message, opts = {}) {
           headers: { Urgency: urgent ? "high" : "normal" },
           notification: {
             icon: "/logo.png",
-            // Extra compatibility: some browsers respect click_action
             click_action: url,
           },
         },
@@ -203,9 +210,6 @@ async function sendPushToUsers(users, title, message, opts = {}) {
 
     if (!res.ok) {
       console.error("❌ FCM send error:", res.status, json);
-
-      // Optional: if token is invalid/unregistered, log it (cleanup can be added later)
-      // Common FCM v1 error: "UNREGISTERED" in details
     }
 
     results.push({ token, status: res.status, ok: res.ok, body: json });
@@ -217,6 +221,8 @@ async function sendPushToUsers(users, title, message, opts = {}) {
     category,
     urgent,
     url,
+    kind: kind || null,
+    notificationId: notificationId || null,
   });
 }
 
