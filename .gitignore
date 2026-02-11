@@ -44,3 +44,6 @@ privatekey/
 **/*firebase*key*.json
 **/*.pem
 **/*.p12
+# Catch accidental doubled extensions / backups
+*.json.json
+*.backup.json
