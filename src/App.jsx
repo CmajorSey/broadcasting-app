@@ -228,10 +228,31 @@ function App() {
       }
     };
 
+    /* ===========================
+       🗓️ Rosters initial fetch
+       =========================== */
+    const loadRosters = async () => {
+      try {
+        // Note: your backend currently returns "Cannot GET /rosters"
+        // This will quietly fail until the route exists.
+        const res = await fetch(`${API_BASE}/rosters`);
+        if (!res.ok) throw new Error(`Failed to load rosters (${res.status})`);
+
+        const data = await res.json().catch(() => null);
+        // Only set if your App.jsx actually has setRosters in scope
+        if (typeof setRosters === "function") {
+          setRosters(data);
+        }
+      } catch (err) {
+        console.warn("Rosters not available yet:", err?.message || err);
+      }
+    };
+
     // Fire all initial loads
     loadUsers();
     loadTickets();
     loadVehicles();
+    loadRosters();
   }, []);
 
 

@@ -547,6 +547,24 @@ const writeRostersSafe = (obj) => {
   }
 };
 
+// ✅ GET all rosters (keys only + counts) — helps health checks + frontend bootstraps
+app.get("/rosters", (req, res) => {
+  try {
+    const store = readRostersSafe(); // object map
+    const keys = Object.keys(store || {}).sort();
+
+    const summary = keys.map((weekStart) => ({
+      weekStart,
+      days: Array.isArray(store[weekStart]) ? store[weekStart].length : 0,
+    }));
+
+    return res.json(summary);
+  } catch (e) {
+    console.error("GET /rosters failed:", e);
+    return res.status(200).json([]); // keep frontend safe
+  }
+});
+
 // ✅ GET roster for a week (array; never 404 for missing week)
 app.get("/rosters/:weekStart", (req, res) => {
   try {
@@ -602,9 +620,6 @@ app.patch("/rosters/:weekStart", (req, res) => {
 /* ===========================
    📅 Rosters API ends here
    =========================== */
-
-
-
 
 console.log("🚨 ROUTE CHECKPOINT 2");
 console.log("🚨 ROUTE CHECKPOINT 3");
@@ -1879,9 +1894,8 @@ app.patch("/users/:id/last-online", (req, res) => {
      - users[idx].fcmTokens = unique list of tokens (array)
    =========================== */
 
-// ✅ Save/refresh a user's FCM token (Web/Android)
-// Body: { fcmToken: string }
-app.patch("/users/:id/fcmToken", (req, res) => {
+// ✅ Shared handler (used by both routes below)
+const saveFcmTokenForUser = (req, res) => {
   const { id } = req.params;
   const token = String(req.body?.fcmToken || "").trim();
 
@@ -1920,12 +1934,17 @@ app.patch("/users/:id/fcmToken", (req, res) => {
     console.error("Failed to save fcmToken:", err);
     return res.status(500).json({ error: "Failed to save fcmToken" });
   }
-});
+};
+
+// ✅ Primary route (current frontend)
+app.patch("/users/:id/fcmToken", saveFcmTokenForUser);
+
+// ✅ Alias route (prevents older clients / typos from 404’ing)
+app.patch("/users/:id/fcm-token", saveFcmTokenForUser);
 
 /* ===========================
    🔔 FCM token save ends here
    =========================== */
-
 
 // Ensure every user has an id
 const usersFixed = readUsersSafe().map(u => {
