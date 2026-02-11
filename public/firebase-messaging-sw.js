@@ -2,25 +2,25 @@
 
 /* ===========================
    🔔 FCM Service Worker starts here
-   - IMPORTANT: Service Worker must use worker-safe Firebase scripts
-   - ✅ Use gstatic CDN worker scripts only (simple + reliable)
-   - ✅ Web app config here is PUBLIC (safe to embed)
    =========================== */
 
-(function loadFirebaseWorkerScripts() {
-  const cdnApp = "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
-  const cdnMsg =
-    "https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-sw.js";
-
-  try {
-    importScripts(cdnApp, cdnMsg);
-    // eslint-disable-next-line no-undef
-    console.log("✅ FCM SW: loaded Firebase worker scripts from gstatic CDN");
-  } catch (e) {
-    // eslint-disable-next-line no-undef
-    console.error("❌ FCM SW: failed to load Firebase worker scripts.", e);
-  }
-})();
+/* ===========================
+   📦 Firebase worker scripts (TOP-LEVEL ONLY)
+   =========================== */
+try {
+  // ✅ Worker-safe compat builds
+  importScripts(
+    "https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"
+  );
+  importScripts(
+    "https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js"
+  );
+  // eslint-disable-next-line no-undef
+  console.log("✅ FCM SW: loaded Firebase compat worker scripts from gstatic CDN");
+} catch (e) {
+  // eslint-disable-next-line no-undef
+  console.error("❌ FCM SW: failed to load Firebase worker scripts.", e);
+}
 
 // Guard: if scripts failed, avoid crashing the whole SW file
 // eslint-disable-next-line no-undef
@@ -30,8 +30,6 @@ if (typeof firebase === "undefined") {
 } else {
   /* ===========================
      🔐 Firebase Web App config (PUBLIC)
-     - This matches your Netlify VITE_FIREBASE_* values
-     - Safe to embed in SW (NOT a service account)
      =========================== */
   // eslint-disable-next-line no-undef
   firebase.initializeApp({
@@ -59,7 +57,8 @@ if (typeof firebase === "undefined") {
       const body = n.body || d.body || d.message || "";
       const icon = d.icon || n.icon || "/logo.png";
 
-      const rawUrl = d.url || n.click_action || "/";
+      // Prefer explicit click link (FCM v1 webpush.fcmOptions.link) if you send it
+      const rawUrl = d.url || d.link || n.click_action || "/";
       const url = new URL(rawUrl, self.location.origin).toString();
 
       self.registration.showNotification(title, {
