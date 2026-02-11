@@ -1694,25 +1694,69 @@ app.post("/tickets", async (req, res) => {
     const reporter = getUserByName(reporterName);
     if (reporter) recipients.add(reporter);
 
-     // Send push
+      // Send push + write in-app notification (for live poll toasts)
     if (recipients.size > 0) {
-      const title = `🎥 New Ticket: ${newTicket.title}`;
-      const message = `You have been assigned to a new request on ${newTicket.date?.split("T")[0]}.`;
-
       const urgent =
         newTicket?.priority === "Urgent" ||
         newTicket?.priority === "High" ||
         newTicket?.urgent === true;
 
       const ticketId = String(newTicket?.id || "").trim();
-      const url = ticketId ? `/tickets?ticketId=${encodeURIComponent(ticketId)}` : "/tickets";
+      const url = ticketId
+        ? `/tickets?ticketId=${encodeURIComponent(ticketId)}`
+        : "/tickets";
 
-      await sendPushToUsers([...recipients], title, message, {
+      // ✅ Push title/body (FCM)
+      const pushTitle = `🎥 New Ticket: ${newTicket.title}`;
+      const pushBody = `You have been assigned to a new request on ${newTicket.date?.split("T")[0]}.`;
+
+      await sendPushToUsers([...recipients], pushTitle, pushBody, {
         category: "ticket",
         urgent,
         ticketId,
         url,
       });
+
+      // ✅ In-app notification (poll + inbox)
+      try {
+        const recArr = Array.from(recipients);
+
+        const recIds = recArr
+          .map((u) => String(u?.id || "").trim())
+          .filter(Boolean);
+
+        const recNames = recArr
+          .map((u) => String(u?.name || "").trim())
+          .filter(Boolean);
+
+        const notifRecipients = Array.from(new Set([...recIds, ...recNames]));
+
+        const when =
+          typeof newTicket?.date === "string" && newTicket.date.includes("T")
+            ? newTicket.date.replace("T", " ")
+            : String(newTicket?.date || "").trim();
+
+        const loc = String(newTicket?.location || "").trim();
+
+        const notifTitle = "🆕 New Request Created";
+        const notifMessage = `${newTicket?.title || "Untitled"}${
+          when ? ` • ${when}` : ""
+        }${loc ? ` • ${loc}` : ""}`;
+
+        // Uses your existing safe helpers
+        const allNotifs = readNotifsSafe();
+        allNotifs.push({
+          title: notifTitle,
+          message: notifMessage,
+          recipients: notifRecipients,
+          timestamp: new Date().toISOString(),
+          category: "ticket",
+          urgent: !!urgent,
+        });
+        writeNotifsSafe(allNotifs);
+      } catch (e) {
+        console.warn("⚠️ In-app ticket notification write failed (non-fatal):", e?.message || e);
+      }
     }
 
     res.status(201).json(newTicket);
@@ -1866,24 +1910,67 @@ app.patch("/tickets/:id", async (req, res) => {
         }
       }
 
-           if (recipients.size > 0) {
-        const title = `Ticket Updated: ${newTicket.title}`;
-        const message = `One or more updates were made. Check filming, location, or assignment changes.`;
-
+            if (recipients.size > 0) {
         const urgent =
           newTicket?.priority === "Urgent" ||
           newTicket?.priority === "High" ||
           newTicket?.urgent === true;
 
         const ticketId = String(newTicket?.id || "").trim();
-        const url = ticketId ? `/tickets?ticketId=${encodeURIComponent(ticketId)}` : "/tickets";
+        const url = ticketId
+          ? `/tickets?ticketId=${encodeURIComponent(ticketId)}`
+          : "/tickets";
 
-        await sendPushToUsers([...recipients], title, message, {
+        const pushTitle = `Ticket Updated: ${newTicket.title}`;
+        const pushBody =
+          `One or more updates were made. Check filming, location, or assignment changes.`;
+
+        await sendPushToUsers([...recipients], pushTitle, pushBody, {
           category: "ticket",
           urgent,
           ticketId,
           url,
         });
+
+        // ✅ In-app notification (poll + inbox)
+        try {
+          const recArr = Array.from(recipients);
+
+          const recIds = recArr
+            .map((u) => String(u?.id || "").trim())
+            .filter(Boolean);
+
+          const recNames = recArr
+            .map((u) => String(u?.name || "").trim())
+            .filter(Boolean);
+
+          const notifRecipients = Array.from(new Set([...recIds, ...recNames]));
+
+          const when =
+            typeof newTicket?.date === "string" && newTicket.date.includes("T")
+              ? newTicket.date.replace("T", " ")
+              : String(newTicket?.date || "").trim();
+
+          const loc = String(newTicket?.location || "").trim();
+
+          const notifTitle = "Ticket updated";
+          const notifMessage = `${newTicket?.title || "Untitled"}${
+            when ? ` • ${when}` : ""
+          }${loc ? ` • ${loc}` : ""}`;
+
+          const allNotifs = readNotifsSafe();
+          allNotifs.push({
+            title: notifTitle,
+            message: notifMessage,
+            recipients: notifRecipients,
+            timestamp: new Date().toISOString(),
+            category: "ticket",
+            urgent: !!urgent,
+          });
+          writeNotifsSafe(allNotifs);
+        } catch (e) {
+          console.warn("⚠️ In-app ticket update notification write failed (non-fatal):", e?.message || e);
+        }
       }
     } catch (notifyErr) {
       // Don't fail the request just because notifications errored

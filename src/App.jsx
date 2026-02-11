@@ -536,8 +536,32 @@ function App() {
        =========================== */
 
     const poll = async () => {
+      // 💤 Skip when tab is hidden to reduce network/battery
+      if (document.hidden) return;
+
       try {
-        const res = await fetch(`${API_BASE}/notifications`);
+        // -----------------------------
+        // 🔄 Polling watermark (self-healing)
+        // -----------------------------
+        const LAST_SEEN_KEY = "loBoard.lastSeenNotifTs.global";
+
+        const now = Date.now();
+        let lastSeen = Number(localStorage.getItem(LAST_SEEN_KEY) || 0);
+
+        // ✅ If lastSeen is somehow in the future (device clock / old bad value),
+        // reset it so users don't miss all live toasts forever.
+        if (Number.isFinite(lastSeen) && lastSeen > now + 5 * 60 * 1000) {
+          lastSeen = 0;
+          localStorage.setItem(LAST_SEEN_KEY, "0");
+        }
+
+        const afterISO =
+          lastSeen > 0 ? new Date(lastSeen).toISOString() : new Date(0).toISOString();
+
+        const res = await fetch(
+          `${API_BASE}/notifications?after=${encodeURIComponent(afterISO)}`
+        );
+
         if (!res.ok) {
           setDebugBanner((prev) => ({
             ...(prev || {}),
@@ -551,26 +575,14 @@ function App() {
         const all = await res.json().catch(() => []);
         const list = Array.isArray(all) ? all : [];
 
-        const norm = (v) => String(v || "").trim().toLowerCase();
-
-        const myNameNorm = norm(myName);
-        const myIdNorm = myId ? norm(myId) : "";
-
-        // ✅ Support: name, id, ALL/*, admin/admins, and (optional) section
-        const section =
-          String(
+        const mine = list.filter((n) => {
+          const section = String(
             effectiveUser?.section ||
               effectiveUser?.description ||
               effectiveUser?.team ||
               ""
           ).trim();
-        const sectionNorm = section ? norm(section) : "";
 
-        const isAdminUser = Array.isArray(effectiveUser?.roles)
-          ? effectiveUser.roles.map(norm).includes("admin")
-          : false;
-
-               const mine = list.filter((n) => {
           return recipientsMatchUser({
             recipients: n?.recipients,
             userName: myName,
@@ -580,6 +592,7 @@ function App() {
           });
         });
 
+        // ✅ Apply local dismiss filters (same behavior as before)
         const dismissedRaw =
           JSON.parse(localStorage.getItem("dismissedNotifications") || "[]") || [];
         const dismissed = new Set(
@@ -602,10 +615,18 @@ function App() {
             return tb - ta;
           });
 
+        // ✅ Update unread bubble count from what we got
         syncUnread(visible);
+
+        // ✅ Fire alerts for the NEW batch only
+        let maxTs = lastSeen;
 
         for (const n of visible) {
           if (cancelled) break;
+
+          const ts = new Date(n?.timestamp || n?._ts || n?.ts || 0).getTime();
+          if (Number.isFinite(ts) && ts > maxTs) maxTs = ts;
+
           await fireGlobalAlert({
             ...n,
             __source: "poll",
@@ -613,11 +634,16 @@ function App() {
           });
         }
 
+        // ✅ Advance watermark based on what we processed
+        if (Number.isFinite(maxTs) && maxTs > lastSeen) {
+          localStorage.setItem(LAST_SEEN_KEY, String(maxTs));
+        }
+
         setDebugBanner((prev) => ({
           ...(prev || {}),
           at: new Date().toISOString(),
           source: "poll",
-          note: `OK (${visible.length} visible)`,
+          note: `OK (+${visible.length} new)`,
         }));
       } catch (err) {
         setDebugBanner((prev) => ({
