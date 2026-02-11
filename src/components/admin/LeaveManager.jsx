@@ -820,7 +820,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     const payload = {
       title: String(title || "Leave update"),
       message: String(message || ""),
-      recipients: [uid], // ✅ FIX: required by backend
+      recipients: [uid], // ✅ required by backend
 
       // Normalized meta used by your toast/sound rules
       urgent: !!urgent,
@@ -836,11 +836,11 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
       ...extra,
     };
 
-    const tryPost = async (url) => {
+    const tryPost = async (url, body) => {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) {
@@ -850,19 +850,67 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
       return true;
     };
 
+    const tryPush = async () => {
+      // Keep push schema flexible; backend can ignore unknown fields safely
+      const pushBody = {
+        title: payload.title,
+        body: payload.message,
+        message: payload.message,
+
+        // allow backend to resolve userId/name/roles to tokens
+        recipients: payload.recipients,
+
+        category: "leave",
+        urgent: !!urgent,
+        actor: payload.createdByName || "Admin",
+
+        data: {
+          category: "leave",
+          urgent: !!urgent,
+          userId: uid,
+          type: "leave",
+          ...(extra?.data || {}),
+        },
+      };
+
+      // Try a few likely push routes (first one that exists will work)
+      try {
+        if (await tryPost(`${API_BASE}/push`, pushBody)) return true;
+      } catch {}
+      try {
+        if (await tryPost(`${API_BASE}/push/send`, pushBody)) return true;
+      } catch {}
+      try {
+        if (await tryPost(`${API_BASE}/notifications/push`, pushBody)) return true;
+      } catch {}
+
+      return false;
+    };
+
     try {
       // ✅ Primary (your backend index.js supports this)
-      return await tryPost(`${API_BASE}/notifications`);
+      const ok = await tryPost(`${API_BASE}/notifications`, payload);
+
+      // ✅ Also try PUSH (non-fatal)
+      await tryPush();
+
+      return ok;
     } catch (e1) {
       try {
         // ✅ Fallback (older builds / alias route)
-        return await tryPost(`${API_BASE}/notifications/send`);
+        const ok = await tryPost(`${API_BASE}/notifications/send`, payload);
+
+        // ✅ Also try PUSH (non-fatal)
+        await tryPush();
+
+        return ok;
       } catch (e2) {
         console.warn("Leave notification failed (non-fatal):", e2?.message || e2);
         return false;
       }
     }
   };
+
 
   // ✅ Public holidays (YYYY-MM-DD) used for universal "return to work" + calculations
   const [publicHolidays, setPublicHolidays] = useState([]);

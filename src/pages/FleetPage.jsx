@@ -40,23 +40,25 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
      * - actor === loggedInUser → toast only, no sound
      * - others → toast + sound (if enabled)
      */
+    const recipients = [
+      actor,
+
+      // Driver buckets
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+
+      // Admin buckets
+      "Admins",
+      "admins",
+      "admin",
+    ];
+
     const payload = {
       title,
       message,
-      recipients: [
-        actor,
-
-        // Driver buckets
-        "Drivers",
-        "drivers",
-        "driver",
-        "driver_limited",
-
-        // Admin buckets
-        "Admins",
-        "admins",
-        "admin",
-      ],
+      recipients,
       timestamp: new Date().toISOString(),
       category: "fleet",
       urgent: !!urgent,
@@ -65,11 +67,56 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
       actor,
     };
 
+    // 1) ✅ Always write to your backend notification feed (existing behavior)
     await fetch(`${API_BASE}/notifications`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+
+    // 2) ✅ ALSO attempt PUSH (non-blocking, safe fallback)
+    //    - Uses the same recipients list
+    //    - Tries common endpoints; ignores failures so Fleet never breaks
+    const pushBody = {
+      title,
+      body: message,
+      message,
+      recipients, // allow backend to resolve roles -> users -> tokens
+      category: "fleet",
+      urgent: !!urgent,
+      actor,
+      data: {
+        category: "fleet",
+        urgent: !!urgent,
+        actor,
+      },
+    };
+
+    const tryPush = async (url) => {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pushBody),
+        });
+        return !!res?.ok;
+      } catch {
+        return false;
+      }
+    };
+
+    // Try a few likely push routes (first one that exists will work)
+    // NOTE: If none exist yet, this does nothing (still safe).
+    const ok =
+      (await tryPush(`${API_BASE}/push`)) ||
+      (await tryPush(`${API_BASE}/push/send`)) ||
+      (await tryPush(`${API_BASE}/notifications/push`));
+
+    if (!ok && import.meta.env.DEV) {
+      console.warn(
+        "Fleet push not sent (no push endpoint matched). Feed/toasts still OK."
+      );
+    }
   } catch (err) {
     // Never break Fleet if notifications fail
     console.warn("Fleet notification failed (non-blocking):", err);

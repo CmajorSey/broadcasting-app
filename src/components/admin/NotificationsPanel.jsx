@@ -283,7 +283,7 @@ export default function NotificationsPanel({ loggedInUser }) {
     }
   };
 
-  // ------- compose/send -------
+ // ------- compose/send -------
   const resolveRecipients = () => {
     // If user names were explicitly picked, send those
     if (selectedUsers.length > 0) {
@@ -331,6 +331,33 @@ export default function NotificationsPanel({ loggedInUser }) {
       createdAt: ts,
     };
 
+    // PUSH body kept flexible (backend can ignore unknown fields)
+    const pushBody = {
+      title,
+      body: message,
+      message,
+      recipients,
+      category: "admin",
+      urgent: urgent === true,
+      data: {
+        category: "admin",
+        urgent: urgent === true,
+      },
+    };
+
+    const tryPush = async (url) => {
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pushBody),
+        });
+        return !!r?.ok;
+      } catch {
+        return false;
+      }
+    };
+
     try {
       const res = await fetch(`${API_BASE}/notifications`, {
         method: "POST",
@@ -339,6 +366,21 @@ export default function NotificationsPanel({ loggedInUser }) {
       });
 
       if (!res.ok) throw new Error("Failed to send message");
+
+      // ✅ Try PUSH (non-fatal)
+      await (async () => {
+        const ok =
+          (await tryPush(`${API_BASE}/push`)) ||
+          (await tryPush(`${API_BASE}/push/send`)) ||
+          (await tryPush(`${API_BASE}/notifications/push`));
+
+        // Optional dev hint
+        if (!ok && import.meta.env.DEV) {
+          console.warn(
+            "Admin push not sent (no push endpoint matched). Feed/toasts still OK."
+          );
+        }
+      })();
 
       toast({ title: "Message sent!" });
 
@@ -734,6 +776,7 @@ function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions 
      - When admin marks a suggestion as "reviewed" OR saves a response,
        notify the original user via backend /notifications.
      - This ensures inbox works even if they are offline.
+     - ALSO sends PUSH (FCM) when backend supports it.
      =========================== */
   const sendSuggestionNotification = async (opts) => {
     try {
@@ -760,10 +803,10 @@ function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions 
 
       if (kind === "responded") {
         title = "✅ Suggestion Response";
-        message = `Response to your suggestion: “${short(suggestionMessage, 90)}” • Reply: “${short(
-          responseText,
-          110
-        )}”`;
+        message = `Response to your suggestion: “${short(
+          suggestionMessage,
+          90
+        )}” • Reply: “${short(responseText, 110)}”`;
       }
 
       const payload = {
@@ -775,14 +818,51 @@ function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions 
         urgent: false,
       };
 
-      // Persist it (so MyProfile inbox / global poll sees it)
+      // 1) Persist it (so MyProfile inbox / global poll sees it)
       await fetch(`${API_BASE}/notifications`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       }).catch(() => null);
 
-      // Also emit locally so App.jsx can alert immediately for the admin session if it matches.
+      // 2) ALSO attempt PUSH (non-blocking)
+      //    - If your backend doesn't have a push endpoint yet, this fails silently.
+      const pushBody = {
+        title,
+        body: message,
+        message,
+        recipients: [name],
+        category: "suggestion",
+        urgent: false,
+        data: {
+          category: "suggestion",
+          kind: kind || "",
+        },
+      };
+
+      const tryPush = async (url) => {
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(pushBody),
+          });
+          return !!res?.ok;
+        } catch {
+          return false;
+        }
+      };
+
+      // Try a few likely push routes (first one that exists will work)
+      await (async () => {
+        const ok =
+          (await tryPush(`${API_BASE}/push`)) ||
+          (await tryPush(`${API_BASE}/push/send`)) ||
+          (await tryPush(`${API_BASE}/notifications/push`));
+        return ok;
+      })();
+
+      // 3) Also emit locally so App.jsx can alert immediately for the admin session if it matches.
       try {
         window.dispatchEvent(
           new CustomEvent("loBoard:notify", {
@@ -799,6 +879,7 @@ function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions 
   /* ===========================
      🔔 Suggestion → Notification wiring ends here
      =========================== */
+
 
   const filtered = useMemo(() => {
     const list = Array.isArray(suggestions) ? suggestions.slice() : [];
