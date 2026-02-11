@@ -2,25 +2,26 @@
 
 /* ===========================
    🔔 FCM Service Worker starts here
+   ✅ FIX: importScripts must run at top-level (not after install)
+   ✅ FIX: use compat worker scripts for service worker
    =========================== */
 
-/* ===========================
-   📦 Firebase worker scripts (TOP-LEVEL ONLY)
-   =========================== */
-try {
-  // ✅ Worker-safe compat builds
-  importScripts(
-    "https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"
-  );
-  importScripts(
-    "https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js"
-  );
-  // eslint-disable-next-line no-undef
-  console.log("✅ FCM SW: loaded Firebase compat worker scripts from gstatic CDN");
-} catch (e) {
-  // eslint-disable-next-line no-undef
-  console.error("❌ FCM SW: failed to load Firebase worker scripts.", e);
-}
+/**
+ * IMPORTANT:
+ * Chrome can throw:
+ * "importScripts() of new scripts after service worker installation is not allowed."
+ *
+ * The safest pattern is:
+ * ✅ importScripts at TOP LEVEL (not inside a function/try wrapper that might run later)
+ * ✅ use firebase-*-compat builds in service worker
+ */
+
+// ✅ Top-level imports (worker-safe)
+importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js");
+importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js");
+
+// eslint-disable-next-line no-undef
+console.log("✅ FCM SW: loaded Firebase compat worker scripts from gstatic CDN");
 
 // Guard: if scripts failed, avoid crashing the whole SW file
 // eslint-disable-next-line no-undef
@@ -30,6 +31,8 @@ if (typeof firebase === "undefined") {
 } else {
   /* ===========================
      🔐 Firebase Web App config (PUBLIC)
+     - This matches your Netlify VITE_FIREBASE_* values
+     - Safe to embed in SW (NOT a service account)
      =========================== */
   // eslint-disable-next-line no-undef
   firebase.initializeApp({
@@ -57,8 +60,7 @@ if (typeof firebase === "undefined") {
       const body = n.body || d.body || d.message || "";
       const icon = d.icon || n.icon || "/logo.png";
 
-      // Prefer explicit click link (FCM v1 webpush.fcmOptions.link) if you send it
-      const rawUrl = d.url || d.link || n.click_action || "/";
+      const rawUrl = d.url || n.click_action || "/";
       const url = new URL(rawUrl, self.location.origin).toString();
 
       self.registration.showNotification(title, {
@@ -90,7 +92,6 @@ if (typeof firebase === "undefined") {
           includeUncontrolled: true,
         });
 
-        // Try to reuse an existing same-origin tab first
         for (const client of allClients) {
           try {
             const clientUrl = client?.url ? new URL(client.url) : null;
@@ -98,14 +99,11 @@ if (typeof firebase === "undefined") {
             if (clientUrl && clientUrl.origin === self.location.origin) {
               if ("focus" in client) await client.focus();
 
-              // Navigate in-place when supported (prevents duplicate tabs)
               if ("navigate" in client) {
                 await client.navigate(url);
                 return;
               }
 
-              // If navigate isn't supported, we at least focused a Lo Board tab
-              // so we can stop here to avoid opening duplicates.
               return;
             }
           } catch {
@@ -113,7 +111,6 @@ if (typeof firebase === "undefined") {
           }
         }
 
-        // No existing tab → open a new one
         return clients.openWindow(url);
       })()
     );
