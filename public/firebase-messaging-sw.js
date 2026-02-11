@@ -1,122 +1,64 @@
 /* public/firebase-messaging-sw.js */
 
-/* ===========================
-   🔔 FCM Service Worker starts here
-   ✅ FIX: importScripts must run at top-level (not after install)
-   ✅ FIX: use compat worker scripts for service worker
-   =========================== */
-
-/**
- * IMPORTANT:
- * Chrome can throw:
- * "importScripts() of new scripts after service worker installation is not allowed."
- *
- * The safest pattern is:
- * ✅ importScripts at TOP LEVEL (not inside a function/try wrapper that might run later)
- * ✅ use firebase-*-compat builds in service worker
- */
-
-// ✅ Top-level imports (worker-safe)
-importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js");
-importScripts("https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js");
-
-// eslint-disable-next-line no-undef
-console.log("✅ FCM SW: loaded Firebase compat worker scripts from gstatic CDN");
-
-// Guard: if scripts failed, avoid crashing the whole SW file
-// eslint-disable-next-line no-undef
-if (typeof firebase === "undefined") {
-  // eslint-disable-next-line no-undef
-  console.error("❌ FCM SW: firebase is undefined (scripts failed).");
-} else {
   /* ===========================
-     🔐 Firebase Web App config (PUBLIC)
-     - This matches your Netlify VITE_FIREBASE_* values
-     - Safe to embed in SW (NOT a service account)
+     🔔 FCM token sync starts here
+     - (DISABLED for now) You said you're focusing on classic toasts first.
+     - This avoids 404s if backend users routes aren't mounted on Render yet.
+     - Re-enable later when you're ready to test FCM end-to-end.
      =========================== */
-  // eslint-disable-next-line no-undef
-  firebase.initializeApp({
-    apiKey: "AIzaSyDB2mejIIrbi8cDXGanMiSogE9VmG4MsG8",
-    authDomain: "loboard-notifications.firebaseapp.com",
-    projectId: "loboard-notifications",
-    storageBucket: "loboard-notifications.firebasestorage.app",
-    messagingSenderId: "302425553477",
-    appId: "1:302425553477:web:32e35c1c2e22c96793012c",
-  });
 
-  // eslint-disable-next-line no-undef
-  const messaging = firebase.messaging();
+  // ✅ Feature flag: keep FCM OFF until backend/users routes + SW are fully confirmed
+  const ENABLE_FCM = false;
 
-  /* ===========================
-     📩 Background messages (tab closed)
-     - Works for notification + data payloads
-     =========================== */
-  messaging.onBackgroundMessage((payload) => {
+  useEffect(() => {
+    if (!ENABLE_FCM) return;
+
+    if (!loggedInUser?.id || !String(loggedInUser?.id).trim()) return;
+
     try {
-      const n = payload?.notification || {};
-      const d = payload?.data || {};
+      const maybePromise = requestPermission(loggedInUser);
 
-      const title = n.title || d.title || "Lo Board";
-      const body = n.body || d.body || d.message || "";
-      const icon = d.icon || n.icon || "/logo.png";
+      Promise.resolve(maybePromise)
+        .then(async (token) => {
+          const userId = String(loggedInUser?.id || "").trim();
+          const fcmToken = String(token || "").trim();
+          if (!userId || !fcmToken) return;
 
-      const rawUrl = d.url || n.click_action || "/";
-      const url = new URL(rawUrl, self.location.origin).toString();
+          const CACHE_KEY = `loBoard.fcmToken.${userId}`;
+          const last = String(localStorage.getItem(CACHE_KEY) || "").trim();
 
-      self.registration.showNotification(title, {
-        body,
-        icon,
-        data: { ...d, url },
-      });
+          // ✅ If the token didn’t change, don’t hit backend again
+          if (last === fcmToken) return;
+
+          try {
+            const res = await fetch(`${API_BASE}/users/${userId}/fcmToken`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fcmToken }),
+            });
+
+            if (res.ok) {
+              localStorage.setItem(CACHE_KEY, fcmToken);
+              localStorage.setItem(
+                `loBoard.fcmTokenSavedAt.${userId}`,
+                new Date().toISOString()
+              );
+            } else {
+              // Keep silent; token saving shouldn't break the app
+              console.warn("FCM token save failed:", res.status);
+            }
+          } catch {
+            // ignore network issues
+          }
+        })
+        .catch(() => {
+          // ignore token/permission errors
+        });
     } catch {
       // ignore
     }
-  });
+  }, [ENABLE_FCM, loggedInUser?.id, loggedInUser?.name]);
 
   /* ===========================
-     🖱️ Notification click behavior
-     - Focus an existing Lo Board tab if present
-     - Navigate it to the target URL when possible
-     - Otherwise open a new window
+     🔔 FCM token sync ends here
      =========================== */
-  self.addEventListener("notificationclick", (event) => {
-    event.notification?.close();
-
-    const rawUrl = event?.notification?.data?.url || "/";
-    const url = new URL(rawUrl, self.location.origin).toString();
-
-    event.waitUntil(
-      (async () => {
-        const allClients = await clients.matchAll({
-          type: "window",
-          includeUncontrolled: true,
-        });
-
-        for (const client of allClients) {
-          try {
-            const clientUrl = client?.url ? new URL(client.url) : null;
-
-            if (clientUrl && clientUrl.origin === self.location.origin) {
-              if ("focus" in client) await client.focus();
-
-              if ("navigate" in client) {
-                await client.navigate(url);
-                return;
-              }
-
-              return;
-            }
-          } catch {
-            // ignore
-          }
-        }
-
-        return clients.openWindow(url);
-      })()
-    );
-  });
-}
-
-/* ===========================
-   🔔 FCM Service Worker ends here
-   =========================== */

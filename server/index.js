@@ -143,6 +143,13 @@ async function sendPushToUsers(users, title, message, opts = {}) {
   const kind = safeStr(opts.kind || opts.type || "").trim();
   const notificationId = safeStr(opts.notificationId || "").trim();
 
+  // ✅ Important for Web Push icons:
+  // Use an absolute URL to your Netlify site so the icon loads reliably.
+  // (Relative "/logo.png" from the FCM notification may not resolve as expected.)
+  const icon =
+    safeStr(opts.icon).trim() ||
+    "https://loboard.netlify.app/logo.png";
+
   // FCM data must be STRING values
   const dataPayload = {
     title: safeStr(title),
@@ -175,17 +182,22 @@ async function sendPushToUsers(users, title, message, opts = {}) {
       message: {
         token,
 
-        // ✅ Keep notification block (best for visible notifications)
+        // ✅ Visible notification (good default)
         notification: { title, body: message },
 
-        // ✅ Data makes it work for BOTH foreground + background routing
+        // ✅ Data enables routing in foreground + in SW click handler
         data: dataPayload,
 
         webpush: {
           headers: { Urgency: urgent ? "high" : "normal" },
+
+          // ✅ Correct way to set the click destination for Web Push via FCM v1:
+          // The browser opens this link when the notification is clicked.
+          // (More reliable than click_action inside notification.)
+          fcm_options: { link: url },
+
           notification: {
-            icon: "/logo.png",
-            click_action: url,
+            icon,
           },
         },
       },
@@ -225,7 +237,6 @@ async function sendPushToUsers(users, title, message, opts = {}) {
     notificationId: notificationId || null,
   });
 }
-
 /* ===========================
    🔔 FCM push sender ends here
    =========================== */

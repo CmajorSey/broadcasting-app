@@ -1016,10 +1016,20 @@ fireGlobalAlert,
      🔔 FCM token sync ends here
      =========================== */
 
-  // ✅ NEW: Heartbeat that stamps "lastOnline" for the logged-in user
+    // ✅ NEW: Heartbeat that stamps "lastOnline" for the logged-in user
   const onlineHeartbeatRef = useRef(null);
 
+  /* ===========================
+     🟢 Last-online heartbeat starts here
+     - (DISABLED for now) Prevents Render 404 spam until /users routes are confirmed
+     - Re-enable later once backend has PATCH /users/:id/last-online
+     =========================== */
+
+  const ENABLE_LAST_ONLINE = false;
+
   useEffect(() => {
+    if (!ENABLE_LAST_ONLINE) return;
+
     // Clear any existing timer first
     if (onlineHeartbeatRef.current) {
       clearInterval(onlineHeartbeatRef.current);
@@ -1050,7 +1060,12 @@ fireGlobalAlert,
         onlineHeartbeatRef.current = null;
       }
     };
-  }, [loggedInUser?.id]);
+  }, [ENABLE_LAST_ONLINE, loggedInUser?.id]);
+
+  /* ===========================
+     🟢 Last-online heartbeat ends here
+     =========================== */
+
 
   // 📦 Changelog Dialog logic
   const [showChangelog, setShowChangelog] = useState(() => {
