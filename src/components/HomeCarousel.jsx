@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import ChangelogDialog from "@/components/ChangelogDialog";
 import DutyBadge from "@/components/DutyBadge";
 import {
   AlertTriangle,
@@ -41,7 +40,6 @@ useEffect(() => {
 }, [selectedWeekOffset]);
 
 const [editMenuTicketId, setEditMenuTicketId] = useState(null);
-const [showChangelog, setShowChangelog] = useState(false);
 const [editVehicle, setEditVehicle] = useState("");
 
 // User role logic
@@ -152,14 +150,6 @@ useEffect(() => {
   window.addEventListener("keydown", handleKey);
   return () => window.removeEventListener("keydown", handleKey);
 }, []);
-
-useEffect(() => {
-  const hasSeen = localStorage.getItem("changelog_v062_dismissed");
-  if (!hasSeen) {
-    setShowChangelog(true);
-  }
-}, []);
-
 const currentDay = currentDayIndex !== null ? daysOfWeek[currentDayIndex] : daysOfWeek[0];
 
 const handleSaveVehicle = async (ticketId) => {
@@ -254,17 +244,10 @@ function DutyBadgeWrapper({ date, filmingTime, names, rosterCache }) {
   );
 }
 
-  return (
-  <>
-    <ChangelogDialog
-      open={showChangelog}
-      onClose={() => {
-        localStorage.setItem("changelog_v062_dismissed", "true");
-        setShowChangelog(false);
-      }}
-    />
-    <div className="space-y-6 p-4">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+   return (
+    <>
+      <div className="space-y-6 p-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
   <h1 className="text-2xl font-bold">Welcome, {userName || "Guest"}</h1>
   <div className="flex items-center gap-2">
     <label className="text-sm text-gray-600">Select Week:</label>

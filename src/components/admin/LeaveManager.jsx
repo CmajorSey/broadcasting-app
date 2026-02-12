@@ -627,6 +627,21 @@ const shortDate = (value) => {
   return `${dd}/${mon}/${yyyy}`;
 };
 
+// ✅ Notifications date formatting helper: "DD/MM/YYYY"
+const dmyDate = (value) => {
+  const s = iso(value);
+  if (!s) return "—";
+
+  const dt = parseISOToLocal(s);
+  if (!dt) return "—";
+
+  const dd = String(dt.getDate()).padStart(2, "0");
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const yyyy = dt.getFullYear();
+
+  return `${dd}/${mm}/${yyyy}`;
+};
+
 // ---------- "Currently on leave" helpers (weekend + public holiday aware) ----------
 // Requires `publicHolidays` in scope as ["YYYY-MM-DD", ...] (or derive from /holidays)
 // If you store objects {date,name}, map them before: publicHolidays = holidays.map(h=>h.date)
@@ -2228,67 +2243,63 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         // non-fatal
       }
 
-      // ✅ Notify user (non-fatal)
+           // ✅ Notify user (non-fatal)
+      // IMPORTANT: only send ONE notification path to avoid duplicate pushes.
       {
         const u = userById(req.userId);
         const who = req.userName || u?.name || "Unknown";
 
+        const oStart = iso(getReqStart(req));
+        const oEnd = iso(getReqEnd(req));
+
         if (mode === "edit") {
-          await sendLeaveNotification({
-            userId: req.userId,
-            urgent: false,
+          await notifyLeaveUser(req, u, {
+            // ✅ Use the heading you like
             title: "Your approved leave was updated",
+            urgent: false,
+
+            // ✅ Keep the more detailed format (but fix to DD/MM/YYYY)
             message: [
               `Hi ${who}, your approved leave was updated by ${currentAdmin?.name || "Admin"}.`,
-              originalStart && originalEnd ? `Original: ${originalStart} → ${originalEnd}` : null,
-              startISO && endISO ? `New: ${startISO} → ${endISO}` : null,
-              `Change: ${delta === 0 ? "No day change" : delta > 0 ? `+${delta} day(s)` : `${delta} day(s)`}`,
+              `Old: ${dmyDate(oStart)} → ${dmyDate(oEnd)}`,
+              `New: ${dmyDate(startISO)} → ${dmyDate(endISO)}`,
+              `Change: ${
+                delta === 0 ? "No day change" : delta > 0 ? `+${delta} day(s)` : `${delta} day(s)`
+              }`,
+              `Applied now: Annual ${Math.max(
+                0,
+                toHalf(savedReq?.appliedAnnual ?? savedReq?.newAppliedAnnual ?? 0, 0)
+              )} / Off ${Math.max(
+                0,
+                toHalf(savedReq?.appliedOff ?? savedReq?.newAppliedOff ?? 0, 0)
+              )}`,
               modifyNote ? `Note: ${modifyNote}` : null,
+              `By: ${currentAdmin?.name || "Admin"}`,
             ]
               .filter(Boolean)
               .join("\n"),
-            extra: {
-              leaveRequestId: String(req.id),
-              status: "approved",
-              editMode: "edit",
-              originalStartDate: originalStart || null,
-              originalEndDate: originalEnd || null,
-              newStartDate: startISO || null,
-              newEndDate: endISO || null,
-              newTotalDays: newTotal,
-              deltaDays: delta,
-            },
+
+            action: { type: "open_profile_leave", id: String(req?.id || ""), url: "/profile#leave" },
           });
         } else {
-          await sendLeaveNotification({
-            userId: req.userId,
-            urgent: false,
+          await notifyLeaveUser(req, u, {
             title: "Your approved leave was cancelled",
+            urgent: true,
             message: [
               `Hi ${who}, your approved leave was cancelled by ${currentAdmin?.name || "Admin"}.`,
-              originalStart && originalEnd ? `Leave: ${originalStart} → ${originalEnd}` : null,
-              returnISO ? `Return to work: ${returnISO}` : null,
+              `Leave: ${dmyDate(oStart)} → ${dmyDate(oEnd)}`,
+              `Return to work: ${dmyDate(returnISO)}`,
               `Refund: Annual ${toHalf(refundAnnual, 0)} / Off ${toHalf(refundOff, 0)}`,
               modifyNote ? `Note: ${modifyNote}` : null,
+              `By: ${currentAdmin?.name || "Admin"}`,
             ]
               .filter(Boolean)
               .join("\n"),
-            extra: {
-              leaveRequestId: String(req.id),
-              status: "cancelled",
-              editMode: "cancel",
-              originalStartDate: originalStart || null,
-              originalEndDate: originalEnd || null,
-              cancelReturnDate: returnISO || null,
-              refundAnnual: toHalf(refundAnnual, 0),
-              refundOff: toHalf(refundOff, 0),
-              cancelUsedDays: toHalf(cancelStats.used, 0),
-              cancelUnusedDays: toHalf(cancelStats.unused, 0),
-            },
+
+            action: { type: "open_profile_leave", id: String(req?.id || ""), url: "/profile#leave" },
           });
         }
       }
-
           toast({
         title: mode === "edit" ? "Leave updated" : "Leave cancelled",
         description:

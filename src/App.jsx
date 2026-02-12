@@ -3,6 +3,7 @@ import {
   BrowserRouter as Router,
   Routes,
   Route,
+  Navigate,
   useNavigate,
   useLocation,
 } from "react-router-dom";
@@ -25,6 +26,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast"
 import MyProfile from "@/pages/MyProfile";
 import ChangelogDialog from "@/components/ChangelogDialog";
+import { APP_VERSION } from "@/version";
 import { requestPermission, onMessage } from "@/lib/firebase";
 import AdminGlobalToasts from "@/components/AdminGlobalToasts";
 import { playSoundFor, installSoundUnlockOnGesture } from "@/lib/soundRouter";
@@ -174,17 +176,46 @@ function App() {
     return stored ? JSON.parse(stored) : [];
   });
 
-     const location = useLocation();
+       const location = useLocation();
   const navigate = useNavigate();
-  const hideLayout = ["/login", "/set-password", "/forgot", "/reset"].includes(
-    location.pathname
-  );
+
+  // ✅ Public routes that should be accessible when NOT logged in
+  const PUBLIC_PATHS = ["/login", "/set-password", "/forgot", "/reset"];
+
+  const hideLayout = PUBLIC_PATHS.includes(location.pathname);
   const { toast } = useToast();
+
+  /* ===========================
+     🔐 Auth redirect starts here
+     - If refresh loads as “guest”, force user back to /login
+     - Also clears stale adminViewAs so it never “hangs around”
+     =========================== */
+  useEffect(() => {
+    const isPublic = PUBLIC_PATHS.includes(location.pathname);
+
+    if (!loggedInUser) {
+      // Clear stale adminViewAs if any (safe)
+      try {
+        localStorage.removeItem("adminViewAs");
+      } catch {
+        // ignore
+      }
+      setAdminViewAs(null);
+
+      if (!isPublic) {
+        navigate("/login", { replace: true });
+      }
+    }
+  }, [loggedInUser, location.pathname, navigate]);
+  /* ===========================
+     🔐 Auth redirect ends here
+     =========================== */
 
     // ✅ Install one global "unlock audio" handler (fixes Chrome autoplay restrictions)
   useEffect(() => {
     // ✅ Install one global "unlock audio" handler (fixes Chrome autoplay restrictions)
     installSoundUnlockOnGesture();
+
 
     // ✅ Load users once so Admin/User/Leave views have content
     const loadUsers = async () => {
@@ -1088,16 +1119,23 @@ fireGlobalAlert,
      =========================== */
 
 
-  // 📦 Changelog Dialog logic
+  /* ===========================
+     📦 Changelog Dialog logic starts
+     - Shows once per APP_VERSION
+     - Only update src/version.js in future pushes
+     =========================== */
   const [showChangelog, setShowChangelog] = useState(() => {
-    const lastSeen = localStorage.getItem("lastSeenChangelog");
-    return lastSeen !== "0.7.0";
+    const lastSeen = localStorage.getItem("lastSeenChangelogVersion");
+    return lastSeen !== APP_VERSION;
   });
 
   const handleCloseChangelog = () => {
-    localStorage.setItem("lastSeenChangelog", "0.7.0");
+    localStorage.setItem("lastSeenChangelogVersion", APP_VERSION);
     setShowChangelog(false);
   };
+  /* ===========================
+     📦 Changelog Dialog logic ends
+     =========================== */
 
   return (
     <>
@@ -1112,52 +1150,72 @@ fireGlobalAlert,
         />
       )}
 
-      <div className="p-4 min-h-[80vh]">
+          <div className="p-4 min-h-[80vh]">
         <Routes>
           <Route
             path="/"
             element={
-              <HomeCarousel
-                tickets={tickets}
-                users={users}
-                vehicles={vehicles}
-                loggedInUser={loggedInUser}
-                setTickets={setTickets}
-              />
+              loggedInUser ? (
+                <HomeCarousel
+                  tickets={tickets}
+                  users={users}
+                  vehicles={vehicles}
+                  loggedInUser={loggedInUser}
+                  setTickets={setTickets}
+                />
+              ) : (
+                <Navigate to="/login" replace />
+              )
             }
           />
+
           <Route
             path="/operations"
             element={
-              <OperationsPage
-                users={users}
-                setUsers={setUsers}
-                tickets={tickets}
-                loggedInUser={loggedInUser}
-              />
+              loggedInUser ? (
+                <OperationsPage
+                  users={users}
+                  setUsers={setUsers}
+                  tickets={tickets}
+                  loggedInUser={loggedInUser}
+                />
+              ) : (
+                <Navigate to="/login" replace />
+              )
             }
           />
-                 <Route
+
+          <Route
             path="/profile"
             element={
-              <MyProfile
-                loggedInUser={effectiveUser}
-                realLoggedInUser={loggedInUser} // safe extra prop (ignored if unused)
-                adminViewAs={adminViewAs}       // safe extra prop (ignored if unused)
-              />
+              loggedInUser ? (
+                <MyProfile
+                  loggedInUser={effectiveUser}
+                  realLoggedInUser={loggedInUser} // safe extra prop (ignored if unused)
+                  adminViewAs={adminViewAs}       // safe extra prop (ignored if unused)
+                />
+              ) : (
+                <Navigate to="/login" replace />
+              )
             }
           />
+
           <Route
             path="/fleet"
             element={
-              <FleetPage
-                vehicles={vehicles}
-                setVehicles={setVehicles}
-                loggedInUser={loggedInUser}
-                tickets={tickets}
-              />
+              loggedInUser ? (
+                <FleetPage
+                  vehicles={vehicles}
+                  setVehicles={setVehicles}
+                  loggedInUser={loggedInUser}
+                  tickets={tickets}
+                />
+              ) : (
+                <Navigate to="/login" replace />
+              )
             }
           />
+
           <Route
             path="/admin"
             element={
@@ -1167,16 +1225,19 @@ fireGlobalAlert,
                   setUsers={setUsers}
                   loggedInUser={loggedInUser}
                 />
-              ) : (
+              ) : loggedInUser ? (
                 <HomeCarousel
                   tickets={tickets}
                   users={users}
                   loggedInUser={loggedInUser}
                   setTickets={setTickets}
                 />
+              ) : (
+                <Navigate to="/login" replace />
               )
             }
           />
+
           <Route
             path="/login"
             element={<LoginPage users={users} setLoggedInUser={setLoggedInUser} />}
@@ -1185,56 +1246,72 @@ fireGlobalAlert,
           {/* ✅ New: password reset flow */}
           <Route path="/forgot" element={<ForgotPassword />} />
           <Route path="/reset" element={<ResetPassword />} />
-
           <Route path="/set-password" element={<SetPasswordPage />} />
+
           <Route
             path="/tickets"
             element={
-              <TicketPage
-                tickets={tickets}
-                setTickets={setTickets}
-                archivedTickets={archivedTickets}
-                setArchivedTickets={setArchivedTickets}
-                deletedTickets={deletedTickets}
-                setDeletedTickets={setDeletedTickets}
-                users={users}
-                vehicles={vehicles}
-                loggedInUser={loggedInUser}
-              />
+              loggedInUser ? (
+                <TicketPage
+                  tickets={tickets}
+                  setTickets={setTickets}
+                  archivedTickets={archivedTickets}
+                  setArchivedTickets={setArchivedTickets}
+                  deletedTickets={deletedTickets}
+                  setDeletedTickets={setDeletedTickets}
+                  users={users}
+                  vehicles={vehicles}
+                  loggedInUser={loggedInUser}
+                />
+              ) : (
+                <Navigate to="/login" replace />
+              )
             }
           />
+
           <Route
             path="/create"
             element={
-              <TicketForm
-                users={users}
-                tickets={tickets}
-                setTickets={setTickets}
-                loggedInUser={loggedInUser}
-                vehicles={vehicles}
-              />
+              loggedInUser ? (
+                <TicketForm
+                  users={users}
+                  tickets={tickets}
+                  setTickets={setTickets}
+                  loggedInUser={loggedInUser}
+                  vehicles={vehicles}
+                />
+              ) : (
+                <Navigate to="/login" replace />
+              )
             }
           />
+
           <Route
             path="*"
             element={
-              <HomeCarousel
-                tickets={tickets}
-                users={users}
-                vehicles={vehicles}
-                loggedInUser={loggedInUser}
-                setTickets={setTickets}
-              />
+              loggedInUser ? (
+                <HomeCarousel
+                  tickets={tickets}
+                  users={users}
+                  vehicles={vehicles}
+                  loggedInUser={loggedInUser}
+                  setTickets={setTickets}
+                />
+              ) : (
+                <Navigate to="/login" replace />
+              )
             }
           />
         </Routes>
       </div>
-
       {!hideLayout && <Footer />}
-      {showChangelog && (
-        <ChangelogDialog open={true} onClose={handleCloseChangelog} />
-      )}
 
+      {loggedInUser && !hideLayout && (
+  <ChangelogDialog
+    open={showChangelog}
+    onClose={handleCloseChangelog}
+  />
+)}
       <Toaster toastOptions={{ position: "top-center" }} />
     </>
   );

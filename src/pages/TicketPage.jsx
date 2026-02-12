@@ -56,6 +56,35 @@ function getHourForBadges(dateISO, filmingTime) {
   return 0;
 }
 
+/* ===========================
+   🗓️ Date formatting (DD/MM/YYYY)
+   =========================== */
+function formatDDMMYYYY(isoLike) {
+  try {
+    const d = new Date(String(isoLike || ""));
+    if (isNaN(d.getTime())) return "";
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = String(d.getFullYear());
+    return `${dd}/${mm}/${yyyy}`;
+  } catch {
+    return "";
+  }
+}
+
+function formatDDMMYYYY_HHMM(isoLike) {
+  try {
+    const d = new Date(String(isoLike || ""));
+    if (isNaN(d.getTime())) return "";
+    const ddmmyyyy = formatDDMMYYYY(d);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    return ddmmyyyy ? `${ddmmyyyy}, ${hh}:${min}` : "";
+  } catch {
+    return "";
+  }
+}
+
 export default function TicketPage({ users, vehicles, loggedInUser }) {
   const [tickets, setTickets] = useState([]);
 
@@ -659,12 +688,8 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
       );
 
     const fmtDate = (iso) => {
-      const d = new Date(String(iso || ""));
-      if (isNaN(d.getTime())) return "";
-      const day = String(d.getDate()).padStart(2, "0");
-      const month = d.toLocaleString("en-US", { month: "short" });
-      const year = String(d.getFullYear());
-      return `${day}-${month}-${year}`;
+      const out = formatDDMMYYYY(iso);
+      return out || "";
     };
 
     const fmtTimeFromISO = (iso) => {
@@ -1406,23 +1431,16 @@ await sendTicketPageNotification({
                           }
                           className="border px-2 py-1 rounded"
                         />
-                     ) : (() => {
+                                    ) : (() => {
                           const filmingISO = ticket.date?.trim?.();
                           if (!filmingISO) return "-";
 
-                          const filmingDate = new Date(filmingISO);
-                          if (isNaN(filmingDate.getTime())) {
+                          const label = formatDDMMYYYY_HHMM(filmingISO);
+                          if (!label) {
                             console.warn("Invalid filming date format:", filmingISO);
                             return filmingISO;
                           }
 
-                          const day = String(filmingDate.getDate()).padStart(2, "0");
-                          const month = filmingDate.toLocaleString("en-US", { month: "short" });
-                          const year = String(filmingDate.getFullYear()).slice(2);
-                          const hours = String(filmingDate.getHours()).padStart(2, "0");
-                          const minutes = String(filmingDate.getMinutes()).padStart(2, "0");
-
-                          const label = `${day}-${month}-${year}, ${hours}:${minutes}`;
                           const ph = isPublicHoliday(filmingISO);
 
                           return (
@@ -1826,9 +1844,9 @@ await sendTicketPageNotification({
     </>
   ) : (
     <>
-      <div>
+          <div>
         <span className="font-bold">Filming Date:</span>{" "}
-        {ticket.date ? String(ticket.date).slice(0, 10) : "-"}
+        {ticket.date ? formatDDMMYYYY(ticket.date) || "-" : "-"}
       </div>
       <div>
         <span className="font-bold">Filming Time:</span>{" "}
@@ -2768,16 +2786,12 @@ await sendTicketPageNotification({
             let filmingDisplay = "-";
             let filmingIsPH = false;
 
-            if (filmingISO) {
+                       if (filmingISO) {
               filmingIsPH = isPublicHoliday(filmingISO);
-              const d = new Date(filmingISO);
-              if (!isNaN(d.getTime())) {
-                const day = String(d.getDate()).padStart(2, "0");
-                const month = d.toLocaleString("en-US", { month: "short" });
-                const year = String(d.getFullYear()).slice(2);
-                const hh = String(d.getHours()).padStart(2, "0");
-                const mm = String(d.getMinutes()).padStart(2, "0");
-                filmingDisplay = `${day}-${month}-${year}, ${hh}:${mm}`;
+
+              const label = formatDDMMYYYY_HHMM(filmingISO);
+              if (label) {
+                filmingDisplay = label;
               } else {
                 filmingDisplay = filmingISO;
               }
@@ -3124,24 +3138,16 @@ await sendTicketPageNotification({
                     .map((ticket, idx) => {
                       const isSelected =
                         selectedDeletedIds.includes(ticket.id);
-                      const date = ticket.date?.trim?.();
-                      const d = new Date(date);
-                      const day = String(d.getDate()).padStart(2, "0");
-                      const month = d.toLocaleString("en-US", {
-                        month: "short",
-                      });
-                      const year = String(d.getFullYear()).slice(2);
-                      const hh = String(d.getHours()).padStart(2, "0");
-                      const mm = String(d.getMinutes()).padStart(2, "0");
-                     const formatted = !isNaN(d.getTime())
-                        ? `${day}-${month}-${year}, ${hh}:${mm}`
-                        : "-";
+                                         const date = ticket.date?.trim?.();
+                      const formatted = date ? formatDDMMYYYY_HHMM(date) : "";
+                      const safeFormatted = formatted || "-";
 
                       const isPH = isPublicHoliday(ticket?.date);
 
                       return (
                         <tr
                           key={ticket.id}
+
                           className={
                             idx % 2 === 0 ? "bg-white" : "bg-gray-50"
                           }

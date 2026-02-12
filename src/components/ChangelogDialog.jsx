@@ -9,31 +9,96 @@ import {
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 
+import { APP_VERSION } from "@/version";
+
 export default function ChangelogDialog({ open, onClose }) {
   return (
     <AlertDialog open={open}>
-      <AlertDialogContent>
+      <AlertDialogContent className="max-h-[85vh] overflow-y-auto">
         <AlertDialogHeader>
-          <AlertDialogTitle>📦 What’s New in Version 0.7.1</AlertDialogTitle>
+          <AlertDialogTitle>📦 What’s New in Version {APP_VERSION}</AlertDialogTitle>
           <AlertDialogDescription>
-            Leave management is now available in the system.
+            Lo Board is now fully connected and ready for daily use of user <p className="font-semibold">testing.</p>
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <div className="text-sm space-y-3">
-          <p>
-            You can now apply for leave directly from <strong>My Profile</strong>.
-            Choose the type of leave, number of days, and submit your request in a few clicks.
-          </p>
+        <div className="text-sm space-y-4 mt-2">
+          <div>
+            <p className="font-semibold">🎬 Work Requests & Assignments</p>
+            <p>
+              Work requests are now fully synced in real time. If you are assigned to a job,
+              or if the time, location, vehicle, or status changes, you will be notified automatically.
+            </p>
+          </div>
 
-          <p>
-            Admins can review leave requests in their settings and either approve or deny them.
-            Once a decision is made, leave balances are updated automatically.
-          </p>
+          <div>
+            <p className="font-semibold">🔔 Notifications (Important)</p>
+            <p>Lo Board can now send you real notifications.</p>
+            <ul className="list-disc ml-5 mt-1 space-y-1">
+              <li>
+                Go to <strong>My Profile</strong>
+              </li>
+              <li>Enable notifications</li>
+              <li>Allow permission when your browser asks</li>
+            </ul>
+            <p className="mt-2">
+              You will receive alerts when you are assigned work, when details change, or when your leave
+              is approved or denied.
+            </p>
+            <p className="mt-1">
+              If notifications are not enabled, you may miss important updates.
+            </p>
+          </div>
 
-          <p>
-            This makes requesting and managing leave clearer, faster, and more transparent for everyone.
-          </p>
+          <div>
+            <p className="font-semibold">👤 My Profile</p>
+            <p>Your profile now includes:</p>
+            <ul className="list-disc ml-5 mt-1 space-y-1">
+              <li>Leave balances (Annual + Off Days)</li>
+              <li>Leave request form</li>
+              <li>Notification settings</li>
+              <li>Your personal notification inbox</li>
+              <li>Suggestion box</li>
+            </ul>
+          </div>
+
+          <div>
+            <p className="font-semibold">📅 Leave Management</p>
+            <p>
+              You can submit leave requests directly in the system. Admins review and approve requests,
+              and balances update automatically.
+            </p>
+          </div>
+
+          <div>
+            <p className="font-semibold">🚗 Fleet & Vehicles</p>
+            <p>
+              Vehicle assignments are synced. If a vehicle changes on your job, you will be notified.
+            </p>
+          </div>
+
+          <div>
+            <p className="font-semibold">🔊 Optional Sound Alerts</p>
+            <p>
+              Notification sounds can be enabled or disabled in <strong>My Profile</strong>. Sounds
+              respect your browser settings.
+            </p>
+          </div>
+
+          <div>
+            <p className="font-semibold">🧠 What This Means</p>
+            <p>
+              Lo Board is now a live operational system; the system keeps you informed.
+            </p>
+          </div>
+
+          <div className="bg-muted/40 p-3 rounded-md text-xs">
+            <p className="font-semibold">Before you continue:</p>
+            <p>
+              Please open <strong>My Profile</strong>, enable notifications, and review your settings
+              to ensure you receive future updates.
+            </p>
+          </div>
         </div>
 
         <AlertDialogFooter>
