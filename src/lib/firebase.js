@@ -263,6 +263,17 @@ export const subscribeToForegroundMessages = (handler) => {
     }
   };
 };
+
+/* ===========================
+   ✅ Backwards-compat export
+   Some older app code imports: { requestPermission, onMessage } from "@/lib/firebase"
+   Firebase's SDK exports onMessage from "firebase/messaging", but our app imports from this wrapper.
+   So we provide an `onMessage` export that behaves like Firebase onMessage:
+   - returns an unsubscribe function
+   - registers a foreground handler safely (deduped)
+   =========================== */
+export const onMessage = (handler) => subscribeToForegroundMessages(handler);
+
 /* ===========================
    📩 Foreground FCM subscription ends here
    =========================== */

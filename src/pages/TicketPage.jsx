@@ -908,7 +908,20 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
   };
 
   // ===== Selection / Expansion helpers (ID-based) =====
-  const currentTickets = tickets.filter((t) => !t.deleted && !t.archived);
+  // ✅ Single source-of-truth buckets
+const currentTickets = (Array.isArray(tickets) ? tickets : []).filter(
+  (t) => !t?.deleted && !t?.archived
+);
+
+// Archived should NEVER include deleted (deleted wins)
+const archivedTickets = (Array.isArray(tickets) ? tickets : []).filter(
+  (t) => !!t?.archived && !t?.deleted
+);
+
+// Deleted (recycle bin) includes anything deleted (even if archived is also true)
+const deletedTickets = (Array.isArray(tickets) ? tickets : []).filter(
+  (t) => !!t?.deleted
+);
 
   // Filming vs Technical (active only)
   const filmingCurrent = currentTickets.filter((t) =>
@@ -2813,16 +2826,14 @@ await sendTicketPageNotification({
     className="flex items-center gap-1 text-sm underline"
   >
     {showArchived ? (
-      <>
-        <ChevronUp size={16} /> Hide Archived (
-        {tickets.filter((t) => t.archived).length})
-      </>
-    ) : (
-      <>
-        <ChevronDown size={16} /> Show Archived (
-        {tickets.filter((t) => t.archived).length})
-      </>
-    )}
+  <>
+    <ChevronUp size={16} /> Hide Archived ({archivedTickets.length})
+  </>
+) : (
+  <>
+    <ChevronDown size={16} /> Show Archived ({archivedTickets.length})
+  </>
+)}
   </button>
 
   {showArchived && (
@@ -2836,18 +2847,18 @@ await sendTicketPageNotification({
             <div className="flex items-center gap-3">
   <button
     className="text-sm text-blue-600 underline"
-    onClick={() => {
-      const archived = tickets.filter((t) => t.archived);
-      if (selectedArchivedIds.length === archived.length) {
-        setSelectedArchivedIds([]);
-      } else {
-        setSelectedArchivedIds(archived.map((t) => t.id));
-      }
-    }}
+   onClick={() => {
+  const archived = archivedTickets; // ✅ excludes deleted
+  if (selectedArchivedIds.length === archived.length) {
+    setSelectedArchivedIds([]);
+  } else {
+    setSelectedArchivedIds(archived.map((t) => t.id));
+  }
+}}
   >
-    {selectedArchivedIds.length === tickets.filter((t) => t.archived).length
-      ? "Deselect All"
-      : "Select All in Archives"}
+  {selectedArchivedIds.length === archivedTickets.length
+  ? "Deselect All"
+  : "Select All in Archives"}
   </button>
 
   {/* Search */}
@@ -2915,8 +2926,8 @@ await sendTicketPageNotification({
                 <button
                   onClick={async () => {
                     try {
-                      const toRestore = tickets.filter(
-                        (t) => t.archived && selectedArchivedIds.includes(t.id)
+                      const toRestore = archivedTickets.filter(
+                        (t) => selectedArchivedIds.includes(t.id)
                       );
                       for (const ticket of toRestore) {
                         await fetch(`${API_BASE}/tickets/${ticket.id}`, {
@@ -2941,9 +2952,9 @@ await sendTicketPageNotification({
                 <button
                   onClick={async () => {
                     try {
-                      const toRecycle = tickets.filter(
-                        (t) => t.archived && selectedArchivedIds.includes(t.id)
-                      );
+                      const toRecycle = archivedTickets.filter(
+                      (t) => selectedArchivedIds.includes(t.id)
+                    );
                       for (const ticket of toRecycle) {
                         await fetch(`${API_BASE}/tickets/${ticket.id}`, {
                           method: "PATCH",
@@ -3082,8 +3093,8 @@ await sendTicketPageNotification({
   };
 
   // Filter then sort by date using archSortAsc
-  const archivedFiltered = tickets
-    .filter((t) => t.archived && matchesQuery(t) && isStatusMatch(t) && isTypeMatch(t) && isDateMatch(t))
+  const archivedFiltered = archivedTickets
+  .filter((t) => matchesQuery(t) && isStatusMatch(t) && isTypeMatch(t) && isDateMatch(t))
     .sort((a, b) => {
       const da = parseLocal(a?.date);
       const db = parseLocal(b?.date);
@@ -3417,16 +3428,14 @@ await sendTicketPageNotification({
           className="flex items-center gap-1 text-sm underline"
         >
           {showDeleted ? (
-            <>
-              <ChevronUp size={16} /> Hide Recycle Bin (
-              {tickets.filter((t) => t.deleted).length})
-            </>
-          ) : (
-            <>
-              <ChevronDown size={16} /> Show Recycle Bin (
-              {tickets.filter((t) => t.deleted).length})
-            </>
-          )}
+  <>
+    <ChevronUp size={16} /> Hide Recycle Bin ({deletedTickets.length})
+  </>
+) : (
+  <>
+    <ChevronDown size={16} /> Show Recycle Bin ({deletedTickets.length})
+  </>
+)}
         </button>
 
         {showDeleted && (
@@ -3435,7 +3444,7 @@ await sendTicketPageNotification({
               <button
                 className="text-sm text-blue-600 underline"
                 onClick={() => {
-                  const deleted = tickets.filter((t) => t.deleted);
+                  const deleted = deletedTickets;
                   if (selectedDeletedIds.length === deleted.length) {
                     setSelectedDeletedIds([]);
                   } else {
@@ -3443,10 +3452,9 @@ await sendTicketPageNotification({
                   }
                 }}
               >
-                {selectedDeletedIds.length ===
-                tickets.filter((t) => t.deleted).length
-                  ? "Deselect All"
-                  : "Select All in Recycle Bin"}
+                {selectedDeletedIds.length === deletedTickets.length
+                ? "Deselect All"
+                : "Select All in Recycle Bin"}
               </button>
 
               {selectedDeletedIds.length > 0 && (
@@ -3519,7 +3527,7 @@ await sendTicketPageNotification({
                         <td className="p-2 text-center">{ticket.title}</td>
                           <td className="p-2 text-center">
                             <div className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
-                              <span>{formatted}</span>
+                              <span>{safeFormatted}</span>
                               {isPH ? (
                                 <Badge variant="outline" className="text-[10px] px-2 py-0.5">
                                   (PH)
@@ -3626,7 +3634,7 @@ await sendTicketPageNotification({
                     await fetch(`${API_BASE}/tickets/${ticket.id}`, {
                       method: "PATCH",
                       headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ deleted: false }),
+                      body: JSON.stringify({ deleted: false, archived: false }),
                     });
                   }
 

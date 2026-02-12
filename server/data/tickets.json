@@ -1,49 +1,5 @@
 [
   {
-    "id": "1770572576065",
-    "title": "test",
-    "type": "News",
-    "category": "Press Conference",
-    "subtype": "",
-    "date": "2026-02-08T21:45",
-    "location": "Providence",
-    "notes": [],
-    "priority": "Normal",
-    "camOp": true,
-    "shootType": "ENG",
-    "camCount": 1,
-    "onlyOneCamOp": true,
-    "camAssignments": {
-      "cam1": "",
-      "cam2": "",
-      "cam3": ""
-    },
-    "departureTime": "21:45",
-    "filmingTime": "21:45",
-    "assignedCamOps": [
-      "Darino Esther",
-      "Julius Payet",
-      "Christopher Gabriel"
-    ],
-    "assignedDriver": "Nelson Joseph",
-    "vehicle": "",
-    "assignmentStatus": "Assigned",
-    "isReady": false,
-    "status": "Pending",
-    "assignedReporter": [
-      "Jana Mondon"
-    ],
-    "crewAssignments": [],
-    "scopeOfWork": "",
-    "assignedTechnicians": [],
-    "vehicleStatus": "",
-    "createdBy": "Admin",
-    "createdAt": "2026-02-08T17:42:56.065Z",
-    "assignedDriverFrom": "Nelson Joseph",
-    "additionalDrivers": [],
-    "assignedBy": "Admin"
-  },
-  {
     "id": "1770572694029",
     "title": "Update",
     "type": "News",
@@ -84,7 +40,8 @@
     "createdAt": "2026-02-08T17:44:54.029Z",
     "assignedDriverFrom": "Nelson Joseph",
     "additionalDrivers": [],
-    "assignedBy": "Admin"
+    "assignedBy": "Admin",
+    "deleted": true
   },
   {
     "id": "1770719205686",
@@ -115,13 +72,16 @@
     "assignmentStatus": "Unassigned",
     "isReady": false,
     "status": "Pending",
-    "assignedReporter": "Sports Journalist: Ronny Solin",
+    "assignedReporter": [
+      "Ronny Solin"
+    ],
     "crewAssignments": [],
     "scopeOfWork": "",
     "assignedTechnicians": [],
     "vehicleStatus": "",
     "createdBy": "Admin",
-    "createdAt": "2026-02-10T10:26:45.686Z"
+    "createdAt": "2026-02-10T10:26:45.686Z",
+    "deleted": true
   },
   {
     "id": "1770719224400",
@@ -152,13 +112,16 @@
     "assignmentStatus": "Unassigned",
     "isReady": false,
     "status": "Pending",
-    "assignedReporter": "Sports Journalist: Ronny Solin",
+    "assignedReporter": [
+      "Ronny Solin"
+    ],
     "crewAssignments": [],
     "scopeOfWork": "",
     "assignedTechnicians": [],
     "vehicleStatus": "",
     "createdBy": "Admin",
-    "createdAt": "2026-02-10T10:27:04.400Z"
+    "createdAt": "2026-02-10T10:27:04.400Z",
+    "deleted": true
   },
   {
     "id": "1770719230200",
@@ -200,7 +163,8 @@
     "createdAt": "2026-02-10T10:27:10.200Z",
     "assignedDriverFrom": "Nelson Joseph",
     "additionalDrivers": [],
-    "assignedBy": "Admin"
+    "assignedBy": "Admin",
+    "deleted": true
   },
   {
     "id": "1770747025879",
@@ -242,7 +206,8 @@
     "createdAt": "2026-02-10T18:10:25.879Z",
     "assignedDriverFrom": "Nelson Joseph",
     "additionalDrivers": [],
-    "assignedBy": "Admin"
+    "assignedBy": "Admin",
+    "deleted": true
   },
   {
     "id": "1770798447925",
@@ -271,13 +236,16 @@
     "assignmentStatus": "Unassigned",
     "isReady": false,
     "status": "Pending",
-    "assignedReporter": "Sports Journalist: Kerine Savy",
+    "assignedReporter": [
+      "Kerine Savy"
+    ],
     "crewAssignments": [],
     "scopeOfWork": "",
     "assignedTechnicians": [],
     "vehicleStatus": "",
     "createdBy": "Admin",
-    "createdAt": "2026-02-11T08:27:27.925Z"
+    "createdAt": "2026-02-11T08:27:27.925Z",
+    "deleted": true
   },
   {
     "id": "1770801450003",
@@ -321,7 +289,8 @@
     "createdAt": "2026-02-11T09:17:30.003Z",
     "assignedDriverFrom": "Nelson Joseph",
     "additionalDrivers": [],
-    "assignedBy": "Admin"
+    "assignedBy": "Admin",
+    "deleted": true
   },
   {
     "id": "1770806464819",
@@ -367,6 +336,7 @@
     "additionalDrivers": [],
     "assignedBy": "Admin",
     "isPublicHoliday": true,
-    "publicHolidayName": "Day off for Abolition of Slavery Day"
+    "publicHolidayName": "Day off for Abolition of Slavery Day",
+    "deleted": true
   }
 ]
