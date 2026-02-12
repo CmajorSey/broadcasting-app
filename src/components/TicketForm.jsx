@@ -687,18 +687,18 @@ const emitTicketCreated = (ticket) => {
       urgent,
       timestamp: new Date().toISOString(),
       actor,
-      // helpful extras (ignored safely if your listener doesn’t use them)
       ticketId: ticket?.id,
       ticketType: ticket?.type,
-      ticket, // ✅ allows rich toast formatting
+      ticket, // ✅ allows rich toast formatting if your listener uses it
     };
 
-    // Same-tab listeners (keep for compatibility)
+    // ✅ Keep legacy (safe)
     window.dispatchEvent(
       new CustomEvent("loBoard:ticketCreated", { detail: { ticket } })
     );
 
-    // ✅ Main rich-ticket channel (App.jsx listens to this)
+    // ✅ SINGLE source of truth for App.jsx listeners
+    // (Do NOT also emit loBoard:notify or BroadcastChannel "notify" — that causes duplicates)
     window.dispatchEvent(
       new CustomEvent("loBoard:ticketEvent", {
         detail: {
@@ -710,21 +710,11 @@ const emitTicketCreated = (ticket) => {
           ticketId: ticket?.id,
           ticket,
           ts: Date.now(),
-          timestamp: new Date().toISOString(),
+          timestamp: note.timestamp,
           action: "Created",
         },
       })
     );
-
-    // ✅ Also emit shaped notify (App.jsx listens to this too)
-    window.dispatchEvent(new CustomEvent("loBoard:notify", { detail: note }));
-
-    // Optional cross-tab broadcast (safe no-op if unsupported)
-    if (typeof BroadcastChannel !== "undefined") {
-      const ch = new BroadcastChannel("loBoard");
-      ch.postMessage({ type: "notify", note });
-      ch.close();
-    }
   } catch {
     // never block submit flow
   }
@@ -749,39 +739,41 @@ const sendTicketNotification = async (ticket) => {
         ? ticket.date.replace("T", " ")
         : ticket?.date || "";
 
-    // Recipients (safe + flexible)
-    const recipients = new Set();
+    // ✅ Strong dedupe: normalize keys, keep first “pretty” version as value
+    const recipientMap = new Map();
+    const addRecipient = (name) => {
+      const raw = String(name || "").trim();
+      if (!raw) return;
+      const key = raw.toLowerCase();
+      if (!recipientMap.has(key)) recipientMap.set(key, raw);
+    };
 
     // Actor
-    recipients.add(actor);
+    addRecipient(actor);
 
-    // Assigned crew (if present)
+    // Assigned crew
     if (Array.isArray(ticket?.assignedCamOps)) {
-      ticket.assignedCamOps.filter(Boolean).forEach((n) => recipients.add(n));
+      ticket.assignedCamOps.filter(Boolean).forEach(addRecipient);
     }
-    if (ticket?.assignedDriver) recipients.add(ticket.assignedDriver);
+    if (ticket?.assignedDriver) addRecipient(ticket.assignedDriver);
 
     // Reporter field sometimes includes prefixes like "Journalist: Name"
     if (ticket?.assignedReporter) {
-      const raw = String(ticket.assignedReporter);
-      const cleaned = raw.includes(":")
-        ? raw.split(":").slice(1).join(":").trim()
-        : raw.trim();
-      if (cleaned) recipients.add(cleaned);
-      else recipients.add(raw.trim());
+      const raw = String(ticket.assignedReporter).trim();
+      const cleaned =
+        raw.includes(":") ? raw.split(":").slice(1).join(":").trim() : raw;
+      addRecipient(cleaned || raw);
     }
 
-    // ✅ Admins (match Fleet behavior)
-    recipients.add("Admins");
-    recipients.add("admin");
-    recipients.add("admins");
+    // ✅ Admins: send ONE canonical group label (avoid triple “Admins/admin/admins”)
+    addRecipient("Admins");
 
     const payload = {
       title: "🆕 New Request Created",
       message: `${ticket?.title || "Untitled"}${when ? ` • ${when}` : ""}${
         ticket?.location ? ` • ${ticket.location}` : ""
       }`,
-      recipients: Array.from(recipients),
+      recipients: Array.from(recipientMap.values()),
       timestamp: new Date().toISOString(),
 
       // ✅ IMPORTANT: App.jsx expects category === "ticket" (singular)
@@ -792,7 +784,7 @@ const sendTicketNotification = async (ticket) => {
       actor,
       ticketId: ticket?.id,
       ticketType: ticket?.type,
-      ticket, // safe to store in JSON backend; ignored if not used
+      ticket,
     };
 
     // ✅ Hard timeout so backend notifications NEVER block UI flow

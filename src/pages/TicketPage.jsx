@@ -656,212 +656,35 @@ const isAdmin = loggedInUser?.roles?.includes("admin");
 
   /**
    * ✅ Backend notification emit (Fleet-style)
-   * This is what makes OTHER tabs (Admin view as X) react via App.jsx polling.
-   * Non-blocking by design.
+   *
+   * ⚠️ IMPORTANT (v0.8.x):
+   * TicketPage already emits a `loBoard:ticketEvent` via `fireTicketAlert()`.
+   * App.jsx listens for that event and is responsible for creating/pushing the
+   * notification (and handling dedupe globally).
+   *
+   * If TicketPage ALSO POSTs to `/notifications`, the same action can be sent twice,
+   * resulting in duplicate FCM pushes / duplicate inbox items.
+   *
+   * So this function is intentionally a NO-OP for TicketPage.
+   * (We keep the function to preserve existing call sites + avoid refactors.)
    */
   const sendTicketPageNotification = async ({
-  title,
-  message,
-  urgent = false,
-  ticket,
-  category = "tickets",
-  action = "ticket_updated", // ✅ consistent action label for App.jsx / inbox rendering
-}) => {
-  try {
-    const actor = loggedInUser?.name || "Unknown";
-
-    /* ===========================
-       🧾 Ticket notification text (basic English)
-       - Shows ONLY fields that exist (no "null"/empty lines)
-       - Includes key info: Title, Date, Time, Location, Reporter, News/Sports type,
-         Driver(s), Vehicle, Cam Ops (only if more than you / more than 1)
-       =========================== */
-
-    const stripRolePrefix = (s) =>
-      String(s || "")
-        .replace(/^\s*(?:Journalist|Sports\s*Journalist|Producer)\s*:\s*/i, "")
-        .trim();
-
-    const uniq = (arr) =>
-      Array.from(
-        new Set((arr || []).map((x) => String(x || "").trim()).filter(Boolean))
-      );
-
-    const fmtDate = (iso) => {
-      const out = formatDDMMYYYY(iso);
-      return out || "";
-    };
-
-    const fmtTimeFromISO = (iso) => {
-      const d = new Date(String(iso || ""));
-      if (isNaN(d.getTime())) return "";
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      return `${hh}:${mm}`;
-    };
-
-    const fmtTime = (iso, filmingTime) => {
-      const ft = String(filmingTime || "").trim();
-      if (/^\d{2}:\d{2}$/.test(ft)) return ft;
-      return fmtTimeFromISO(iso);
-    };
-
-    const buildBasicEnglishMessage = (t) => {
-      if (!t || typeof t !== "object") return "";
-
-      const lines = [];
-
-      // Title (bold style for display)
-      if (t.title) lines.push(`Request Title: ${t.title}`);
-
-      // Date + Time
-      const d = fmtDate(t.date);
-      const tm = fmtTime(t.date, t.filmingTime);
-      if (d) lines.push(`Date: ${d}`);
-      if (tm) lines.push(`Time: ${tm}`);
-
-      // Departure time (only if present)
-      if (t.departureTime) lines.push(`Departure Time: ${t.departureTime}`);
-
-      // Location
-      if (t.location) lines.push(`Location: ${t.location}`);
-
-      // Journalist / Producer (assignedReporter can be array OR string)
-      const reporterList = Array.isArray(t.assignedReporter)
-        ? uniq(t.assignedReporter.map(stripRolePrefix))
-        : t.assignedReporter
-        ? uniq([stripRolePrefix(t.assignedReporter)])
-        : [];
-      if (reporterList.length > 0) {
-        lines.push(`Journalist / Producer: ${reporterList.join(", ")}`);
-      }
-
-      // News / Sports type (only if present)
-      if (String(t.type || "").toLowerCase() === "news" && t.category) {
-        lines.push(`News Type: ${t.category}`);
-      }
-      if (String(t.type || "").toLowerCase() === "sports" && t.subtype) {
-        lines.push(`Sports Type: ${t.subtype}`);
-      }
-
-      // Driver(s) (only if present)
-      const driverMain = String(t.assignedDriver || "").trim();
-      const driverReturn = String(t.assignedDriverFrom || "").trim();
-      const extraDrivers = Array.isArray(t.additionalDrivers)
-        ? t.additionalDrivers.filter(Boolean)
-        : [];
-
-      const driverParts = [];
-      if (driverMain) driverParts.push(driverMain);
-      if (driverReturn && driverReturn !== driverMain)
-        driverParts.push(`Return: ${driverReturn}`);
-
-      const extrasClean = extraDrivers
-        .map((x) => String(x || "").trim())
-        .filter(Boolean)
-        .filter((x) => x !== driverMain && x !== driverReturn);
-
-      if (extrasClean.length > 0) driverParts.push(`Additional: ${extrasClean.join(", ")}`);
-
-      if (driverParts.length > 0) {
-        lines.push(`Driver: ${driverParts.join(" • ")}`);
-      }
-
-      // Vehicle (only if present)
-      if (t.vehicle) lines.push(`Vehicle: ${t.vehicle}`);
-
-      // Cam Ops (show only if > you, or more than 1 assigned)
-      const camOps = Array.isArray(t.assignedCamOps) ? uniq(t.assignedCamOps) : [];
-      const actorName = String(actor || "").trim();
-      const camOpsWithoutActor = camOps.filter((n) => String(n).trim() !== actorName);
-
-      const shouldShowCamOps =
-        camOps.length > 1 || (camOps.length === 1 && camOpsWithoutActor.length === 1);
-
-      if (shouldShowCamOps) {
-        lines.push(`Cam Ops: ${camOps.join(", ")}`);
-      }
-
-      // If this is technical, keep it simple but helpful (only if filled)
-      if (String(t.type || "").toLowerCase() === "technical") {
-        if (t.scopeOfWork) lines.push(`Scope of Work: ${t.scopeOfWork}`);
-        if (Array.isArray(t.assignedTechnicians) && t.assignedTechnicians.length > 0) {
-          lines.push(`Technicians: ${t.assignedTechnicians.filter(Boolean).join(", ")}`);
-        }
-      }
-
-      return lines.join("\n");
-    };
-
-    const recipients = new Set();
-    recipients.add(actor);
-
-    // Assigned crew (if present)
-    const t = ticket || {};
-    if (Array.isArray(t.assignedCamOps)) {
-      t.assignedCamOps.filter(Boolean).forEach((n) => recipients.add(n));
+    title,
+    message,
+    urgent = false,
+    ticket,
+    category = "tickets",
+    action = "ticket_updated",
+  }) => {
+    try {
+      // ✅ Disabled to prevent duplicate tokens/pushes.
+      // TicketPage uses `fireTicketAlert()` -> emits event -> App.jsx handles notifications.
+      return;
+    } catch (err) {
+      // Never break TicketPage if notifications fail
+      console.warn("TicketPage notification skipped (non-blocking):", err);
     }
-    if (t.assignedDriver) recipients.add(t.assignedDriver);
-    if (t.assignedDriverFrom) recipients.add(t.assignedDriverFrom);
-
-    if (Array.isArray(t.additionalDrivers)) {
-      t.additionalDrivers.filter(Boolean).forEach((n) => recipients.add(n));
-    }
-
-    // assignedReporter can be array OR string
-    if (Array.isArray(t.assignedReporter)) {
-      t.assignedReporter.filter(Boolean).forEach((n) => recipients.add(stripRolePrefix(n)));
-    } else if (t.assignedReporter) {
-      const cleaned = stripRolePrefix(t.assignedReporter);
-      if (cleaned) recipients.add(cleaned);
-    }
-
-    // ✅ Admins (match Fleet behavior)
-    recipients.add("Admins");
-    recipients.add("admin");
-    recipients.add("admins");
-
-    // ✅ If caller only passed the title (common today), auto-build a richer message.
-    const incoming = String(message || "").trim();
-    const basicEnglish = buildBasicEnglishMessage(t);
-
-    const shouldAuto =
-      !incoming ||
-      incoming === String(t?.title || "").trim() ||
-      incoming.toLowerCase() === "changes saved." ||
-      incoming.toLowerCase() === "changes saved" ||
-      incoming.toLowerCase() === "Request updated";
-
-    const finalMessage = shouldAuto ? basicEnglish : incoming;
-
-        const payload = {
-      title: title || "Request update",
-      message: finalMessage || "",
-      recipients: Array.from(recipients),
-      timestamp: new Date().toISOString(),
-      category,
-      urgent: !!urgent,
-
-      // ✅ standardized extras
-      action,
-      actor,
-      ticketId: t?.id,
-      ticketType: t?.type,
-
-      // ✅ IMPORTANT: rich snapshot so Admin view / other tab can render details
-      ticket: t,
-    };
-
-    await fetch(`${API_BASE}/notifications`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  } catch (err) {
-    // Never break TicketPage if notifications fail
-    console.warn("TicketPage notification failed (non-blocking):", err);
-  }
-};
+  };
 
   const startEditing = (ticketOrId) => {
     const id = typeof ticketOrId === "string" ? ticketOrId : ticketOrId?.id;
