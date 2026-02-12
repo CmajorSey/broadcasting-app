@@ -975,6 +975,10 @@ const handleSubmit = async (e) => {
     if (!res.ok) throw new Error("Failed to submit ticket");
 
     const savedTicket = await res.json();
+    const ticketForNotify = {
+      ...newTicket,     // keeps Technical fields + assignments intact
+      ...savedTicket,   // keeps any backend-enriched fields (server timestamps etc.)
+    };
 
     const updatedTickets = [savedTicket, ...tickets];
     setTickets(updatedTickets);
@@ -982,23 +986,23 @@ const handleSubmit = async (e) => {
     console.log("✅ Ticket submitted to backend by:", name);
 
     // ✅ 1) Local same-tab + optional cross-tab emits (NEVER blocked)
-    emitTicketCreated(savedTicket);
+    emitTicketCreated(ticketForNotify);
 
     // ✅ 2) Local UI toast (NEVER blocked)
     toast({
       title: "✅ Request Created",
-      description: `${savedTicket?.title || "Untitled"}${
-        savedTicket?.date
-          ? ` • ${String(savedTicket.date).replace("T", " ")}`
+      description: `${ticketForNotify?.title || "Untitled"}${
+        ticketForNotify?.date
+          ? ` • ${String(ticketForNotify.date).replace("T", " ")}`
           : ""
-      }${savedTicket?.location ? ` • ${savedTicket.location}` : ""}`,
+      }${ticketForNotify?.location ? ` • ${ticketForNotify.location}` : ""}`,
       duration: 4500,
     });
 
     // ✅ 3) Backend notifications feed (fire-and-forget; NEVER blocks)
     //     If it fails or stalls, the timeout in sendTicketNotification prevents hanging.
     try {
-      void sendTicketNotification(savedTicket);
+      void sendTicketNotification(ticketForNotify);
     } catch {
       // ignore
     }
