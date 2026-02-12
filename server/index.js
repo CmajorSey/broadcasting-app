@@ -80,7 +80,7 @@ async function getAccessToken() {
   if (!token) throw new Error("Could not obtain Google OAuth access token");
   return token;
 }
-
+// [PATCH:FIREBASE_FCM_SENDER v0.8.x] Unified push sender (supports fcmToken + fcmTokens[], adds webpush link/icon + data payload)
 /* ===========================
    🔔 FCM push sender starts here
    - Supports BOTH:

@@ -744,34 +744,73 @@ const sendTicketNotification = async (ticket) => {
     const addRecipient = (name) => {
       const raw = String(name || "").trim();
       if (!raw) return;
-      const key = raw.toLowerCase();
-      if (!recipientMap.has(key)) recipientMap.set(key, raw);
+
+      // strip common prefixes if they sneak in
+      const cleaned = raw
+        .replace(
+          /^\s*(cam\s*op|camop|journalist|sports\s*journalist|producer|driver|tech|technician)\s*:\s*/i,
+          ""
+        )
+        .trim();
+
+      const finalName = cleaned || raw;
+      const key = finalName.toLowerCase();
+      if (!recipientMap.has(key)) recipientMap.set(key, finalName);
     };
 
-    // Actor
-    addRecipient(actor);
+    // ✅ IMPORTANT:
+    // Do NOT auto-add the ACTOR as a recipient here.
+    // Reason: you already do a local toast + loBoard:ticketEvent.
+    // If we also add actor to backend recipients, App.jsx polling can toast again → duplicates.
+    // (Other assigned users still get the backend notification normally.)
 
-    // Assigned crew
+    // Assigned cam ops
     if (Array.isArray(ticket?.assignedCamOps)) {
       ticket.assignedCamOps.filter(Boolean).forEach(addRecipient);
     }
+
+    // Driver
     if (ticket?.assignedDriver) addRecipient(ticket.assignedDriver);
 
-    // Reporter field sometimes includes prefixes like "Journalist: Name"
+    // Reporter can be:
+    // - string like "Journalist: Name"
+    // - array like ["Name"] (or multiple in future)
     if (ticket?.assignedReporter) {
-      const raw = String(ticket.assignedReporter).trim();
-      const cleaned =
-        raw.includes(":") ? raw.split(":").slice(1).join(":").trim() : raw;
-      addRecipient(cleaned || raw);
+      if (Array.isArray(ticket.assignedReporter)) {
+        ticket.assignedReporter.filter(Boolean).forEach(addRecipient);
+      } else {
+        const raw = String(ticket.assignedReporter).trim();
+        const cleaned =
+          raw.includes(":") ? raw.split(":").slice(1).join(":").trim() : raw;
+        addRecipient(cleaned || raw);
+      }
     }
 
-    // ✅ Admins: send ONE canonical group label (avoid triple “Admins/admin/admins”)
-    addRecipient("Admins");
+    // ✅ Technical: assigned technicians
+    if (Array.isArray(ticket?.assignedTechnicians)) {
+      ticket.assignedTechnicians.filter(Boolean).forEach(addRecipient);
+    }
+
+    // ✅ EFP/Live: crewAssignments assignees
+    if (Array.isArray(ticket?.crewAssignments)) {
+      ticket.crewAssignments.forEach((row) => {
+        if (!row) return;
+        const assignees = Array.isArray(row.assignees) ? row.assignees : [];
+        assignees.filter(Boolean).forEach(addRecipient);
+      });
+    }
+
+    // ✅ Admin routing:
+    // Use ONE canonical group label only (avoid duplicates).
+    // (Your inbox/poller can treat "admin" as a group.)
+    addRecipient("admin");
 
     const payload = {
       title: "🆕 New Request Created",
       message: `${ticket?.title || "Untitled"}${when ? ` • ${when}` : ""}${
         ticket?.location ? ` • ${ticket.location}` : ""
+      }${ticket?.type ? ` • ${ticket.type}` : ""}${
+        ticket?.shootType ? ` • ${ticket.shootType}` : ""
       }`,
       recipients: Array.from(recipientMap.values()),
       timestamp: new Date().toISOString(),
@@ -1564,33 +1603,37 @@ const handleSubmit = async (e) => {
   )}
           {/* ❌ Removed “Require Driver” block entirely */}
 
-         {formData.type !== "Technical" && (
+     {formData.type !== "Technical" && (
   <div className="space-y-4">
-    <select
-      name="shootType"
-      value={formData.shootType}
-      onChange={(e) => {
-        const nextShoot = e.target.value;
-        // Seed templates when switching into EFP/Live (if empty)
-        setFormData((prev) => {
-          const shouldSeed =
-            (nextShoot === "EFP" || nextShoot === "Live") &&
-            (!Array.isArray(prev.crewAssignments) || prev.crewAssignments.length === 0);
-          return {
-            ...prev,
-            shootType: nextShoot,
-            crewAssignments: shouldSeed ? [...EFP_LIVE_TEMPLATES] : (prev.crewAssignments || []),
-          };
-        });
-      }}
-      className="input"
-    >
-      <option value="">Shoot Type</option>
-      <option value="Live">Live</option>
-      <option value="EFP">EFP</option>
-      <option value="B-roll">B-roll Only</option>
-      <option value="ENG">ENG</option>
-    </select>
+    <div className="space-y-2">
+      <label className="block font-semibold mb-1">Shoot Type</label>
+
+      <select
+        name="shootType"
+        value={formData.shootType}
+        onChange={(e) => {
+          const nextShoot = e.target.value;
+          // Seed templates when switching into EFP/Live (if empty)
+          setFormData((prev) => {
+            const shouldSeed =
+              (nextShoot === "EFP" || nextShoot === "Live") &&
+              (!Array.isArray(prev.crewAssignments) || prev.crewAssignments.length === 0);
+            return {
+              ...prev,
+              shootType: nextShoot,
+              crewAssignments: shouldSeed ? [...EFP_LIVE_TEMPLATES] : (prev.crewAssignments || []),
+            };
+          });
+        }}
+        className="input"
+      >
+        <option value="">-- Select Shoot Type --</option>
+        <option value="ENG">ENG</option>
+        <option value="EFP">EFP</option>
+        <option value="Live">Live</option>
+        <option value="B-roll">B-roll Only</option>
+      </select>
+    </div>
 
     {/* 👉 NEW: EFP/Live Crew Assignments (TicketPage will show in expanded view) */}
     {(formData.shootType === "EFP" || formData.shootType === "Live") && (
@@ -1644,7 +1687,6 @@ const handleSubmit = async (e) => {
     )}
   </div>
 )}
-
           {can("canAddNotes") && (
             <textarea
               name="notes"
