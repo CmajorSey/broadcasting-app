@@ -720,7 +720,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   // 🔊 SOUND SETTING ENDS HERE
   // =========================
 
-  // =========================
+    // =========================
   // ✅ Notifications helper (Leave -> User)
   // =========================
   const postNotification = async ({
@@ -773,6 +773,82 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     }
   };
 
+  // ✅ Push helper (tries likely routes; includes BOTH recipients + userIds for compatibility)
+  const postPush = async ({
+    title,
+    message,
+    recipients,
+    category = "leave",
+    urgent = false,
+    data = {},
+    actor,
+  }) => {
+    try {
+      const cleanRecipients = Array.from(
+        new Set(
+          (Array.isArray(recipients) ? recipients : [])
+            .flat()
+            .filter((x) => x !== undefined && x !== null && String(x).trim() !== "")
+            .map((x) => String(x).trim())
+        )
+      );
+
+      if (cleanRecipients.length === 0) return false;
+
+      const pushBody = {
+        title: String(title || "Leave update"),
+        body: String(message || ""),
+        message: String(message || ""),
+        // ✅ Different backends sometimes expect different keys:
+        recipients: cleanRecipients,
+        userIds: cleanRecipients,
+        userId: cleanRecipients[0] || null,
+
+        category,
+        urgent: !!urgent,
+        actor: actor || (currentAdmin?.name || "Admin"),
+
+        data: {
+          category,
+          urgent: !!urgent,
+          ...(data || {}),
+        },
+      };
+
+      const tryPost = async (url) => {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pushBody),
+        });
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          throw new Error(txt || `HTTP ${res.status}`);
+        }
+        return true;
+      };
+
+      // Try a few likely push routes (first one that exists will work)
+      try {
+        if (await tryPost(`${API_BASE}/push`)) return true;
+      } catch {}
+      try {
+        if (await tryPost(`${API_BASE}/push/send`)) return true;
+      } catch {}
+      try {
+        if (await tryPost(`${API_BASE}/notifications/push`)) return true;
+      } catch {}
+      try {
+        if (await tryPost(`${API_BASE}/notifications/send-push`)) return true;
+      } catch {}
+
+      return false;
+    } catch (e) {
+      console.warn("Leave push failed (non-fatal):", e?.message || e);
+      return false;
+    }
+  };
+
   const notifyLeaveUser = async (req, userObj, { title, message, urgent = false, action }) => {
     const userId = req?.userId ?? userObj?.id;
     const userName = req?.userName ?? userObj?.name;
@@ -781,8 +857,16 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     const recipients = [
       userId ? String(userId) : null,
       userName ? String(userName) : null,
-    ];
+    ].filter(Boolean);
 
+    const resolvedAction =
+      action || {
+        type: "open_profile_leave",
+        id: String(req?.id || ""),
+        url: "/profile#leave",
+      };
+
+    // ✅ Feed notification (used by poller + in-app toasts)
     await postNotification({
       title,
       message,
@@ -791,10 +875,22 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
       urgent,
       kind: "leave_update",
       displayRecipients: userName ? [String(userName)] : undefined,
-      action: action || {
-        type: "open_profile_leave",
-        id: String(req?.id || ""),
-        url: "/profile#leave",
+      action: resolvedAction,
+    });
+
+    // ✅ ALSO try FCM push (this is what was missing on approve/deny)
+    await postPush({
+      title,
+      message,
+      recipients,
+      category: "leave",
+      urgent,
+      actor: currentAdmin?.name || "Admin",
+      data: {
+        type: "leave",
+        leaveRequestId: req?.id ? String(req.id) : undefined,
+        actionType: resolvedAction?.type || "open_profile_leave",
+        url: resolvedAction?.url || "/profile#leave",
       },
     });
   };
@@ -814,32 +910,29 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     const uid = userId ? String(userId) : "";
     if (!uid) return false;
 
-    // ✅ Backend contract:
-    // POST /notifications expects: { title, message, recipients: [] }
-    // recipients can be userId OR user name (your App-level filter supports both)
+    const recipients = Array.from(
+      new Set(
+        [uid, extra?.userName, extra?.displayName]
+          .filter((x) => x !== undefined && x !== null && String(x).trim() !== "")
+          .map((x) => String(x).trim())
+      )
+    );
+
+    // ✅ Feed payload (what your app reads)
     const payload = {
       title: String(title || "Leave update"),
       message: String(message || ""),
-      // ✅ Send BOTH id + name (your app filters support mixed matching)
-recipients: Array.from(
-  new Set(
-    [uid, extra?.userName, extra?.displayName]
-      .filter((x) => x !== undefined && x !== null && String(x).trim() !== "")
-      .map((x) => String(x).trim())
-  )
-),
-// ✅ Helps AdminGlobalToasts + MyProfile routing
-action: extra?.action || {
-  type: "open_profile_leave",
-  id: extra?.leaveRequestId ? String(extra.leaveRequestId) : undefined,
-  url: "/profile#leave",
-},
-displayRecipients: extra?.displayRecipients || (extra?.userName ? [String(extra.userName)] : undefined),
-
-
-      // Normalized meta used by your toast/sound rules
+      recipients,
       urgent: !!urgent,
       category: "leave",
+      kind: "leave_update",
+      action: extra?.action || {
+        type: "open_profile_leave",
+        id: extra?.leaveRequestId ? String(extra.leaveRequestId) : undefined,
+        url: "/profile#leave",
+      },
+      displayRecipients:
+        extra?.displayRecipients || (extra?.userName ? [String(extra.userName)] : undefined),
 
       // Extra metadata (backend will ignore unknown fields safely)
       type: "leave",
@@ -865,58 +958,47 @@ displayRecipients: extra?.displayRecipients || (extra?.userName ? [String(extra.
       return true;
     };
 
-    const tryPush = async () => {
-      // Keep push schema flexible; backend can ignore unknown fields safely
-      const pushBody = {
-        title: payload.title,
-        body: payload.message,
-        message: payload.message,
-
-        // allow backend to resolve userId/name/roles to tokens
-        recipients: payload.recipients,
-
-        category: "leave",
-        urgent: !!urgent,
-        actor: payload.createdByName || "Admin",
-
-        data: {
-          category: "leave",
-          urgent: !!urgent,
-          userId: uid,
-          type: "leave",
-          ...(extra?.data || {}),
-        },
-      };
-
-      // Try a few likely push routes (first one that exists will work)
-      try {
-        if (await tryPost(`${API_BASE}/push`, pushBody)) return true;
-      } catch {}
-      try {
-        if (await tryPost(`${API_BASE}/push/send`, pushBody)) return true;
-      } catch {}
-      try {
-        if (await tryPost(`${API_BASE}/notifications/push`, pushBody)) return true;
-      } catch {}
-
-      return false;
-    };
-
     try {
-      // ✅ Primary (your backend index.js supports this)
+      // ✅ Primary feed route
       const ok = await tryPost(`${API_BASE}/notifications`, payload);
 
       // ✅ Also try PUSH (non-fatal)
-      await tryPush();
+      await postPush({
+        title: payload.title,
+        message: payload.message,
+        recipients: payload.recipients,
+        category: "leave",
+        urgent: !!urgent,
+        actor: payload.createdByName || "Admin",
+        data: {
+          type: "leave",
+          userId: uid,
+          leaveRequestId: extra?.leaveRequestId ? String(extra.leaveRequestId) : undefined,
+          ...(extra?.data || {}),
+        },
+      });
 
       return ok;
     } catch (e1) {
       try {
-        // ✅ Fallback (older builds / alias route)
+        // ✅ Fallback route
         const ok = await tryPost(`${API_BASE}/notifications/send`, payload);
 
         // ✅ Also try PUSH (non-fatal)
-        await tryPush();
+        await postPush({
+          title: payload.title,
+          message: payload.message,
+          recipients: payload.recipients,
+          category: "leave",
+          urgent: !!urgent,
+          actor: payload.createdByName || "Admin",
+          data: {
+            type: "leave",
+            userId: uid,
+            leaveRequestId: extra?.leaveRequestId ? String(extra.leaveRequestId) : undefined,
+            ...(extra?.data || {}),
+          },
+        });
 
         return ok;
       } catch (e2) {
