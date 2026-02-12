@@ -1183,7 +1183,7 @@ app.post("/notifications/send", async (req, res) => {
     await sendPushToUsers(targets, title, message, {
       category,
       urgent: !!urgent,
-      url: (body?.action?.url && String(body.action.url)) || "/my-profile",
+      url: (body?.action?.url && String(body.action.url)) || "/profile",
       kind: body?.kind || body?.category || "admin",
     });
   } else {

@@ -827,19 +827,15 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
         }
         return true;
       };
-
-      // Try a few likely push routes (first one that exists will work)
+           // ✅ Try known-good routes that exist on the backend (Render)
+      // Backend supports:
+      //   POST /notifications/send  (alias; also attempts FCM if sendPushToUsers exists)
+      //   POST /notifications       (creates notification feed entry)
       try {
-        if (await tryPost(`${API_BASE}/push`)) return true;
+        if (await tryPost(`${API_BASE}/notifications/send`)) return true;
       } catch {}
       try {
-        if (await tryPost(`${API_BASE}/push/send`)) return true;
-      } catch {}
-      try {
-        if (await tryPost(`${API_BASE}/notifications/push`)) return true;
-      } catch {}
-      try {
-        if (await tryPost(`${API_BASE}/notifications/send-push`)) return true;
+        if (await tryPost(`${API_BASE}/notifications`)) return true;
       } catch {}
 
       return false;
@@ -848,6 +844,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
       return false;
     }
   };
+
 
   const notifyLeaveUser = async (req, userObj, { title, message, urgent = false, action }) => {
     const userId = req?.userId ?? userObj?.id;
