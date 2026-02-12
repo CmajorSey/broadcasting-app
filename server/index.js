@@ -2087,7 +2087,7 @@ app.post("/tickets", async (req, res) => {
         : "/tickets";
 
       // ✅ Push title/body (FCM)
-      const pushTitle = `🎥 New Ticket: ${newTicket.title}`;
+      const pushTitle = `🎥 New Request: ${newTicket.title}`;
       const pushBody = `You have been assigned to a new request on ${newTicket.date?.split("T")[0]}.`;
 
       await sendPushToUsers([...recipients], pushTitle, pushBody, {
