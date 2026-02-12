@@ -778,6 +778,48 @@ const isoSec = (dateish) => {
   }
 };
 
+/* ===========================
+   📅 Date display helpers (dd/mm/yyyy)
+   - IMPORTANT: storage stays ISO (do NOT change file formats)
+   - We only format for human-readable messages/logs/push
+   - Uses Seychelles timezone: Indian/Mahe
+   =========================== */
+const formatDMY = (dateish) => {
+  try {
+    const d = new Date(dateish);
+    if (Number.isNaN(d.getTime())) return "";
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Indian/Mahe",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(d);
+  } catch {
+    return "";
+  }
+};
+
+const formatDMYDateTime = (dateish) => {
+  try {
+    const d = new Date(dateish);
+    if (Number.isNaN(d.getTime())) return "";
+    const date = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Indian/Mahe",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    }).format(d);
+    const time = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Indian/Mahe",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(d);
+    return `${date} ${time}`;
+  } catch {
+    return "";
+  }
+};
 // ---------------------------
 // ✅ Suggestions (ONE set of routes only)
 // Robust: legacy migration + id/timestamp addressing
@@ -2112,9 +2154,11 @@ app.post("/tickets", async (req, res) => {
         ? `/tickets?ticketId=${encodeURIComponent(ticketId)}`
         : "/tickets";
 
-      // ✅ Push title/body (FCM)
+         // ✅ Push title/body (FCM)
       const pushTitle = `🎥 New Request: ${newTicket.title}`;
-      const pushBody = `You have been assigned to a new request on ${newTicket.date?.split("T")[0]}.`;
+
+      const prettyDate = formatDMY(newTicket?.date) || String(newTicket?.date || "").trim();
+      const pushBody = `You have been assigned to a new request on ${prettyDate || "an upcoming date"}.`;
 
       await sendPushToUsers([...recipients], pushTitle, pushBody, {
         category: "ticket",
@@ -2137,10 +2181,9 @@ app.post("/tickets", async (req, res) => {
 
         const notifRecipients = Array.from(new Set([...recIds, ...recNames]));
 
-        const when =
-          typeof newTicket?.date === "string" && newTicket.date.includes("T")
-            ? newTicket.date.replace("T", " ")
-            : String(newTicket?.date || "").trim();
+              const whenRaw = newTicket?.date;
+        const whenPretty =
+          formatDMYDateTime(whenRaw) || formatDMY(whenRaw) || String(whenRaw || "").trim();
 
         const loc = String(newTicket?.location || "").trim();
 
@@ -2352,10 +2395,9 @@ app.patch("/tickets/:id", async (req, res) => {
 
           const notifRecipients = Array.from(new Set([...recIds, ...recNames]));
 
-          const when =
-            typeof newTicket?.date === "string" && newTicket.date.includes("T")
-              ? newTicket.date.replace("T", " ")
-              : String(newTicket?.date || "").trim();
+                 const whenRaw = newTicket?.date;
+          const whenPretty =
+            formatDMYDateTime(whenRaw) || formatDMY(whenRaw) || String(whenRaw || "").trim();
 
           const loc = String(newTicket?.location || "").trim();
 

@@ -74,9 +74,10 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
       body: JSON.stringify(payload),
     });
 
-    // 2) ✅ ALSO attempt PUSH (non-blocking, safe fallback)
+     // 2) ✅ ALSO attempt PUSH (non-blocking, safe fallback)
     //    - Uses the same recipients list
-    //    - Tries common endpoints; ignores failures so Fleet never breaks
+    //    - IMPORTANT: DO NOT call /notifications again here (it would duplicate feed entries)
+    //    - Use the backend route that actually sends push: POST /notifications/send
     const pushBody = {
       title,
       body: message,
@@ -105,16 +106,12 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
       }
     };
 
-    // Try a few likely push routes (first one that exists will work)
-    // NOTE: If none exist yet, this does nothing (still safe).
-    const ok =
-      (await tryPush(`${API_BASE}/push`)) ||
-      (await tryPush(`${API_BASE}/push/send`)) ||
-      (await tryPush(`${API_BASE}/notifications/push`));
+    // ✅ Known-good push route on your backend (same pattern as tickets/leave)
+    const ok = await tryPush(`${API_BASE}/notifications/send`);
 
     if (!ok && import.meta.env.DEV) {
       console.warn(
-        "Fleet push not sent (no push endpoint matched). Feed/toasts still OK."
+        "Fleet push not sent (POST /notifications/send missing or failed). Feed/toasts still OK."
       );
     }
   } catch (err) {
