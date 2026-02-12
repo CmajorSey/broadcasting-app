@@ -345,17 +345,17 @@ export default function NotificationsPanel({ loggedInUser }) {
       },
     };
 
-    const tryPush = async (url) => {
-      try {
-        const r = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(pushBody),
-        });
-        return !!r?.ok;
-      } catch {
-        return false;
+       const tryPost = async (url) => {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pushBody),
+      });
+      if (!r.ok) {
+        const txt = await r.text().catch(() => "");
+        throw new Error(txt || `HTTP ${r.status}`);
       }
+      return true;
     };
 
     try {
@@ -367,18 +367,20 @@ export default function NotificationsPanel({ loggedInUser }) {
 
       if (!res.ok) throw new Error("Failed to send message");
 
-      // ✅ Try PUSH (non-fatal)
+      // ✅ Try PUSH (non-fatal) — use backend-known route
       await (async () => {
-        const ok =
-          (await tryPush(`${API_BASE}/push`)) ||
-          (await tryPush(`${API_BASE}/push/send`)) ||
-          (await tryPush(`${API_BASE}/notifications/push`));
-
-        // Optional dev hint
-        if (!ok && import.meta.env.DEV) {
-          console.warn(
-            "Admin push not sent (no push endpoint matched). Feed/toasts still OK."
-          );
+        try {
+          // Backend route used elsewhere in the app for FCM send attempts
+          await tryPost(`${API_BASE}/notifications/send`);
+          return true;
+        } catch {
+          // keep non-fatal (feed/toasts still OK)
+          if (import.meta.env.DEV) {
+            console.warn(
+              "Admin push not sent (POST /notifications/send not available). Feed/toasts still OK."
+            );
+          }
+          return false;
         }
       })();
 
@@ -840,26 +842,28 @@ function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions 
         },
       };
 
-      const tryPush = async (url) => {
-        try {
-          const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(pushBody),
-          });
-          return !!res?.ok;
-        } catch {
-          return false;
+          const tryPost = async (url) => {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pushBody),
+        });
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          throw new Error(txt || `HTTP ${res.status}`);
         }
+        return true;
       };
 
-      // Try a few likely push routes (first one that exists will work)
+      // ✅ Attempt PUSH (non-blocking) using backend-known route
       await (async () => {
-        const ok =
-          (await tryPush(`${API_BASE}/push`)) ||
-          (await tryPush(`${API_BASE}/push/send`)) ||
-          (await tryPush(`${API_BASE}/notifications/push`));
-        return ok;
+        try {
+          await tryPost(`${API_BASE}/notifications/send`);
+          return true;
+        } catch {
+          // silently ignore (inbox/feed already saved above)
+          return false;
+        }
       })();
 
       // 3) Also emit locally so App.jsx can alert immediately for the admin session if it matches.
