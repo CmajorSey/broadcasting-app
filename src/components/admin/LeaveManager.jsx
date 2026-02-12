@@ -820,7 +820,22 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
     const payload = {
       title: String(title || "Leave update"),
       message: String(message || ""),
-      recipients: [uid], // ✅ required by backend
+      // ✅ Send BOTH id + name (your app filters support mixed matching)
+recipients: Array.from(
+  new Set(
+    [uid, extra?.userName, extra?.displayName]
+      .filter((x) => x !== undefined && x !== null && String(x).trim() !== "")
+      .map((x) => String(x).trim())
+  )
+),
+// ✅ Helps AdminGlobalToasts + MyProfile routing
+action: extra?.action || {
+  type: "open_profile_leave",
+  id: extra?.leaveRequestId ? String(extra.leaveRequestId) : undefined,
+  url: "/profile#leave",
+},
+displayRecipients: extra?.displayRecipients || (extra?.userName ? [String(extra.userName)] : undefined),
+
 
       // Normalized meta used by your toast/sound rules
       urgent: !!urgent,
@@ -1345,7 +1360,7 @@ export default function LeaveManager({ users, setUsers, currentAdmin }) {
   const segmentOfUser = (u) => {
     if (!u) return "Unassigned";
     if (u.name === "Admin") return "Admins";
-    if (["Clive Camille", "Jennifer Arnephy", "Gilmer Philoe", "Nelson Joseph"].includes(u.name)) return "Admins";
+    if (["Clive Camille", "Jennifer Arnephy", "Gilmer Philoe"].includes(u.name)) return "Admins";
 
     const d = String(u.description || "").toLowerCase();
     if (/cam ?op|camera ?operator|operations|driver|fleet/.test(d)) return "Operations";
@@ -3006,13 +3021,16 @@ closeModify();
                     </div>
                   );
 
-                                return (
-                    <>
-                      {modifyMode === "cancel" ? (
-                        <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
-                          {/* Cancel UI (scrolls) */}
-                          <div>
-                            <Label>Return to work date</Label>
+                               return (
+  <>
+    {/* ✅ Always show summary card at top (non-scrolling context) */}
+    {headerCard}
+
+    {modifyMode === "cancel" ? (
+      <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1 mt-3">
+        {/* Cancel UI (scrolls) */}
+        <div>
+          <Label>Return to work date</Label>
                             <Input
                               type="date"
                               value={cancelReturnDate}
