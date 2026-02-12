@@ -1132,8 +1132,9 @@ app.post("/notifications", (req, res) => {
    - Backend already supports:
        POST /notifications
    - This alias keeps old clients working.
+   - ✅ Now ALSO attempts FCM push (non-fatal) if push sender exists.
    =========================== */
-app.post("/notifications/send", (req, res) => {
+app.post("/notifications/send", async (req, res) => {
   try {
     const body = req.body || {};
     const title = String(body.title || "").trim();
@@ -1166,8 +1167,35 @@ app.post("/notifications/send", (req, res) => {
     all.push(newNotification);
 
     const ok = writeNotifsSafe(all);
-    if (!ok) return res.status(200).json(newNotification);
 
+    // ✅ FCM PUSH (non-fatal)
+    // This will only run if your server already has a push sender in scope.
+    // We intentionally do NOT crash if push isn't configured.
+    try {
+     if (typeof sendPushToUsers === "function") {
+  // recipients[] contains ids/names; we must resolve to user objects
+  const allUsers = readUsersSafe();
+  const targets = allUsers.filter((u) =>
+    recipients.includes(String(u.id)) || recipients.includes(String(u.name || ""))
+  );
+
+  if (targets.length > 0) {
+    await sendPushToUsers(targets, title, message, {
+      category,
+      urgent: !!urgent,
+      url: (body?.action?.url && String(body.action.url)) || "/my-profile",
+      kind: body?.kind || body?.category || "admin",
+    });
+  } else {
+    console.log("ℹ️ /notifications/send: No matching users for push (in-app notification still saved).");
+  }
+}
+    } catch (pushErr) {
+      console.warn("Push skipped/failed for /notifications/send (non-fatal):", pushErr?.message || pushErr);
+    }
+
+    // Preserve exact response behavior
+    if (!ok) return res.status(200).json(newNotification);
     return res.status(201).json(newNotification);
   } catch (err) {
     console.error("Failed to create notification (/notifications/send):", err);
@@ -1178,8 +1206,6 @@ app.post("/notifications/send", (req, res) => {
 /* ===========================
    📩 Notifications send alias ends here
    =========================== */
-
-
 
 // 🧭 GET /notifications  (polling supported via ?after=<ISO>)
 app.get("/notifications", (req, res) => {
