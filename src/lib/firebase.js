@@ -119,6 +119,41 @@ export const requestPermission = async (opts = {}) => {
   const prompt = opts?.prompt === true;
   const interactive = prompt === true;
 
+  /* ===========================
+     🍎 iOS gating (push limitations)
+     - iOS Chrome (CriOS) is not supported for Web Push in the way Android/desktop is.
+     - iOS Safari requires the site to be installed to Home Screen (PWA) for push.
+     - We block early to avoid scary "permission not granted" messages.
+     =========================== */
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+  const isIOS = /iPad|iPhone|iPod/.test(ua);
+  const isIOSChrome = isIOS && /CriOS/.test(ua);
+
+  // PWA installed check (Safari iOS)
+  const isStandalone =
+    (typeof window !== "undefined" &&
+      window.matchMedia &&
+      window.matchMedia("(display-mode: standalone)").matches) ||
+    (typeof navigator !== "undefined" && navigator.standalone === true);
+
+  if (isIOSChrome) {
+    if (interactive) {
+      alert(
+        "iPhone: Push notifications won’t work in Chrome. Please open Lo Board in Safari, then Share → Add to Home Screen, and enable notifications from the installed app."
+      );
+    }
+    return null;
+  }
+
+  if (isIOS && !isStandalone) {
+    if (interactive) {
+      alert(
+        "iPhone: To enable push notifications, install Lo Board to your Home Screen first (Safari → Share → Add to Home Screen). Then open it from the Home Screen and enable notifications."
+      );
+    }
+    return null;
+  }
+
   const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY;
 
   // ✅ Missing VAPID key → cannot mint token (surface in interactive mode)
@@ -198,6 +233,7 @@ export const requestPermission = async (opts = {}) => {
 
   return null;
 };
+
 
 /* ===========================
    🔔 FCM permission/token ends here

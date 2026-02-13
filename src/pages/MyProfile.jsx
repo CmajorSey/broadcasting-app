@@ -730,7 +730,7 @@ const handleSuggestionSubmit = async () => {
                     - Requests permission ONLY when user toggles ON
                     - Saves fcmToken to backend user record
                    =========================== */}
-                <div className="flex items-center space-x-3">
+                                <div className="flex items-center space-x-3">
                   <Switch
                     checked={pushEnabled}
                     onCheckedChange={async (checked) => {
@@ -780,17 +780,77 @@ const handleSuggestionSubmit = async () => {
                         return;
                       }
 
+                      /* ===========================
+                         🍎 iOS quick checks (UI-level)
+                         - iOS Chrome cannot do web push like Android/desktop
+                         - iOS Safari requires Add to Home Screen (standalone)
+                         =========================== */
+                      const ua =
+                        typeof navigator !== "undefined"
+                          ? navigator.userAgent || ""
+                          : "";
+                      const isIOS = /iPad|iPhone|iPod/.test(ua);
+                      const isIOSChrome = isIOS && /CriOS/.test(ua);
+                      const isStandalone =
+                        (typeof window !== "undefined" &&
+                          window.matchMedia &&
+                          window.matchMedia("(display-mode: standalone)").matches) ||
+                        (typeof navigator !== "undefined" &&
+                          navigator.standalone === true);
+
+                      // iOS Chrome: guide user, do NOT treat as an error
+                      if (isIOSChrome) {
+                        toast({
+                          title: "iPhone setup required",
+                          description:
+                            "Push notifications won't work in iPhone Chrome. Open Lo Board in Safari → Share → Add to Home Screen, then enable notifications from the installed app.",
+                        });
+                        setPushEnabled(false);
+                        localStorage.setItem("notificationPushEnabled", "false");
+                        return;
+                      }
+
+                      // iOS Safari but not installed: guide user
+                      if (isIOS && !isStandalone) {
+                        toast({
+                          title: "Install Lo Board first",
+                          description:
+                            "On iPhone, push notifications require installing the app: Safari → Share → Add to Home Screen. Then open from the Home Screen and enable notifications.",
+                        });
+                        setPushEnabled(false);
+                        localStorage.setItem("notificationPushEnabled", "false");
+                        return;
+                      }
+
                       // Turning ON: permission + token
                       try {
                         const token = await requestPermission({ prompt: true });
 
+                        // Token is null:
+                        // - could be user denied
+                        // - could be unsupported browser
+                        // We only show destructive when it looks like a true denial.
                         if (!token) {
-                          toast({
-                            title: "Permission not granted",
-                            description:
-                              "Push notifications were not enabled on this device.",
-                            variant: "destructive",
-                          });
+                          const perm =
+                            typeof Notification !== "undefined"
+                              ? Notification.permission
+                              : "default";
+
+                          if (perm === "denied") {
+                            toast({
+                              title: "Notifications blocked",
+                              description:
+                                "Please allow notifications in your browser/site settings, then try again.",
+                              variant: "destructive",
+                            });
+                          } else {
+                            toast({
+                              title: "Push not enabled",
+                              description:
+                                "This device/browser did not enable push notifications. If you're on iPhone, use Safari and install Lo Board to your Home Screen first.",
+                            });
+                          }
+
                           setPushEnabled(false);
                           localStorage.setItem("notificationPushEnabled", "false");
                           return;
