@@ -19,7 +19,8 @@ import holidaysRouter from "./routes/holidays.js"
 import settingsRouter from "./routes/settings.js";
 import leaveRouter from "./routes/leave.js";
 
-
+// 📅 Calendar (Production Calendar API)
+import calendarRouter from "./routes/calendar.js";
 
 const require = createRequire(import.meta.url);
 
@@ -414,6 +415,8 @@ app.use("/settings", settingsRouter);
 app.use("/leave-requests", leaveRouter);
 app.use("/leave", leaveRouter); // alias for older frontend calls
 
+// 📅 Calendar routes (Production Calendar)
+app.use("/calendar", calendarRouter);
 
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
@@ -422,8 +425,17 @@ const ROSTERS_FILE = path.join(DATA_DIR, "rosters.json");
 const PASSWORD_RESET_REQUESTS_FILE = path.join(DATA_DIR, "passwordResetRequests.json");
 const groupsPath = path.join(DATA_DIR, "notificationGroups.json");
 
+/* ===========================
+   📅 Calendar store init lives in calendarStore.js
+   (avoid duplicate init logic here)
+   =========================== */
+import { readCalendarSafe, writeCalendarSafe, ensureCalendarFile } from "./utils/calendarStore.js";
+
 // 🔧 Ensure data directory and files exist (all under /data)
 fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// Ensure calendar.json exists via the shared store (single source of truth)
+ensureCalendarFile();
 
 // Core app stores
 if (!fs.existsSync(ROSTERS_FILE)) {
@@ -472,6 +484,7 @@ const SUGGESTIONS_FILE = path.join(DATA_DIR, "suggestions.json");
 if (!fs.existsSync(SUGGESTIONS_FILE)) {
   fs.writeFileSync(SUGGESTIONS_FILE, JSON.stringify([], null, 2));
 }
+
 
 /* ===========================
    📅 Rosters API starts here
@@ -2598,6 +2611,7 @@ if (!IS_RENDER && fs.existsSync(distPath)) {
       "/tickets",
       "/vehicles",
       "/rosters",
+      "/calendar",
 
       // notifications/suggestions
       "/notification-groups",
@@ -2660,6 +2674,7 @@ if (!IS_RENDER && fs.existsSync(distPath)) {
       "/tickets",
       "/vehicles",
       "/rosters",
+      "/calendar",
 
       // notifications/suggestions
       "/notification-groups",

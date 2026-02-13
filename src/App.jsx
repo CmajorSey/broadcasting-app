@@ -23,13 +23,21 @@ import TicketPage from "@/pages/TicketPage";
 import HomeCarousel from "@/components/HomeCarousel";
 import FleetPage from "@/pages/FleetPage";
 import { Toaster } from "@/components/ui/toaster";
-import { useToast } from "@/hooks/use-toast"
+import { useToast } from "@/hooks/use-toast";
 import MyProfile from "@/pages/MyProfile";
 import ChangelogDialog from "@/components/ChangelogDialog";
 import { APP_VERSION } from "@/version";
 import { requestPermission, onMessage } from "@/lib/firebase";
 import AdminGlobalToasts from "@/components/AdminGlobalToasts";
 import { playSoundFor, installSoundUnlockOnGesture } from "@/lib/soundRouter";
+
+/* ===========================
+   🏢 Team hub pages (Newsroom / Sports / Production)
+   =========================== */
+import NewsroomPage from "@/pages/NewsroomPage";
+import SportsPage from "@/pages/SportsPage";
+import ProductionPage from "@/pages/ProductionPage";
+
 
 /* ===========================
    🧩 Notification helpers start here
@@ -1168,6 +1176,85 @@ fireGlobalAlert,
               )
             }
           />
+
+          {/* ===========================
+             🏢 Team Hubs (NEW)
+             =========================== */}
+          {/*
+            ===========================
+            🔒 Team Hubs access gate
+            - Only "Admin" and "Stephanie Remie" may access:
+              /newsroom, /sports, /production
+            - Uses NAME (not role) by request
+            - Respects Admin "View As" via effectiveUser
+            ===========================
+          */}
+          {(() => {
+            const currentName = effectiveUser?.name || loggedInUser?.name || "";
+            const canAccessTeamHubs =
+              currentName === "Admin" || currentName === "Stephanie Remie";
+
+            return (
+              <>
+                <Route
+                  path="/newsroom"
+                  element={
+                    loggedInUser ? (
+                      canAccessTeamHubs ? (
+                        <NewsroomPage
+                          loggedInUser={effectiveUser} // safe for View As
+                          realLoggedInUser={loggedInUser} // safe extra prop (ignored if unused)
+                          users={users} // safe extra prop (ignored if unused)
+                        />
+                      ) : (
+                        <Navigate to="/" replace />
+                      )
+                    ) : (
+                      <Navigate to="/login" replace />
+                    )
+                  }
+                />
+
+                <Route
+                  path="/sports"
+                  element={
+                    loggedInUser ? (
+                      canAccessTeamHubs ? (
+                        <SportsPage
+                          loggedInUser={effectiveUser}
+                          realLoggedInUser={loggedInUser}
+                          users={users}
+                        />
+                      ) : (
+                        <Navigate to="/" replace />
+                      )
+                    ) : (
+                      <Navigate to="/login" replace />
+                    )
+                  }
+                />
+
+                <Route
+                  path="/production"
+                  element={
+                    loggedInUser ? (
+                      canAccessTeamHubs ? (
+                        <ProductionPage
+                          loggedInUser={effectiveUser}
+                          realLoggedInUser={loggedInUser}
+                          users={users}
+                        />
+                      ) : (
+                        <Navigate to="/" replace />
+                      )
+                    ) : (
+                      <Navigate to="/login" replace />
+                    )
+                  }
+                />
+              </>
+            );
+          })()}
 
           <Route
             path="/operations"

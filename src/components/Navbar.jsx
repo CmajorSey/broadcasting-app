@@ -7,6 +7,9 @@ import {
   PlusCircle,
   Truck,
   FileText,
+  Newspaper,
+  Trophy,
+  Clapperboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import ProfileDropdown from "@/components/ProfileDropdown";
@@ -240,6 +243,61 @@ export default function Navbar({
         <PanelLeft size={18} />
         Operations
       </Link>
+
+           {/* ===========================
+         🏢 Team Hubs (NEW)
+         =========================== */}
+
+      {/*
+        ===========================
+        🔒 Team Hubs visibility gate
+        - Only "Admin" and "Stephanie Remie"
+        - Uses NAME (not role)
+        - Respects Admin "View As"
+        ===========================
+      */}
+      {(() => {
+        const currentName =
+          effectiveUser?.name || loggedInUser?.name || "";
+
+        const canAccessTeamHubs =
+          currentName === "Admin" ||
+          currentName === "Stephanie Remie";
+
+        return (
+          <>
+            {canAccessTeamHubs && (
+              <Link
+                to="/newsroom"
+                className="flex items-center gap-1 hover:underline"
+              >
+                <Newspaper size={18} />
+                Newsroom
+              </Link>
+            )}
+
+            {canAccessTeamHubs && (
+              <Link
+                to="/sports"
+                className="flex items-center gap-1 hover:underline"
+              >
+                <Trophy size={18} />
+                Sports
+              </Link>
+            )}
+
+            {canAccessTeamHubs && (
+              <Link
+                to="/production"
+                className="flex items-center gap-1 hover:underline"
+              >
+                <Clapperboard size={18} />
+                Production
+              </Link>
+            )}
+          </>
+        );
+      })()}
 
       <Link to="/create" className="flex items-center gap-1 hover:underline">
         <PlusCircle size={18} />

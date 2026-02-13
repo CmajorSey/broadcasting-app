@@ -1,0 +1,24 @@
+{
+  "seasons": [
+    { "id": "season_pre", "name": "Pre-Season", "startMonth": 1, "endMonth": 2, "order": 1, "active": true },
+    { "id": "season_1", "name": "Season 1", "startMonth": 3, "endMonth": 5, "order": 2, "active": true },
+    { "id": "season_2", "name": "Season 2", "startMonth": 6, "endMonth": 8, "order": 3, "active": true },
+    { "id": "season_3", "name": "Season 3", "startMonth": 9, "endMonth": 11, "order": 4, "active": true },
+    { "id": "season_festive", "name": "Festive Season", "startMonth": 12, "endMonth": 12, "order": 5, "active": true }
+  ],
+  "genres": [
+    { "id": "genre_reality", "name": "Reality", "active": true },
+    { "id": "genre_documentary", "name": "Documentary", "active": true },
+    { "id": "genre_culinary", "name": "Culinary", "active": true },
+    { "id": "genre_talkshow", "name": "Talk Show", "active": true },
+    { "id": "genre_entertainment", "name": "Entertainment", "active": true },
+    { "id": "genre_sports", "name": "Sports", "active": true },
+    { "id": "genre_news", "name": "News", "active": true }
+  ],
+  "programs": [],
+  "events": [],
+  "meta": {
+    "version": "0.1",
+    "updatedAt": ""
+  }
+}
