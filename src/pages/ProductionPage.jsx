@@ -57,6 +57,27 @@ const toISO = (d) => {
   }
 };
 
+/* ===========================
+   📅 Display Date Formatter (DDMMYYYY)
+   - Converts ISO or Date to DDMMYYYY
+   - Used everywhere in UI
+   =========================== */
+const formatDDMMYYYY = (value) => {
+  try {
+    if (!value) return "—";
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return "—";
+
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+
+    return `${day}${month}${year}`;
+  } catch {
+    return "—";
+  }
+};  
+
 const loadArray = (key) => {
   try {
     const raw = localStorage.getItem(key);
@@ -554,13 +575,41 @@ export default function ProductionPage({ loggedInUser }) {
 
   /* ===========================
      📌 Manual series creation (optional)
+     - Works the same as "Confirm Program"
+     - Supports genres (incl. custom saved genres)
+     - Supports full scheduling rules (weekly/monthly/oneOff/custom)
      =========================== */
   const [manualTitle, setManualTitle] = useState("");
   const [manualEpisodes, setManualEpisodes] = useState("");
+
+  /* ===========================
+     🏷️ Manual genre (matches Proposed flow)
+     =========================== */
+  const [manualGenre, setManualGenre] = useState("");
+  const [manualGenreMode, setManualGenreMode] = useState("select"); // "select" | "add"
+  const [manualGenreCustom, setManualGenreCustom] = useState("");
+
+  /* ===========================
+     🗓️ Manual schedule (matches Confirm flow)
+     =========================== */
   const [manualType, setManualType] = useState("oneOff");
   const [manualAirTime, setManualAirTime] = useState("21:00");
+
+  // weekly/monthly share start date
   const [manualStartDate, setManualStartDate] = useState("");
+
+  // weekly
+  const [manualWeeklyWeekday, setManualWeeklyWeekday] = useState("0");
+
+  // monthly
+  const [manualMonthlyRule, setManualMonthlyRule] = useState("last");
+  const [manualMonthlyNth, setManualMonthlyNth] = useState("1");
+  const [manualMonthlyWeekday, setManualMonthlyWeekday] = useState("6");
+
+  // one-off
   const [manualOneOffDate, setManualOneOffDate] = useState("");
+
+  // custom
   const [manualCustomDatesRaw, setManualCustomDatesRaw] = useState("");
 
   /* ===========================
@@ -631,39 +680,39 @@ export default function ProductionPage({ loggedInUser }) {
      🧾 Proposed pool helpers
      =========================== */
   const addProposed = () => {
-    const cleanTitle = (pTitle || "").trim();
-    if (!cleanTitle) {
-      toast({ title: "Missing title", description: "Please enter a proposed program title." });
-      return;
-    }
+  const cleanTitle = (pTitle || "").trim();
+  if (!cleanTitle) {
+    toast({ title: "Missing title", description: "Please enter a proposed program title." });
+    return;
+  }
 
-    const eps = Number(pEpisodes);
-    const safeEpisodes = Number.isFinite(eps) && eps >= 1 && eps <= 100 ? eps : "";
+  const eps = Number(pEpisodes);
+  const safeEpisodes = Number.isFinite(eps) && eps >= 1 && eps <= 100 ? eps : null; // ✅ null = ongoing
 
-    const cleanGenre = String(pGenre || "").trim();
+  const cleanGenre = String(pGenre || "").trim();
 
-    const newProg = {
-      id: Date.now().toString(),
-      title: cleanTitle,
-      episodes: safeEpisodes,
-      genre: cleanGenre,
-      synopsis: (pSynopsis || "").trim(),
-      createdBy: loggedInUser?.name || "Unknown",
-      createdAt: new Date().toISOString(),
-    };
-
-    setProposedPrograms((prev) => [newProg, ...(Array.isArray(prev) ? prev : [])]);
-
-    setPTitle("");
-    setPEpisodes("");
-    setPGenre("");
-    setPSynopsis("");
-
-    setPGenreMode("select");
-    setPGenreCustom("");
-
-    toast({ title: "Submitted", description: "Proposed program added to the pool." });
+  const newProg = {
+    id: Date.now().toString(),
+    title: cleanTitle,
+    episodes: safeEpisodes, // number or null
+    genre: cleanGenre,
+    synopsis: (pSynopsis || "").trim(),
+    createdBy: loggedInUser?.name || "Unknown",
+    createdAt: new Date().toISOString(),
   };
+
+  setProposedPrograms((prev) => [newProg, ...(Array.isArray(prev) ? prev : [])]);
+
+  setPTitle("");
+  setPEpisodes("");
+  setPGenre("");
+  setPSynopsis("");
+
+  setPGenreMode("select");
+  setPGenreCustom("");
+
+  toast({ title: "Submitted", description: "Proposed program added to the pool." });
+};
 
   const removeProposed = (id) => {
     setProposedPrograms((prev) => (Array.isArray(prev) ? prev.filter((p) => p.id !== id) : []));
@@ -746,32 +795,37 @@ export default function ProductionPage({ loggedInUser }) {
     const seriesId = `series_${Date.now().toString()}_${selectedProposed.id}`;
 
     const series = {
-      id: seriesId,
-      title: cleanTitle,
-      episodesCount: hasEpisodes ? epsNum : null,
-      airTime: schedule.airTime,
-      scheduleMeta: schedule,
+  id: seriesId,
+  title: cleanTitle,
 
-      overrides: {}, // per-episode overrides written later
-      seriesChanges: [
-        {
-          at: createdAt,
-          by: createdBy,
-          action: "series_created_from_proposed",
-          details: `Schedule: ${schedule.type}`,
-        },
-      ],
+  // ✅ keep parity with Manual series (genre shows in Confirmed + can be filtered later)
+  genre: String(selectedProposed?.genre || "").trim(),
 
-      // Proposed source audit
-      sourceProposedId: selectedProposed.id,
-      sourceProposedBy: selectedProposed.createdBy,
-      sourceProposedAt: selectedProposed.createdAt,
+  episodesCount: hasEpisodes ? epsNum : null,
+  airTime: schedule.airTime,
+  scheduleMeta: schedule,
 
-      createdBy,
-      createdAt,
-      confirmed: true,
-    };
+  overrides: {}, // per-episode overrides written later
+  seriesChanges: [
+    {
+      at: createdAt,
+      by: createdBy,
+      action: "series_created_from_proposed",
+      details: `Schedule: ${schedule.type}${
+        String(selectedProposed?.genre || "").trim() ? ` • Genre: ${String(selectedProposed.genre).trim()}` : ""
+      }`,
+    },
+  ],
 
+  // Proposed source audit
+  sourceProposedId: selectedProposed.id,
+  sourceProposedBy: selectedProposed.createdBy,
+  sourceProposedAt: selectedProposed.createdAt,
+
+  createdBy,
+  createdAt,
+  confirmed: true,
+};
     setSeriesList((prev) => [series, ...(Array.isArray(prev) ? prev : [])]);
 
     // remove from pool
@@ -839,7 +893,7 @@ export default function ProductionPage({ loggedInUser }) {
      - Add filming date(s) list (series-level planning)
      - Filming dates input appears ONLY here (not per-episode)
      =========================== */
- const [seriesEditOpen, setSeriesEditOpen] = useState(false);
+  const [seriesEditOpen, setSeriesEditOpen] = useState(false);
   const [seriesEditId, setSeriesEditId] = useState(null);
   const [seriesEditTitle, setSeriesEditTitle] = useState("");
   const [seriesEditFilmDatesRaw, setSeriesEditFilmDatesRaw] = useState("");
@@ -854,7 +908,95 @@ export default function ProductionPage({ loggedInUser }) {
   const [seriesFilmRangeStart, setSeriesFilmRangeStart] = useState("");
   const [seriesFilmRangeEnd, setSeriesFilmRangeEnd] = useState("");
 
-   const openSeriesEdit = (series) => {
+  /* ===========================
+     🎬 Filming Day dialog (calendar click)
+     - Click a filming badge/day -> opens a day box (like calendar day)
+     - See ALL filming scheduled for that date
+     - Change filming date OR delete it (NO notes)
+     =========================== */
+  const [filmDayOpen, setFilmDayOpen] = useState(false);
+  const [filmDayISO, setFilmDayISO] = useState("");
+  const [filmDayItems, setFilmDayItems] = useState([]); // [{ seriesId, title }]
+  const [filmDayEdits, setFilmDayEdits] = useState({}); // { [seriesId]: "YYYY-MM-DD" }
+
+  const openFilmingDay = (dateISO, itemsForDay) => {
+    const iso = normalizeISODate(dateISO);
+    if (!iso) return;
+
+    const list = Array.isArray(itemsForDay) ? itemsForDay : [];
+
+    setFilmDayISO(iso);
+    setFilmDayItems(list);
+
+    // Pre-fill edit inputs with the current day (so user can quickly move)
+    const nextEdits = {};
+    for (const it of list) {
+      if (!it?.seriesId) continue;
+      nextEdits[it.seriesId] = iso;
+    }
+    setFilmDayEdits(nextEdits);
+
+    setFilmDayOpen(true);
+  };
+
+  const moveFilmingDate = (seriesId, fromISO, toISO) => {
+    const sid = String(seriesId || "").trim();
+    const from = normalizeISODate(fromISO);
+    const to = normalizeISODate(toISO);
+
+    if (!sid || !from || !to) return;
+    if (from === to) return;
+
+    setSeriesList((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      return list.map((s) => {
+        if (s?.id !== sid) return s;
+
+        const before = Array.isArray(s?.filmingDates) ? s.filmingDates : [];
+        const cleaned = before.map((d) => normalizeISODate(d)).filter(Boolean);
+
+        // remove old, add new, unique, sorted
+        const next = cleaned.filter((d) => d !== from);
+        next.push(to);
+
+        const uniq = Array.from(new Set(next)).filter(Boolean);
+        uniq.sort((a, b) => a.localeCompare(b));
+
+        return {
+          ...s,
+          filmingDates: uniq,
+        };
+      });
+    });
+
+    // Update the dialog list immediately (so it feels “animated/instant”)
+    setFilmDayItems((prev) => (Array.isArray(prev) ? prev.filter((x) => x?.seriesId !== sid) : []));
+  };
+
+  const deleteFilmingDate = (seriesId, dateISO) => {
+    const sid = String(seriesId || "").trim();
+    const iso = normalizeISODate(dateISO);
+    if (!sid || !iso) return;
+
+    setSeriesList((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      return list.map((s) => {
+        if (s?.id !== sid) return s;
+
+        const before = Array.isArray(s?.filmingDates) ? s.filmingDates : [];
+        const cleaned = before.map((d) => normalizeISODate(d)).filter(Boolean);
+
+        return {
+          ...s,
+          filmingDates: cleaned.filter((d) => d !== iso),
+        };
+      });
+    });
+
+    setFilmDayItems((prev) => (Array.isArray(prev) ? prev.filter((x) => x?.seriesId !== sid) : []));
+  };
+
+  const openSeriesEdit = (series) => {
     if (!series?.id) return;
 
     setSeriesEditId(series.id);
@@ -871,6 +1013,7 @@ export default function ProductionPage({ loggedInUser }) {
     setSeriesEditNote("");
     setSeriesEditOpen(true);
   };
+
   const saveSeriesHeader = () => {
     if (!seriesEditId) return;
 
@@ -910,9 +1053,7 @@ export default function ProductionPage({ loggedInUser }) {
               by: actor,
               action: "series_header_updated",
               details: `Note: ${note}. ${titleChanged ? `Title: "${beforeTitle}" → "${nextTitle}". ` : ""}${
-                filmChanged
-                  ? `Filming dates: ${beforeFilm.length} → ${nextFilmingDates.length}.`
-                  : ""
+                filmChanged ? `Filming dates: ${beforeFilm.length} → ${nextFilmingDates.length}.` : ""
               }`,
             },
           ],
@@ -923,7 +1064,6 @@ export default function ProductionPage({ loggedInUser }) {
     toast({ title: "Saved", description: "Series header updated." });
     setSeriesEditOpen(false);
   };
-
   const openEditForOccurrence = (occ) => {
     if (!occ?.seriesId || !occ?.occurrenceIndex) return;
 
@@ -956,7 +1096,6 @@ export default function ProductionPage({ loggedInUser }) {
 
     const nextAirDate = normalizeISODate(editAirDate);
     const nextAirTime = String(editAirTime || "").trim();
-    const nextFilmDate = normalizeISODate(editFilmDate);
 
     if (!nextAirDate) {
       toast({ title: "Missing date", description: "Please select an airing date." });
@@ -970,204 +1109,350 @@ export default function ProductionPage({ loggedInUser }) {
     const actor = loggedInUser?.name || "Unknown";
     const at = new Date().toISOString();
 
+    // Helpers (ISO-only)
+    const parseISO = (iso) => {
+      const d = new Date(String(iso || ""));
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+    const diffDaysISO = (aISO, bISO) => {
+      const a = parseISO(aISO);
+      const b = parseISO(bISO);
+      if (!a || !b) return 0;
+      const ms = a.getTime() - b.getTime();
+      return Math.round(ms / (1000 * 60 * 60 * 24));
+    };
+
     setSeriesList((prev) => {
       const list = Array.isArray(prev) ? prev : [];
       return list.map((s) => {
         if (s.id !== editOcc.seriesId) return s;
 
-        // snapshot “before”
-        const before = {
-          airDate: editOcc.currentAirDate || "",
-          airTime: editOcc.currentAirTime || "",
-          filmDate: editOcc.currentFilmDate || "",
+        const schedule = safeObj(s?.scheduleMeta);
+        const scheduleType = String(schedule?.type || "weekly");
+
+        const episodesForBuild =
+          Number.isFinite(Number(s?.episodesCount)) && Number(s?.episodesCount) >= 1
+            ? Number(s.episodesCount)
+            : schedule?.episodes ?? null;
+
+        const baseOcc = buildOccurrences({
+          ...schedule,
+          episodes: episodesForBuild,
+        });
+
+        const pivotIndex = Math.max(1, Number(editOcc?.occurrenceIndex || 1));
+        const basePivotDate = String(baseOcc?.[pivotIndex - 1] || "");
+
+        const existingOverrides = safeObj(s?.overrides);
+        let nextOverrides = { ...existingOverrides };
+
+        // ----------------------------------------------------------
+        // ✅ RULE: For weekly/monthly/ongoing:
+        // When you change an episode date, shift all following episodes
+        // by the SAME day delta (postpone forward/back).
+        //
+        // ✅ Reversible:
+        // If user moves it back to the base date (delta = 0),
+        // auto-shift overrides from this pivot are removed.
+        // ----------------------------------------------------------
+        const isShiftableSeries = scheduleType === "weekly" || scheduleType === "monthly";
+
+        // Always keep series default time synced when scope is "all"
+        const nextSeriesAirTime = nextAirTime;
+
+        // If we cannot compute a base pivot, fall back to simple override behavior
+        const canShift = isShiftableSeries && !!basePivotDate;
+
+        const deltaDays = canShift ? diffDaysISO(nextAirDate, basePivotDate) : 0;
+
+        // Utility: determine whether an override is "manual"
+        // Manual overrides are those WITHOUT our autoShift marker.
+        const isManualOverride = (o) => {
+          const x = safeObj(o);
+          if (!x) return false;
+          if (x.autoShift) return false;
+          // If user ever wrote changes/note/time/date manually, treat as manual
+          if (x.note) return true;
+          if (x.airDate && !x.autoShift) return true;
+          if (x.airTime && !x.autoShift) return true;
+          return false;
         };
 
+        // ----------------------------------------------------------
+        // ✅ SCOPE: ALL
+        // Meaning: "This episode + all below follow the shift"
+        // (we do NOT rewrite the series rule; we apply a shift from pivot onward)
+        // ----------------------------------------------------------
         if (editScope === "all") {
-          // ✅ “Change all” behavior (v2+):
-          // - If series has NOT started yet → move ALL generated episodes to the new day/time.
-          // - If series HAS started already → keep past airings where they are, and shift ONLY subsequent airings.
-          //   Past airings are preserved via per-episode overrides (so the calendar shows Monday still there, rest moved).
-          const schedule = safeObj(s.scheduleMeta);
-          const type = String(schedule?.type || "weekly");
+          // Update series default time
+          const nextSchedule = { ...schedule, airTime: nextSeriesAirTime };
 
-          // snapshot old schedule + occurrences (using the same occurrence builder as the calendar)
-          const oldSchedule = { ...schedule };
-          const oldOcc = buildOccurrences({
-            ...oldSchedule,
-            episodes:
-              Number.isFinite(Number(s?.episodesCount)) && Number(s?.episodesCount) >= 1
-                ? Number(s.episodesCount)
-                : oldSchedule?.episodes ?? null,
-          });
+          if (canShift) {
+            // 1) Remove previous AUTO-SHIFT overrides from THIS pivot onward
+            Object.keys(nextOverrides || {}).forEach((k) => {
+              const idx = Number(k);
+              if (!Number.isFinite(idx)) return;
+              const o = safeObj(nextOverrides[k]);
+              if (idx >= pivotIndex && o?.autoShift && Number(o.autoShift?.pivot) === pivotIndex) {
+                delete nextOverrides[k];
+              }
+            });
 
-          // Determine “started” by whether we have any generated airDate strictly before today
-          const todayISO = (() => {
-            try {
-              return new Date().toISOString().slice(0, 10);
-            } catch {
-              return "";
-            }
-          })();
+            // 2) If delta is 0, we are effectively "reverting" the shift
+            //    => nothing to apply beyond clearing the old autoShift markers
+            if (deltaDays !== 0) {
+              for (let i = pivotIndex; i <= baseOcc.length; i++) {
+                const key = String(i);
+                const baseDate = String(baseOcc[i - 1] || "");
+                if (!baseDate) continue;
 
-          const hasStarted =
-            !!todayISO && Array.isArray(oldOcc) && oldOcc.some((d) => d && d < todayISO);
+                const prevO = safeObj(nextOverrides[key]);
 
-          // Build next schedule (updates weekday rules for weekly/monthly based on chosen date)
-          let nextSchedule = { ...oldSchedule };
+                // Respect manual overrides: do not overwrite them
+                if (prevO && isManualOverride(prevO)) continue;
 
-          if (type === "weekly") {
-            nextSchedule.startDate = nextAirDate;
-            // weeklyWeekday is 0=Mon..6=Sun (matches isoDowMon)
-            nextSchedule.weeklyWeekday = isoDowMon(nextAirDate);
-          } else if (type === "monthly") {
-            nextSchedule.startDate = nextAirDate;
-            // monthlyWeekday is 0=Mon..6=Sun (matches isoDowMon)
-            nextSchedule.monthlyWeekday = isoDowMon(nextAirDate);
-            // keep monthlyRule + monthlyNth as-is (user is changing “day”, not rule)
-          } else if (type === "oneOff") {
-            nextSchedule.oneOffDate = nextAirDate;
-            nextSchedule.startDate = nextAirDate;
-          } else if (type === "custom") {
-            // For “all” on custom, we do NOT rewrite the whole custom date list automatically (too destructive).
-            // We treat this as changing default time only + log. Users can edit individual custom dates as “one”.
-          }
-
-          // Always update default series time when applying to “all”
-          nextSchedule.airTime = nextAirTime;
-
-          // Build new occurrences for the updated schedule
-          const newOcc = buildOccurrences({
-            ...nextSchedule,
-            episodes:
-              Number.isFinite(Number(s?.episodesCount)) && Number(s?.episodesCount) >= 1
-                ? Number(s.episodesCount)
-                : nextSchedule?.episodes ?? null,
-          });
-
-          // Preserve past airings (ONLY when series already started):
-          // For each past occurrence index, write an override that pins the old date/time (unless user already overridden it).
-          const existingOverrides = safeObj(s.overrides);
-          let preservedOverrides = existingOverrides;
-
-          if (hasStarted && Array.isArray(oldOcc) && oldOcc.length) {
-            const actorForLog = actor;
-            preservedOverrides = { ...existingOverrides };
-
-            for (let i = 0; i < oldOcc.length; i++) {
-              const idx1 = i + 1;
-              const oldDate = oldOcc[i];
-
-              if (!oldDate || !todayISO) continue;
-
-              // Past airing → pin it
-              if (oldDate < todayISO) {
-                const key = String(idx1);
-                const prevOverride = safeObj(preservedOverrides[key]);
-
-                // If an override already exists, do NOT overwrite it.
-                // Just ensure past stays stable by leaving user edits intact.
-                if (prevOverride && (prevOverride.airDate || prevOverride.airTime || prevOverride.filmDate || prevOverride.note)) {
-                  continue;
-                }
-
-                preservedOverrides[key] = {
-                  ...prevOverride,
-                  airDate: oldDate,
-                  airTime: String(oldSchedule?.airTime || s?.airTime || "21:00"),
-                  filmDate: prevOverride?.filmDate ?? "",
-                  note: `Auto-preserved past airing after series change. Note: ${note}`,
+                // Apply shifted date
+                nextOverrides[key] = {
+                  ...prevO,
+                  airDate: addDaysISO(baseDate, deltaDays),
+                  airTime: nextAirTime,
+                  // No note on auto-shifted episodes (so old notes don’t “come back”)
+                  note: "",
+                  autoShift: {
+                    pivot: pivotIndex,
+                    deltaDays,
+                    appliedAt: at,
+                    appliedBy: actor,
+                  },
                   changes: [
-                    ...(Array.isArray(prevOverride.changes) ? prevOverride.changes : []),
+                    ...(Array.isArray(prevO?.changes) ? prevO.changes : []),
                     {
                       at,
-                      by: actorForLog,
-                      action: "episode_auto_preserved_past",
-                      details: `Pinned past airing (Ep ${idx1}) to ${oldDate} @ ${String(
-                        oldSchedule?.airTime || s?.airTime || "21:00"
-                      )} after series moved. Note: ${note}`,
+                      by: actor,
+                      action: "episode_auto_shifted",
+                      details: `Auto-shift from Ep ${pivotIndex} (Δ ${deltaDays} day(s)).`,
                     },
                   ],
                 };
               }
             }
+
+            // 3) Pivot episode itself should show the user’s note (so change is traceable)
+            //    If pivot has a manual override already (not autoShift), keep it.
+            const pivotKey = String(pivotIndex);
+            const pivotPrev = safeObj(nextOverrides[pivotKey]);
+            const pivotIsManual = pivotPrev && isManualOverride(pivotPrev);
+
+            if (!pivotIsManual) {
+              nextOverrides[pivotKey] = {
+                ...pivotPrev,
+                airDate: nextAirDate,
+                airTime: nextAirTime,
+                note,
+                changes: [
+                  ...(Array.isArray(pivotPrev?.changes) ? pivotPrev.changes : []),
+                  {
+                    at,
+                    by: actor,
+                    action: "episode_changed_pivot_all",
+                    details: `Pivot Ep ${pivotIndex}: ${basePivotDate} → ${nextAirDate} @ ${nextAirTime}. Note: ${note}`,
+                  },
+                ],
+              };
+            }
+
+            return {
+              ...s,
+              airTime: nextSeriesAirTime,
+              scheduleMeta: nextSchedule,
+              overrides: nextOverrides,
+              seriesChanges: [
+                ...(Array.isArray(s.seriesChanges) ? s.seriesChanges : []),
+                {
+                  at,
+                  by: actor,
+                  action: deltaDays === 0 ? "series_shift_reverted" : "series_shift_from_episode",
+                  details: `Note: ${note}. Pivot Ep ${pivotIndex}: ${basePivotDate} → ${nextAirDate}. Shift applied from Ep ${pivotIndex} onward (Δ ${deltaDays} day(s)).`,
+                },
+              ],
+            };
           }
 
-          // Series-level log
-          const beforeSummary = `${before.airDate} @ ${before.airTime}`;
-          const afterSummary =
-            type === "custom"
-              ? `Default time set to ${nextAirTime} (custom dates unchanged)`
-              : `Rule updated; next occurrences now follow ${nextAirDate} @ ${nextAirTime}`;
+          // Fallback (non-shiftable types)
+          const idxKey = String(pivotIndex);
+          const prevOverride = safeObj(existingOverrides[idxKey]);
 
           return {
             ...s,
-            airTime: nextAirTime,
-            scheduleMeta: nextSchedule,
-            overrides: preservedOverrides,
-            seriesChanges: [
-              ...(Array.isArray(s.seriesChanges) ? s.seriesChanges : []),
-              {
-                at,
-                by: actor,
-                action: hasStarted ? "series_changed_subsequent_only" : "series_changed_all",
-                details: `Note: ${note}. Before: ${beforeSummary}. After: ${afterSummary}. ${
-                  hasStarted
-                    ? "Past airings were preserved via per-episode overrides."
-                    : "Series had not started yet; all generated episodes moved."
-                }`,
+            airTime: nextSeriesAirTime,
+            scheduleMeta: { ...schedule, airTime: nextSeriesAirTime },
+            overrides: {
+              ...existingOverrides,
+              [idxKey]: {
+                ...prevOverride,
+                airDate: nextAirDate,
+                airTime: nextAirTime,
+                note,
+                changes: [
+                  ...(Array.isArray(prevOverride.changes) ? prevOverride.changes : []),
+                  {
+                    at,
+                    by: actor,
+                    action: "episode_changed_all_fallback",
+                    details: `Updated Ep ${pivotIndex} (series types do not support shift). Note: ${note}`,
+                  },
+                ],
               },
-            ],
+            },
           };
         }
 
-        // scope === "one"
-        const idxKey = String(editOcc.occurrenceIndex);
+        // ----------------------------------------------------------
+        // ✅ SCOPE: ONE
+        // Meaning: user edits one episode, BUT for weekly/monthly we ALSO shift following episodes
+        // ----------------------------------------------------------
+        if (canShift) {
+          // 1) Clear previous autoShift from this pivot onward (so reversals don’t keep old “notes”)
+          Object.keys(nextOverrides || {}).forEach((k) => {
+            const idx = Number(k);
+            if (!Number.isFinite(idx)) return;
+            const o = safeObj(nextOverrides[k]);
+            if (idx >= pivotIndex && o?.autoShift && Number(o.autoShift?.pivot) === pivotIndex) {
+              delete nextOverrides[k];
+            }
+          });
+
+          // 2) If deltaDays = 0 AND pivot time equals series default AND no manual override needed
+          //    => treat it as a REVERT: remove pivot override (if it was only auto/previous) and stop.
+          const seriesDefaultTime =
+            String(s?.airTime || s?.scheduleMeta?.airTime || "21:00").trim() || "21:00";
+
+          const pivotKey = String(pivotIndex);
+          const pivotExisting = safeObj(nextOverrides[pivotKey]);
+          const pivotManual = pivotExisting && isManualOverride(pivotExisting);
+
+          const isRevertingToBase =
+            !!basePivotDate && nextAirDate === basePivotDate && nextAirTime === seriesDefaultTime;
+
+          if (isRevertingToBase && !pivotManual) {
+            // Remove pivot override too (this is the “clean revert”)
+            delete nextOverrides[pivotKey];
+
+            return {
+              ...s,
+              overrides: nextOverrides,
+              seriesChanges: [
+                ...(Array.isArray(s.seriesChanges) ? s.seriesChanges : []),
+                {
+                  at,
+                  by: actor,
+                  action: "episode_reverted_and_shift_cleared",
+                  details: `Note: ${note}. Ep ${pivotIndex} reverted to base (${basePivotDate} @ ${seriesDefaultTime}). Cleared auto-shift from Ep ${pivotIndex} onward.`,
+                },
+              ],
+            };
+          }
+
+          // 3) Apply autoShift overrides for following episodes if delta != 0
+          if (deltaDays !== 0) {
+            for (let i = pivotIndex + 1; i <= baseOcc.length; i++) {
+              const key = String(i);
+              const baseDate = String(baseOcc[i - 1] || "");
+              if (!baseDate) continue;
+
+              const prevO = safeObj(nextOverrides[key]);
+
+              // Respect manual overrides: do not overwrite them
+              if (prevO && isManualOverride(prevO)) continue;
+
+              nextOverrides[key] = {
+                ...prevO,
+                airDate: addDaysISO(baseDate, deltaDays),
+                airTime: nextAirTime,
+                note: "",
+                autoShift: {
+                  pivot: pivotIndex,
+                  deltaDays,
+                  appliedAt: at,
+                  appliedBy: actor,
+                },
+                changes: [
+                  ...(Array.isArray(prevO?.changes) ? prevO.changes : []),
+                  {
+                    at,
+                    by: actor,
+                    action: "episode_auto_shifted",
+                    details: `Auto-shift after Ep ${pivotIndex} moved (Δ ${deltaDays} day(s)).`,
+                  },
+                ],
+              };
+            }
+          }
+
+          // 4) Pivot override always saved with note
+          const prevOverride = safeObj(existingOverrides[pivotKey]);
+
+          nextOverrides[pivotKey] = {
+            ...prevOverride,
+            airDate: nextAirDate,
+            airTime: nextAirTime,
+            note,
+            changes: [
+              ...(Array.isArray(prevOverride.changes) ? prevOverride.changes : []),
+              {
+                at,
+                by: actor,
+                action: "episode_changed_one_with_shift",
+                details: `Ep ${pivotIndex}: ${basePivotDate || "(base unknown)"} → ${nextAirDate} @ ${nextAirTime}. Shifted following episodes by Δ ${deltaDays} day(s). Note: ${note}`,
+              },
+            ],
+          };
+
+          return {
+            ...s,
+            overrides: nextOverrides,
+          };
+        }
+
+        // ----------------------------------------------------------
+        // ✅ Non-shiftable series types (oneOff/custom) OR missing base pivot
+        // => simple single-episode override (existing behavior)
+        // ----------------------------------------------------------
+        const idxKey = String(pivotIndex);
         const overrides = safeObj(s.overrides);
         const prevOverride = safeObj(overrides[idxKey]);
-
-              const nextOverride = {
-          ...prevOverride,
-          airDate: nextAirDate,
-          airTime: nextAirTime,
-
-          // ✅ IMPORTANT:
-          // Filming date(s) are managed at the SERIES HEADER now.
-          // So episode edits should NEVER clear an existing film date unless the user explicitly set one.
-          filmDate: nextFilmDate
-            ? nextFilmDate
-            : prevOverride?.filmDate ?? editOcc.currentFilmDate ?? "",
-
-          note,
-          changes: [
-            ...(Array.isArray(prevOverride.changes) ? prevOverride.changes : []),
-            {
-              at,
-              by: actor,
-              action: "episode_changed_one",
-              details: `Before: ${before.airDate} @ ${before.airTime}${
-                before.filmDate ? ` (Film ${before.filmDate})` : ""
-              } → After: ${nextAirDate} @ ${nextAirTime}${
-                nextFilmDate
-                  ? ` (Film ${nextFilmDate})`
-                  : prevOverride?.filmDate || editOcc.currentFilmDate
-                  ? ` (Film preserved)`
-                  : ""
-              }. Note: ${note}`,
-            },
-          ],
-        };
 
         return {
           ...s,
           overrides: {
             ...overrides,
-            [idxKey]: nextOverride,
+            [idxKey]: {
+              ...prevOverride,
+              airDate: nextAirDate,
+              airTime: nextAirTime,
+              note,
+              changes: [
+                ...(Array.isArray(prevOverride.changes) ? prevOverride.changes : []),
+                {
+                  at,
+                  by: actor,
+                  action: "episode_changed_one",
+                  details: `Ep ${pivotIndex} updated. Note: ${note}`,
+                },
+              ],
+            },
           },
         };
       });
     });
 
-    toast({ title: "Saved", description: editScope === "all" ? "Series updated." : "Episode updated." });
+    toast({
+      title: "Saved",
+      description:
+        editScope === "all"
+          ? "Series updated (shift applied from this episode onward)."
+          : "Episode updated (and following episodes adjusted where needed).",
+    });
     setEditOpen(false);
   };
 
@@ -1373,25 +1658,28 @@ export default function ProductionPage({ loggedInUser }) {
                               {filmingForDay.length ? (
                                 <div className="space-y-1">
                                   <div className="text-[10px] text-muted-foreground">Filming</div>
-                                  <div className="space-y-1">
-                                    {filmingForDay.slice(0, 1).map((f) => (
-                                      <div
-                                        key={`film_${dateISO}_${f.seriesId}`}
-                                        className="w-full rounded-md px-2 py-1 text-[10px] bg-muted/30"
-                                        title={f.title}
-                                      >
-                                        <div className="truncate font-medium">🎬 {f.title}</div>
-                                      </div>
-                                    ))}
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      // Everyone can open the day view; only editors can change/delete inside
+                                      openFilmingDay(dateISO, filmingForDay);
+                                    }}
+                                    className="w-full text-left rounded-md px-2 py-1 text-[10px] bg-muted/30 hover:bg-muted/50 transition"
+                                    title={canEdit ? "Click to view/edit filming for this day" : "Click to view filming for this day"}
+                                  >
+                                    <div className="truncate font-medium">
+                                      🎬 {filmingForDay[0]?.title || "Filming"}
+                                    </div>
+
                                     {filmingForDay.length > 1 ? (
                                       <div className="text-[10px] text-muted-foreground">
                                         +{filmingForDay.length - 1} more
                                       </div>
                                     ) : null}
-                                  </div>
+                                  </button>
                                 </div>
                               ) : null}
-
                               {itemsForDay.length === 0 ? (
                                 <div className="text-xs text-muted-foreground">—</div>
                               ) : (
@@ -1418,7 +1706,7 @@ export default function ProductionPage({ loggedInUser }) {
                                       </div>
                                       <div className="text-[10px] text-muted-foreground truncate">
                                         {it.airTime ? `@ ${it.airTime}` : "Time —"}{" "}
-                                        {it.filmDate ? `• Film: ${it.filmDate}` : ""}
+                                        {it.filmDate ? `• Film: ${formatDDMMYYYY(it.filmDate)}` : ""}
                                         {it.episodeNote ? " • ✍️ changed" : ""}
                                       </div>
                                     </button>
@@ -1502,98 +1790,124 @@ export default function ProductionPage({ loggedInUser }) {
             </Card>
           )}
 
-          {/* ===========================
+                   {/* ===========================
              🧩 Seasons setup (edit first)
+             ✅ Now collapsible
              =========================== */}
           <Card className="rounded-2xl">
             <CardContent className="p-4 space-y-3">
-              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">Seasons Setup</div>
-                  <div className="text-sm text-muted-foreground">
-                    How many seasons, name them, and set start/end months.
+              {/* ===========================
+                 🔽 Collapsible container starts
+                 =========================== */}
+              <details className="group rounded-xl border">
+                <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-xl p-3">
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium">Seasons Setup</div>
+                    <div className="text-sm text-muted-foreground">
+                      How many seasons, name them, and set start/end months.
+                    </div>
                   </div>
-                </div>
 
-                <div className="flex items-center gap-2">
-                  <div className="text-sm text-muted-foreground">How many?</div>
-                  <select
-                    className="h-9 rounded-md border bg-background px-2 text-sm"
-                    value={seasonCount}
-                    onChange={(e) => setSeasonCount(e.target.value)}
-                    disabled={!canEdit}
-                  >
-                    {Array.from({ length: 12 }).map((_, i) => {
-                      const n = i + 1;
-                      return (
-                        <option key={n} value={n}>
-                          {n}
-                        </option>
-                      );
-                    })}
-                  </select>
+                  <div className="mt-0.5 select-none text-sm text-muted-foreground">
+                    <span className="group-open:hidden">Show</span>
+                    <span className="hidden group-open:inline">Hide</span>
+                  </div>
+                </summary>
 
-                  {canEdit ? (
-                    <Button variant="secondary" onClick={saveSeasonsNow}>
-                      Save Seasons
-                    </Button>
+                <div className="space-y-3 border-t p-3">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm text-muted-foreground">How many?</div>
+                      <select
+                        className="h-9 rounded-md border bg-background px-2 text-sm"
+                        value={seasonCount}
+                        onChange={(e) => setSeasonCount(e.target.value)}
+                        disabled={!canEdit}
+                      >
+                        {Array.from({ length: 12 }).map((_, i) => {
+                          const n = i + 1;
+                          return (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          );
+                        })}
+                      </select>
+
+                      {canEdit ? (
+                        <Button variant="secondary" onClick={saveSeasonsNow}>
+                          Save Seasons
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2">
+                    {(seasons || []).map((s, idx) => (
+                      <div
+                        key={s.id}
+                        className="grid gap-2 rounded-xl border p-3 md:grid-cols-[1.5fr_0.7fr_0.7fr_0.6fr]"
+                      >
+                        <div className="space-y-1">
+                          <div className="text-xs text-muted-foreground">Season name</div>
+                          <Input
+                            value={s.name || ""}
+                            onChange={(e) => updateSeason(s.id, { name: e.target.value })}
+                            disabled={!canEdit}
+                            placeholder={`Season ${idx + 1}`}
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="text-xs text-muted-foreground">Start month</div>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={12}
+                            value={s.startMonth ?? 1}
+                            onChange={(e) =>
+                              updateSeason(s.id, { startMonth: Number(e.target.value) })
+                            }
+                            disabled={!canEdit}
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="text-xs text-muted-foreground">End month</div>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={12}
+                            value={s.endMonth ?? 1}
+                            onChange={(e) =>
+                              updateSeason(s.id, { endMonth: Number(e.target.value) })
+                            }
+                            disabled={!canEdit}
+                          />
+                        </div>
+
+                        <div className="flex items-end justify-between gap-2">
+                          <Badge variant="outline">
+                            {monthRangeLabel(s.startMonth, s.endMonth)}
+                          </Badge>
+                          {s.active === false ? (
+                            <Badge variant="secondary">Inactive</Badge>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {!canEdit ? (
+                    <div className="text-xs text-muted-foreground">
+                      View-only users can see seasons, but only editors can change them.
+                    </div>
                   ) : null}
                 </div>
-              </div>
-
-              <div className="grid gap-2">
-                {(seasons || []).map((s, idx) => (
-                  <div
-                    key={s.id}
-                    className="grid gap-2 rounded-xl border p-3 md:grid-cols-[1.5fr_0.7fr_0.7fr_0.6fr]"
-                  >
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Season name</div>
-                      <Input
-                        value={s.name || ""}
-                        onChange={(e) => updateSeason(s.id, { name: e.target.value })}
-                        disabled={!canEdit}
-                        placeholder={`Season ${idx + 1}`}
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">Start month</div>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={12}
-                        value={s.startMonth ?? 1}
-                        onChange={(e) => updateSeason(s.id, { startMonth: Number(e.target.value) })}
-                        disabled={!canEdit}
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">End month</div>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={12}
-                        value={s.endMonth ?? 1}
-                        onChange={(e) => updateSeason(s.id, { endMonth: Number(e.target.value) })}
-                        disabled={!canEdit}
-                      />
-                    </div>
-
-                    <div className="flex items-end justify-between gap-2">
-                      <Badge variant="outline">{monthRangeLabel(s.startMonth, s.endMonth)}</Badge>
-                      {s.active === false ? <Badge variant="secondary">Inactive</Badge> : null}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {!canEdit ? (
-                <div className="text-xs text-muted-foreground">
-                  View-only users can see seasons, but only editors can change them.
-                </div>
-              ) : null}
+              </details>
+              {/* ===========================
+                 🔼 Collapsible container ends
+                 =========================== */}
             </CardContent>
           </Card>
         </CardContent>
@@ -1630,6 +1944,7 @@ export default function ProductionPage({ loggedInUser }) {
 
             {/* ===========================
                🧪 Genre filter (Pool)
+               ✅ Includes saved custom genres (localStorage)
                =========================== */}
             <div className="flex flex-wrap items-center gap-2">
               <div className="text-sm text-muted-foreground">Filter:</div>
@@ -1658,10 +1973,23 @@ export default function ProductionPage({ loggedInUser }) {
                         "Health",
                         "Technology",
                         "Entertainment",
+
+                        // ✅ saved custom genres (so they persist even before any program is submitted)
+                        ...(() => {
+                          try {
+                            const raw = localStorage.getItem("calendar.customGenres");
+                            const arr = raw ? JSON.parse(raw) : [];
+                            return Array.isArray(arr) ? arr : [];
+                          } catch {
+                            return [];
+                          }
+                        })(),
+
+                        // ✅ genres already used in proposed programs
                         ...(proposedPrograms || [])
                           .map((x) => String(x?.genre || "").trim())
                           .filter(Boolean),
-                      ].map((g) => g.trim())
+                      ].map((g) => String(g || "").trim())
                     )
                   )
                     .filter(Boolean)
@@ -1697,20 +2025,33 @@ export default function ProductionPage({ loggedInUser }) {
                     </div>
 
                     <div className="space-y-2">
-                      <div className="text-sm font-medium">Number of episodes</div>
-                      <Select value={String(pEpisodes || "")} onValueChange={(v) => setPEpisodes(v)}>
-                        <SelectTrigger className="rounded-2xl">
-                          <SelectValue placeholder="Select (1–100)" />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-[300px]">
-                          {Array.from({ length: 100 }, (_, i) => String(i + 1)).map((n) => (
-                            <SelectItem key={n} value={n}>
-                              {n}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+  <div className="text-sm font-medium">Number of episodes</div>
+
+  <Select
+    value={pEpisodes ? String(pEpisodes) : "__ONGOING__"}
+    onValueChange={(v) => {
+      setPEpisodes(v === "__ONGOING__" ? "" : v);
+    }}
+  >
+    <SelectTrigger className="rounded-2xl">
+      <SelectValue placeholder="Select episode count" />
+    </SelectTrigger>
+
+    <SelectContent className="max-h-[300px]">
+      <SelectItem value="__ONGOING__">Ongoing / no fixed count</SelectItem>
+
+      {Array.from({ length: 100 }, (_, i) => String(i + 1)).map((n) => (
+        <SelectItem key={n} value={n}>
+          {n}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+
+  <div className="text-xs text-muted-foreground">
+    Choose a number, or set as ongoing (magazine-style).
+  </div>
+</div>
 
                     <div className="space-y-2">
                       <div className="text-sm font-medium">Genre</div>
@@ -1749,10 +2090,23 @@ export default function ProductionPage({ loggedInUser }) {
                                   "Health",
                                   "Technology",
                                   "Entertainment",
+
+                                  // ✅ saved custom genres (persist even before any program is submitted)
+                                  ...(() => {
+                                    try {
+                                      const raw = localStorage.getItem("calendar.customGenres");
+                                      const arr = raw ? JSON.parse(raw) : [];
+                                      return Array.isArray(arr) ? arr : [];
+                                    } catch {
+                                      return [];
+                                    }
+                                  })(),
+
+                                  // ✅ genres already used in proposed programs
                                   ...(proposedPrograms || [])
                                     .map((x) => String(x?.genre || "").trim())
                                     .filter(Boolean),
-                                ].map((g) => g.trim())
+                                ].map((g) => String(g || "").trim())
                               )
                             )
                               .filter(Boolean)
@@ -1766,7 +2120,7 @@ export default function ProductionPage({ loggedInUser }) {
                             <SelectItem value="__ADD_NEW__">＋ Add new genre…</SelectItem>
                           </SelectContent>
                         </Select>
-                      ) : (
+                                         ) : (
                         <div className="space-y-2">
                           <Input
                             value={pGenreCustom}
@@ -1780,6 +2134,18 @@ export default function ProductionPage({ loggedInUser }) {
                               onClick={() => {
                                 const next = String(pGenreCustom || "").trim();
                                 if (!next) return;
+
+                                // ✅ Save custom genre so it appears everywhere immediately (and persists)
+                                try {
+                                  const raw = localStorage.getItem("calendar.customGenres");
+                                  const arr = raw ? JSON.parse(raw) : [];
+                                  const safe = Array.isArray(arr) ? arr : [];
+                                  const merged = Array.from(new Set([...(safe || []), next]));
+                                  localStorage.setItem("calendar.customGenres", JSON.stringify(merged));
+                                } catch {
+                                  // ignore (still allow using the genre)
+                                }
+
                                 setPGenre(next);
                                 setPGenreMode("select");
                               }}
@@ -1799,7 +2165,7 @@ export default function ProductionPage({ loggedInUser }) {
                             </Button>
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            New genres become available after you submit a program with that genre.
+                            Custom genres are saved and will appear in the dropdown and filter.
                           </div>
                         </div>
                       )}
@@ -2015,12 +2381,7 @@ export default function ProductionPage({ loggedInUser }) {
                     return String(p?.genre || "").trim() === String(genreFilter || "").trim();
                   })
                   .map((p) => {
-                    const ddmmyy = p?.createdAt
-                      ? new Date(p.createdAt)
-                          .toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit" })
-                          .replaceAll("/", "")
-                      : "";
-
+                    const ddmmyy = p?.createdAt ? formatDDMMYYYY(p.createdAt) : "";
                     return (
                       <div
                         key={p.id}
@@ -2137,11 +2498,55 @@ export default function ProductionPage({ loggedInUser }) {
                       ? "Custom"
                       : scheduleType;
 
+                                    /* ===========================
+                     ✅ Base vs Current episode fields (DATA-TRUTH)
+                     - We DO NOT “auto-align” in the UI anymore.
+                     - Episodes display exactly what your data says:
+                       base date comes from schedule generation,
+                       current date comes from override (if any).
+                     =========================== */
+                  const baseOccForSeries = buildOccurrences({
+                    ...(safeObj(s?.scheduleMeta) || {}),
+                    episodes:
+                      Number.isFinite(Number(s?.episodesCount)) && Number(s?.episodesCount) >= 1
+                        ? Number(s.episodesCount)
+                        : s?.scheduleMeta?.episodes ?? null,
+                  });
+
+                  const overridesForSeries = safeObj(s?.overrides);
+
+                  const renderedEpisodes = (Array.isArray(seriesOccurrences) ? seriesOccurrences : []).map((ep) => {
+                    const idx1 = Number(ep?.occurrenceIndex || 0);
+                    const baseISO = idx1 >= 1 ? String(baseOccForSeries?.[idx1 - 1] || "") : "";
+
+                    const o = safeObj(overridesForSeries?.[String(idx1)]);
+                    const curISO = String(o?.airDate || ep?.airDate || "").trim();
+                    const curTime = String(o?.airTime || ep?.airTime || "").trim();
+                    const note = String(o?.note || "").trim();
+
+                    const hasOverride =
+                      !!(o && (o.airDate || o.airTime || o.note || o.filmDate || o.autoShift));
+
+                    return {
+                      ...ep,
+
+                      // ✅ these drive the UI
+                      __baseAirDate: baseISO,
+                      __currentAirDate: curISO || baseISO || "",
+                      __currentAirTime:
+                        curTime || String(ep?.airTime || s?.airTime || s?.scheduleMeta?.airTime || "21:00"),
+                      __hasOverride: !!hasOverride,
+                      __hasNote: !!note,
+                      __note: note,
+                      __isAutoShift: !!o?.autoShift,
+                    };
+                  });
+
                   return (
                     <Card key={s.id} className="rounded-2xl">
                       <CardContent className="p-4 space-y-3">
                         <div className="flex items-start justify-between gap-3">
-                                            <div className="space-y-1">
+                          <div className="space-y-1">
                             {canEdit ? (
                               <button
                                 type="button"
@@ -2157,31 +2562,42 @@ export default function ProductionPage({ loggedInUser }) {
 
                             <div className="text-sm text-muted-foreground flex flex-wrap gap-2">
                               <Badge variant="secondary">{scheduleLabel}</Badge>
+
+                              {String(s?.genre || "").trim() ? (
+                                <Badge variant="secondary">{String(s.genre).trim()}</Badge>
+                              ) : null}
+
                               <Badge variant="secondary">
                                 {Number.isFinite(Number(s?.episodesCount)) && Number(s.episodesCount) >= 1
                                   ? `${s.episodesCount} eps`
                                   : "ongoing"}
                               </Badge>
-                              <Badge variant="secondary">Default time: {s?.airTime || s?.scheduleMeta?.airTime || "—"}</Badge>
+                              <Badge variant="secondary">
+                                Default time: {s?.airTime || s?.scheduleMeta?.airTime || "—"}
+                              </Badge>
 
                               {Array.isArray(s?.filmingDates) && s.filmingDates.length ? (
-                                <Badge variant="outline">
-                                  Filming: {s.filmingDates.length} date(s)
-                                </Badge>
+                                <Badge variant="outline">Filming: {s.filmingDates.length} date(s)</Badge>
                               ) : null}
 
                               {count ? <Badge variant="outline">{count} generated</Badge> : null}
+
+                              {scheduleType === "weekly" ? (
+                                <Badge variant="outline" title="If you postpone one episode, the following episodes auto align week-to-week in the list.">
+                                  Auto-align weekly
+                                </Badge>
+                              ) : null}
                             </div>
 
                             <div className="text-xs text-muted-foreground">
                               Added by {s.createdBy || "Unknown"} •{" "}
-                              {s.createdAt ? new Date(s.createdAt).toLocaleString() : ""}
+                              {s.createdAt ? formatDDMMYYYY(s.createdAt) : ""}
                             </div>
 
                             {canSeeNotes && s.sourceProposedId ? (
                               <div className="text-xs text-muted-foreground">
                                 From Proposed Pool • {s.sourceProposedBy || "Unknown"} •{" "}
-                                {s.sourceProposedAt ? new Date(s.sourceProposedAt).toLocaleString() : ""}
+                                {s.sourceProposedAt ? formatDDMMYYYY(s.sourceProposedAt) : ""}
                               </div>
                             ) : null}
                           </div>
@@ -2205,11 +2621,16 @@ export default function ProductionPage({ loggedInUser }) {
                               <div className="text-sm font-medium">Episodes</div>
                               <div className="text-xs text-muted-foreground">
                                 Click an episode to edit (or change all via calendar edit scope).
+                                {scheduleType === "weekly" ? (
+                                  <span className="ml-1">
+                                    If you postpone one episode, the rest auto-align weekly in this list.
+                                  </span>
+                                ) : null}
                               </div>
                             </div>
 
                             <div className="grid gap-2">
-                              {seriesOccurrences.map((ep) => (
+                              {renderedEpisodes.map((ep) => (
                                 <button
                                   key={ep.id}
                                   type="button"
@@ -2223,12 +2644,15 @@ export default function ProductionPage({ loggedInUser }) {
                                   title={canEdit ? "Click to edit this episode" : ""}
                                 >
                                   <div className="flex items-center justify-between gap-2">
-                                    <div className="text-sm font-semibold">
-                                      Ep {ep.occurrenceIndex}
-                                    </div>
-                                    {ep.episodeNote ? (
-                                      <Badge variant="outline" className="text-[10px]">
-                                        Changed
+                                    <div className="text-sm font-semibold">Ep {ep.occurrenceIndex}</div>
+
+                                    {ep.__hasOverride ? (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[10px]"
+                                        title={ep.__isAutoShift ? "Auto-shifted due to a change on a previous episode." : "Edited"}
+                                      >
+                                        {ep.__isAutoShift ? "Auto" : "Changed"}
                                       </Badge>
                                     ) : (
                                       <Badge variant="secondary" className="text-[10px]">
@@ -2238,12 +2662,19 @@ export default function ProductionPage({ loggedInUser }) {
                                   </div>
 
                                   <div className="text-sm text-muted-foreground flex flex-wrap gap-2">
-                                    <Badge variant="secondary">
-                                      Air: {ep.airDate || "—"} {ep.airTime ? `@ ${ep.airTime}` : ""}
+                                                                   <Badge variant="secondary">
+                                      Air: {ep.__currentAirDate ? formatDDMMYYYY(ep.__currentAirDate) : "—"}{" "}
+                                      {ep.__currentAirTime ? `@ ${ep.__currentAirTime}` : ""}
                                     </Badge>
-                                    <Badge variant="secondary">Film: {ep.filmDate || "—"}</Badge>
-                                    {canSeeNotes && ep.episodeNote ? (
-                                      <Badge variant="outline">Note: {ep.episodeNote}</Badge>
+
+                                    <Badge variant="secondary">
+                                      Film: {ep.filmDate ? formatDDMMYYYY(ep.filmDate) : "—"}
+                                    </Badge>
+
+                                    {canSeeNotes && ep.__hasNote ? (
+                                      <Badge variant="outline" title={ep.__note || ""}>
+                                        Note: {ep.__note}
+                                      </Badge>
                                     ) : null}
                                   </div>
                                 </button>
@@ -2256,9 +2687,8 @@ export default function ProductionPage({ loggedInUser }) {
                                 <div className="text-xs text-muted-foreground space-y-1">
                                   {s.seriesChanges.slice(-5).map((c, idx) => (
                                     <div key={`${s.id}_log_${idx}`}>
-                                      • {c.at ? new Date(c.at).toLocaleString() : ""} —{" "}
-                                      <b>{c.by || "Unknown"}</b> — {c.action || "change"}{" "}
-                                      {c.details ? `— ${c.details}` : ""}
+                                      • {c.at ? formatDDMMYYYY(c.at) : ""} — <b>{c.by || "Unknown"}</b> —{" "}
+                                      {c.action || "change"} {c.details ? `— ${c.details}` : ""}
                                     </div>
                                   ))}
                                 </div>
@@ -2276,6 +2706,7 @@ export default function ProductionPage({ loggedInUser }) {
 
           {/* ===========================
              ✍️ Manual Series (optional)
+             - Same capabilities as Confirm Program
              =========================== */}
           {canEdit && (
             <>
@@ -2296,6 +2727,120 @@ export default function ProductionPage({ loggedInUser }) {
                     />
                   </div>
 
+                  {/* ===========================
+                     🏷️ Genre (matches Proposed)
+                     =========================== */}
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium">Genre</div>
+
+                    {manualGenreMode !== "add" ? (
+                      <Select
+                        value={String(manualGenre || "")}
+                        onValueChange={(v) => {
+                          if (v === "__ADD_NEW__") {
+                            setManualGenreMode("add");
+                            setManualGenreCustom("");
+                            setManualGenre("");
+                            return;
+                          }
+                          setManualGenre(v);
+                        }}
+                      >
+                        <SelectTrigger className="rounded-2xl">
+                          <SelectValue placeholder="Select a genre" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          {Array.from(
+                            new Set(
+                              [
+                                "Documentary",
+                                "Reality",
+                                "Culinary",
+                                "Biography",
+                                "Quiz",
+                                "Environment",
+                                "Educational",
+                                "Kids",
+                                "Show/Event",
+                                "Current Affairs",
+                                "Talk Show",
+                                "Health",
+                                "Technology",
+                                "Entertainment",
+
+                                // saved custom genres
+                                ...(() => {
+                                  try {
+                                    const raw = localStorage.getItem("calendar.customGenres");
+                                    const arr = raw ? JSON.parse(raw) : [];
+                                    return Array.isArray(arr) ? arr : [];
+                                  } catch {
+                                    return [];
+                                  }
+                                })(),
+                              ].map((g) => String(g || "").trim())
+                            )
+                          )
+                            .filter(Boolean)
+                            .sort((a, b) => a.localeCompare(b))
+                            .map((g) => (
+                              <SelectItem key={g} value={g}>
+                                {g}
+                              </SelectItem>
+                            ))}
+
+                          <SelectItem value="__ADD_NEW__">＋ Add new genre…</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="space-y-2">
+                        <Input
+                          value={manualGenreCustom}
+                          onChange={(e) => setManualGenreCustom(e.target.value)}
+                          placeholder="Type a new genre…"
+                        />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              const next = String(manualGenreCustom || "").trim();
+                              if (!next) return;
+
+                              // save custom genre globally
+                              try {
+                                const raw = localStorage.getItem("calendar.customGenres");
+                                const arr = raw ? JSON.parse(raw) : [];
+                                const safe = Array.isArray(arr) ? arr : [];
+                                const merged = Array.from(new Set([...(safe || []), next]));
+                                localStorage.setItem("calendar.customGenres", JSON.stringify(merged));
+                              } catch {}
+
+                              setManualGenre(next);
+                              setManualGenreMode("select");
+                            }}
+                          >
+                            Use this genre
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                              setManualGenreMode("select");
+                              setManualGenreCustom("");
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Custom genres are saved and will appear in the dropdown and filter.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="space-y-2">
                     <div className="text-sm font-medium">Schedule type</div>
                     <Select value={manualType} onValueChange={setManualType}>
@@ -2304,7 +2849,7 @@ export default function ProductionPage({ loggedInUser }) {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="weekly">Weekly</SelectItem>
-                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="monthly">Monthly (first/last/nth weekday)</SelectItem>
                         <SelectItem value="oneOff">One-off</SelectItem>
                         <SelectItem value="custom">Custom dates</SelectItem>
                       </SelectContent>
@@ -2313,37 +2858,176 @@ export default function ProductionPage({ loggedInUser }) {
 
                   <div className="space-y-2">
                     <div className="text-sm font-medium">Default air time</div>
-                    <Input value={manualAirTime} onChange={(e) => setManualAirTime(e.target.value)} placeholder="e.g. 21:00" />
+                    <Input
+                      value={manualAirTime}
+                      onChange={(e) => setManualAirTime(e.target.value)}
+                      placeholder="e.g. 21:00"
+                    />
                   </div>
 
+                                {/* ===========================
+                     🎞️ Episode count (dropdown)
+                     - Select a fixed number, or set as ongoing
+                     =========================== */}
                   <div className="space-y-2">
                     <div className="text-sm font-medium">Episode count (optional)</div>
-                    <Input
-                      value={manualEpisodes}
-                      onChange={(e) => setManualEpisodes(e.target.value)}
-                      placeholder="e.g. 8"
-                    />
-                    <div className="text-xs text-muted-foreground">Leave blank for ongoing/magazine-style.</div>
+
+                    <Select
+                      value={manualEpisodes ? String(manualEpisodes) : "__ONGOING__"}
+                      onValueChange={(v) => {
+                        setManualEpisodes(v === "__ONGOING__" ? "" : v);
+                      }}
+                    >
+                      <SelectTrigger className="rounded-2xl">
+                        <SelectValue placeholder="Select episode count" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px]">
+                        <SelectItem value="__ONGOING__">Ongoing / no fixed count</SelectItem>
+
+                        {Array.from({ length: 52 }, (_, i) => String(i + 1)).map((n) => (
+                          <SelectItem key={n} value={n}>
+                            {n}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <div className="text-xs text-muted-foreground">
+                      Leave blank for ongoing/magazine-style (we’ll still generate a preview list).
+                    </div>
                   </div>
+
+                  {/* ===========================
+                     📅 Schedule-specific inputs
+                     =========================== */}
+                  {manualType === "weekly" ? (
+                    <>
+                      <div className="space-y-2">
+                        <div className="text-sm font-medium">Start date</div>
+                        <Input
+                          type="date"
+                          value={manualStartDate}
+                          onChange={(e) => setManualStartDate(e.target.value)}
+                        />
+                        <div className="text-xs text-muted-foreground">
+                          We schedule from the first matching weekday on/after this date.
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="text-sm font-medium">Day of week</div>
+                        <Select value={String(manualWeeklyWeekday)} onValueChange={setManualWeeklyWeekday}>
+                          <SelectTrigger className="rounded-2xl">
+                            <SelectValue placeholder="Select weekday" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0">Monday</SelectItem>
+                            <SelectItem value="1">Tuesday</SelectItem>
+                            <SelectItem value="2">Wednesday</SelectItem>
+                            <SelectItem value="3">Thursday</SelectItem>
+                            <SelectItem value="4">Friday</SelectItem>
+                            <SelectItem value="5">Saturday</SelectItem>
+                            <SelectItem value="6">Sunday</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  ) : null}
+
+                  {manualType === "monthly" ? (
+                    <>
+                      <div className="space-y-2">
+                        <div className="text-sm font-medium">Start date</div>
+                        <Input
+                          type="date"
+                          value={manualStartDate}
+                          onChange={(e) => setManualStartDate(e.target.value)}
+                        />
+                        <div className="text-xs text-muted-foreground">
+                          We generate monthly dates from this month onward.
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="text-sm font-medium">Monthly rule</div>
+                        <Select value={String(manualMonthlyRule)} onValueChange={setManualMonthlyRule}>
+                          <SelectTrigger className="rounded-2xl">
+                            <SelectValue placeholder="Select rule" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="last">Last</SelectItem>
+                            <SelectItem value="nth">Nth (1st/2nd/3rd/4th)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {manualMonthlyRule === "nth" ? (
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium">Which “nth”?</div>
+                          <Select value={String(manualMonthlyNth)} onValueChange={setManualMonthlyNth}>
+                            <SelectTrigger className="rounded-2xl">
+                              <SelectValue placeholder="Select (1st–4th)" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="1">1st</SelectItem>
+                              <SelectItem value="2">2nd</SelectItem>
+                              <SelectItem value="3">3rd</SelectItem>
+                              <SelectItem value="4">4th</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium">Rule</div>
+                          <Badge variant="secondary">Last weekday of the month</Badge>
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <div className="text-sm font-medium">Weekday</div>
+                        <Select value={String(manualMonthlyWeekday)} onValueChange={setManualMonthlyWeekday}>
+                          <SelectTrigger className="rounded-2xl">
+                            <SelectValue placeholder="Select weekday" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0">Monday</SelectItem>
+                            <SelectItem value="1">Tuesday</SelectItem>
+                            <SelectItem value="2">Wednesday</SelectItem>
+                            <SelectItem value="3">Thursday</SelectItem>
+                            <SelectItem value="4">Friday</SelectItem>
+                            <SelectItem value="5">Saturday</SelectItem>
+                            <SelectItem value="6">Sunday</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </>
+                  ) : null}
 
                   {manualType === "oneOff" ? (
                     <div className="space-y-2">
                       <div className="text-sm font-medium">Airing date</div>
-                      <Input type="date" value={manualOneOffDate} onChange={(e) => setManualOneOffDate(e.target.value)} />
+                      <Input
+                        type="date"
+                        value={manualOneOffDate}
+                        onChange={(e) => setManualOneOffDate(e.target.value)}
+                      />
+                      <div className="text-xs text-muted-foreground">
+                        Creates a series with one airing date.
+                      </div>
                     </div>
                   ) : null}
 
                   {manualType === "custom" ? (
                     <div className="space-y-2 md:col-span-2">
-                      <div className="text-sm font-medium">Custom dates</div>
-                      <Textarea value={manualCustomDatesRaw} onChange={(e) => setManualCustomDatesRaw(e.target.value)} />
-                    </div>
-                  ) : null}
-
-                  {(manualType === "weekly" || manualType === "monthly") ? (
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium">Start date</div>
-                      <Input type="date" value={manualStartDate} onChange={(e) => setManualStartDate(e.target.value)} />
+                      <div className="text-sm font-medium">Custom airing dates</div>
+                      <Textarea
+                        value={manualCustomDatesRaw}
+                        onChange={(e) => setManualCustomDatesRaw(e.target.value)}
+                        placeholder={`Enter dates like:\n2026-03-01, 2026-03-08\n2026-03-22`}
+                      />
+                      <div className="text-xs text-muted-foreground">
+                        Separate with commas or new lines. We will sort and remove duplicates.
+                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -2361,36 +3045,79 @@ export default function ProductionPage({ loggedInUser }) {
                       const epsNum = Number(manualEpisodes);
                       const hasEpisodes = Number.isFinite(epsNum) && epsNum >= 1;
 
+                      const cleanGenre = String(manualGenre || "").trim();
+
                       const scheduleMeta = {
                         type: manualType,
                         episodes: hasEpisodes ? epsNum : null,
+
                         startDate: normalizeISODate(manualStartDate),
                         airTime: String(manualAirTime || "").trim() || "21:00",
+
+                        // weekly
+                        weeklyWeekday: Number(manualWeeklyWeekday),
+
+                        // monthly
+                        monthlyRule: String(manualMonthlyRule || "last"),
+                        monthlyNth: Number(manualMonthlyNth),
+                        monthlyWeekday: Number(manualMonthlyWeekday),
+
+                        // one-off
                         oneOffDate: normalizeISODate(manualOneOffDate || manualStartDate),
+
+                        // custom
                         customDatesRaw: String(manualCustomDatesRaw || "").trim(),
                       };
 
-                      // minimal validation
-                      if (manualType === "oneOff" && !scheduleMeta.oneOffDate) {
-                        toast({ title: "Missing date", description: "Please select an airing date." });
-                        return;
-                      }
-                      if ((manualType === "weekly" || manualType === "monthly") && !scheduleMeta.startDate) {
-                        toast({ title: "Missing start date", description: "Please select a start date." });
-                        return;
-                      }
+                      // ----------------------------
+                      // Validation (same rules as Confirm)
+                      // ----------------------------
                       if (manualType === "custom") {
                         const list = parseCustomDates(scheduleMeta.customDatesRaw);
-                        if (!list.length) {
-                          toast({ title: "Missing dates", description: "Enter at least one custom date." });
+                        if (list.length === 0) {
+                          toast({
+                            title: "Missing dates",
+                            description: "Enter at least one date (YYYY-MM-DD), separated by comma or new line.",
+                          });
+                          return;
+                        }
+                      } else if (manualType === "oneOff") {
+                        if (!scheduleMeta.oneOffDate) {
+                          toast({ title: "Missing date", description: "Please select the airing date." });
+                          return;
+                        }
+                      } else {
+                        if (!scheduleMeta.startDate) {
+                          toast({ title: "Missing start date", description: "Please select a start date." });
                           return;
                         }
                       }
 
+                      // Build preview occurrences to confirm it will populate calendar
                       const preview = buildOccurrences(scheduleMeta);
                       if (!preview.length) {
-                        toast({ title: "Could not build schedule", description: "Check your rule or start date." });
+                        toast({
+                          title: "Could not build schedule",
+                          description:
+                            "Try a different start date/rule (some months don’t have that weekday pattern).",
+                        });
                         return;
+                      }
+
+                      // If user added a custom genre via typing but didn't click "Use this genre"
+                      // (rare but possible), we still accept it if manualGenreCustom exists.
+                      const fallbackCustomGenre = String(manualGenreCustom || "").trim();
+                      const finalGenre = cleanGenre || fallbackCustomGenre;
+
+                      // Persist custom genre if it’s not already in the stored list
+                      if (finalGenre && manualGenreMode === "add") {
+                        try {
+                          const raw = localStorage.getItem("calendar.customGenres");
+                          const arr = raw ? JSON.parse(raw) : [];
+                          const safe = Array.isArray(arr) ? arr : [];
+                          const merged = Array.from(new Set([...(safe || []), finalGenre]));
+                          localStorage.setItem("calendar.customGenres", JSON.stringify(merged));
+                        } catch {}
                       }
 
                       const createdBy = loggedInUser?.name || "Unknown";
@@ -2399,6 +3126,7 @@ export default function ProductionPage({ loggedInUser }) {
                       const series = {
                         id: `series_${Date.now().toString()}_manual`,
                         title,
+                        genre: finalGenre || "",
                         episodesCount: hasEpisodes ? epsNum : null,
                         airTime: scheduleMeta.airTime,
                         scheduleMeta,
@@ -2408,7 +3136,7 @@ export default function ProductionPage({ loggedInUser }) {
                             at: createdAt,
                             by: createdBy,
                             action: "series_created_manual",
-                            details: `Schedule: ${manualType}`,
+                            details: `Schedule: ${manualType}${finalGenre ? ` • Genre: ${finalGenre}` : ""}`,
                           },
                         ],
                         createdBy,
@@ -2418,15 +3146,28 @@ export default function ProductionPage({ loggedInUser }) {
 
                       setSeriesList((prev) => [series, ...(Array.isArray(prev) ? prev : [])]);
 
+                      // Reset manual form cleanly
                       setManualTitle("");
                       setManualEpisodes("");
+
+                      setManualGenre("");
+                      setManualGenreMode("select");
+                      setManualGenreCustom("");
+
                       setManualType("oneOff");
                       setManualAirTime("21:00");
+
                       setManualStartDate("");
+                      setManualWeeklyWeekday("0");
+
+                      setManualMonthlyRule("last");
+                      setManualMonthlyNth("1");
+                      setManualMonthlyWeekday("6");
+
                       setManualOneOffDate("");
                       setManualCustomDatesRaw("");
 
-                      toast({ title: "Added", description: "Series added to confirmed schedule." });
+                      toast({ title: "Added", description: "Series added to confirmed schedule and calendar." });
                     }}
                   >
                     Add Series
@@ -2499,7 +3240,7 @@ export default function ProductionPage({ loggedInUser }) {
 
             {editOcc ? (
               <div className="text-xs text-muted-foreground">
-                Current: {editOcc.currentAirDate || "—"} @ {editOcc.currentAirTime || "—"}
+  Current: {editOcc.currentAirDate ? formatDDMMYYYY(editOcc.currentAirDate) : "—"} @ {editOcc.currentAirTime || "—"}
                 {editOcc.currentFilmDate ? ` • Film: ${editOcc.currentFilmDate}` : ""}
               </div>
             ) : null}
@@ -2522,7 +3263,7 @@ export default function ProductionPage({ loggedInUser }) {
          🏷️ Series header edit dialog (title + filming dates)
          Filming dates input appears ONLY here
          =========================== */}
-      <AlertDialog open={seriesEditOpen} onOpenChange={setSeriesEditOpen}>
+               <AlertDialog open={seriesEditOpen} onOpenChange={setSeriesEditOpen}>
         <AlertDialogContent className="max-w-[720px]">
           <AlertDialogHeader>
             <AlertDialogTitle>Edit series header</AlertDialogTitle>
@@ -2540,7 +3281,6 @@ export default function ProductionPage({ loggedInUser }) {
                 placeholder="e.g. Island Kitchen"
               />
             </div>
-
             {/* ===========================
                🎬 Filming dates picker (FIXED)
                - Add single date (controlled state so it sticks)
@@ -2708,17 +3448,9 @@ export default function ProductionPage({ loggedInUser }) {
                 );
               })()}
             </div>
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Note of change (required)</div>
-              <Textarea
-                value={seriesEditNote}
-                onChange={(e) => setSeriesEditNote(e.target.value)}
-                placeholder="Why is this changing? (e.g. rebrand, sponsor rename, filming booked, etc.)"
-              />
-            </div>
           </div>
 
-          <AlertDialogFooter>
+                  <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setSeriesEditOpen(false)}>
               Cancel
             </AlertDialogCancel>
@@ -2726,7 +3458,150 @@ export default function ProductionPage({ loggedInUser }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ===========================
+         🎬 Filming Day dialog (calendar day box)
+         - Click filming on a day to open this
+         - Shows all filming items for that day
+         - Editors can move date or delete (no notes)
+         =========================== */}
+      <AlertDialog open={filmDayOpen} onOpenChange={setFilmDayOpen}>
+        <AlertDialogContent className="max-w-[720px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Filming schedule</AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="inline-flex items-center gap-2">
+              
+               <span className="text-muted-foreground">
+                {filmDayISO ? formatDDMMYYYY(filmDayISO) : "—"}
+              </span>
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="text-sm">
+                <span className="font-medium">Day</span>{" "}
+                <span className="text-muted-foreground">({filmDayISO || "—"})</span>
+              </div>
+              {!canEdit ? (
+                <Badge variant="outline">View-only</Badge>
+              ) : (
+                <Badge variant="secondary">Editable</Badge>
+              )}
+            </div>
+
+            {filmDayItems.length === 0 ? (
+              <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
+                Nothing scheduled for filming on this day.
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                {filmDayItems.map((it) => {
+                  const sid = it?.seriesId;
+                  const nextVal = filmDayEdits?.[sid] ?? filmDayISO;
+
+                  return (
+                    <div key={`${filmDayISO}_${sid}`} className="rounded-xl border p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="font-medium text-sm truncate">🎬 {it?.title || "Untitled"}</div>
+                          <div className="text-xs text-muted-foreground">
+                            Current: <b>{filmDayISO || "—"}</b>
+                          </div>
+                        </div>
+
+                        {canEdit ? (
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => {
+                                deleteFilmingDate(sid, filmDayISO);
+                                toast({ title: "Deleted", description: "Filming date removed." });
+                              }}
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {canEdit ? (
+                        <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+                          <div className="space-y-1">
+                            <div className="text-xs text-muted-foreground">Move to</div>
+                            <Input
+                              type="date"
+                              value={nextVal || ""}
+                              onChange={(e) =>
+                                setFilmDayEdits((prev) => ({
+                                  ...(prev || {}),
+                                  [sid]: e.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+
+                          <div className="flex items-end">
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              className="w-full"
+                              onClick={() => {
+                                const to = normalizeISODate(nextVal);
+                                if (!to) {
+                                  toast({
+                                    title: "Missing date",
+                                    description: "Please select a new filming date.",
+                                    variant: "destructive",
+                                  });
+                                  return;
+                                }
+
+                                if (to === filmDayISO) {
+                                  toast({ title: "No change", description: "That’s already the current day." });
+                                  return;
+                                }
+
+                                moveFilmingDate(sid, filmDayISO, to);
+                                toast({ title: "Moved", description: `Moved filming to ${to}.` });
+                              }}
+                            >
+                              Save
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          You can view filming days, but only editors can move or delete them.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setFilmDayOpen(false)}>Close</AlertDialogCancel>
+            {canEdit && filmDayItems.length === 0 ? (
+              <AlertDialogAction
+                onClick={() => {
+                  setFilmDayOpen(false);
+                }}
+              >
+                Done
+              </AlertDialogAction>
+            ) : null}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
+
 
