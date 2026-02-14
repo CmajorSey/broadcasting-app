@@ -132,6 +132,29 @@ const getMonthNumFromISO = (iso) => {
   if (!Number.isFinite(m) || m < 1 || m > 12) return null;
   return m;
 };
+/* ===========================
+   💰 Money helpers
+   - store numbers as floats (or null)
+   - format nicely for UI
+   =========================== */
+const parseMoney = (v) => {
+  const n = Number(String(v ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+};
+
+const formatMoney = (n) => {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "—";
+  try {
+    return new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(x);
+  } catch {
+    return String(x);
+  }
+};
+
 
 /* ===========================
    🗓️ Scheduling helpers
@@ -522,6 +545,14 @@ export default function ProductionPage({ loggedInUser }) {
   const [pGenreMode, setPGenreMode] = useState("select"); // "select" | "add"
   const [pGenreCustom, setPGenreCustom] = useState("");
 
+/* ===========================
+     💰 Proposed optional fields (Budget + Comments)
+     - Visible while proposing
+     - Not required
+     =========================== */
+
+  const [pBudget, setPBudget] = useState("");
+  const [pComments, setPComments] = useState("");
   /* ===========================
      🧾 Proposed editor (selection)
      =========================== */
@@ -580,14 +611,18 @@ export default function ProductionPage({ loggedInUser }) {
      - Supports full scheduling rules (weekly/monthly/oneOff/custom)
      =========================== */
   const [manualTitle, setManualTitle] = useState("");
-  const [manualEpisodes, setManualEpisodes] = useState("");
+const [manualEpisodes, setManualEpisodes] = useState("");
 
-  /* ===========================
-     🏷️ Manual genre (matches Proposed flow)
-     =========================== */
-  const [manualGenre, setManualGenre] = useState("");
-  const [manualGenreMode, setManualGenreMode] = useState("select"); // "select" | "add"
-  const [manualGenreCustom, setManualGenreCustom] = useState("");
+// ===========================
+// 💰 Manual: Budget + Comments
+// ===========================
+const [manualBudgetPlanned, setManualBudgetPlanned] = useState("");
+const [manualBudgetUsed, setManualBudgetUsed] = useState("");
+const [manualOtherComments, setManualOtherComments] = useState("");
+
+const [manualGenre, setManualGenre] = useState("");
+const [manualGenreMode, setManualGenreMode] = useState("select");
+const [manualGenreCustom, setManualGenreCustom] = useState("");
 
   /* ===========================
      🗓️ Manual schedule (matches Confirm flow)
@@ -679,40 +714,57 @@ export default function ProductionPage({ loggedInUser }) {
   /* ===========================
      🧾 Proposed pool helpers
      =========================== */
-  const addProposed = () => {
-  const cleanTitle = (pTitle || "").trim();
-  if (!cleanTitle) {
-    toast({ title: "Missing title", description: "Please enter a proposed program title." });
-    return;
-  }
+   const addProposed = () => {
+    const cleanTitle = (pTitle || "").trim();
+    if (!cleanTitle) {
+      toast({ title: "Missing title", description: "Please enter a proposed program title." });
+      return;
+    }
 
-  const eps = Number(pEpisodes);
-  const safeEpisodes = Number.isFinite(eps) && eps >= 1 && eps <= 100 ? eps : null; // ✅ null = ongoing
+    const eps = Number(pEpisodes);
+    const safeEpisodes = Number.isFinite(eps) && eps >= 1 && eps <= 100 ? eps : null; // ✅ null = ongoing
 
-  const cleanGenre = String(pGenre || "").trim();
+    const cleanGenre = String(pGenre || "").trim();
 
-  const newProg = {
-    id: Date.now().toString(),
-    title: cleanTitle,
-    episodes: safeEpisodes, // number or null
-    genre: cleanGenre,
-    synopsis: (pSynopsis || "").trim(),
-    createdBy: loggedInUser?.name || "Unknown",
-    createdAt: new Date().toISOString(),
+    /* ===========================
+       💰 Proposed optional fields (Budget + Comments)
+       - NOT required
+       - Saved into proposed record so it can carry into confirmed series later
+       =========================== */
+    const cleanBudget = String(pBudget || "").trim();
+    const cleanComments = String(pComments || "").trim();
+
+    const newProg = {
+      id: Date.now().toString(),
+      title: cleanTitle,
+      episodes: safeEpisodes, // number or null
+      genre: cleanGenre,
+      synopsis: (pSynopsis || "").trim(),
+
+      // ✅ new optional fields
+      budget: cleanBudget,
+      comments: cleanComments,
+
+      createdBy: loggedInUser?.name || "Unknown",
+      createdAt: new Date().toISOString(),
+    };
+
+    setProposedPrograms((prev) => [newProg, ...(Array.isArray(prev) ? prev : [])]);
+
+    setPTitle("");
+    setPEpisodes("");
+    setPGenre("");
+    setPSynopsis("");
+
+    // ✅ reset optional fields too
+    setPBudget("");
+    setPComments("");
+
+    setPGenreMode("select");
+    setPGenreCustom("");
+
+    toast({ title: "Submitted", description: "Proposed program added to the pool." });
   };
-
-  setProposedPrograms((prev) => [newProg, ...(Array.isArray(prev) ? prev : [])]);
-
-  setPTitle("");
-  setPEpisodes("");
-  setPGenre("");
-  setPSynopsis("");
-
-  setPGenreMode("select");
-  setPGenreCustom("");
-
-  toast({ title: "Submitted", description: "Proposed program added to the pool." });
-};
 
   const removeProposed = (id) => {
     setProposedPrograms((prev) => (Array.isArray(prev) ? prev.filter((p) => p.id !== id) : []));
@@ -794,38 +846,74 @@ export default function ProductionPage({ loggedInUser }) {
 
     const seriesId = `series_${Date.now().toString()}_${selectedProposed.id}`;
 
-    const series = {
-  id: seriesId,
-  title: cleanTitle,
+     const series = {
+      id: seriesId,
+      title: cleanTitle,
 
-  // ✅ keep parity with Manual series (genre shows in Confirmed + can be filtered later)
-  genre: String(selectedProposed?.genre || "").trim(),
+      // ✅ keep parity with Manual series (genre shows in Confirmed + can be filtered later)
+      genre: String(selectedProposed?.genre || "").trim(),
 
-  episodesCount: hasEpisodes ? epsNum : null,
-  airTime: schedule.airTime,
-  scheduleMeta: schedule,
+      episodesCount: hasEpisodes ? epsNum : null,
+      airTime: schedule.airTime,
+      scheduleMeta: schedule,
 
-  overrides: {}, // per-episode overrides written later
-  seriesChanges: [
-    {
-      at: createdAt,
-      by: createdBy,
-      action: "series_created_from_proposed",
-      details: `Schedule: ${schedule.type}${
-        String(selectedProposed?.genre || "").trim() ? ` • Genre: ${String(selectedProposed.genre).trim()}` : ""
-      }`,
-    },
-  ],
+      /* ===========================
+         💰 Import from Proposed (display-level)
+         - These show in the Confirmed header badges you already added:
+           {s.budget} and {s.comments}
+         =========================== */
+      budget: String(selectedProposed?.budget || "").trim(),
+      comments: String(selectedProposed?.comments || "").trim(),
 
-  // Proposed source audit
-  sourceProposedId: selectedProposed.id,
-  sourceProposedBy: selectedProposed.createdBy,
-  sourceProposedAt: selectedProposed.createdAt,
+      // ===========================
+      // 💰 Budget + Comments (series-level)
+      // - planned + used are numeric
+      // - otherComments is free text
+      //
+      // ✅ budgetPlanned attempts to parse digits from proposed budget string:
+      //    "SCR 25,000" -> 25000
+      // ===========================
+      budgetPlanned: (() => {
+        const raw = String(selectedProposed?.budget || "").trim();
+        if (!raw) return 0;
+        const digits = raw.replace(/[^\d.]/g, "");
+        const n = Number(digits);
+        return Number.isFinite(n) ? n : 0;
+      })(),
+      budgetUsed: 0,
+      otherComments: String(selectedProposed?.comments || "").trim(),
 
-  createdBy,
-  createdAt,
-  confirmed: true,
-};
+      overrides: {}, // per-episode overrides written later
+      seriesChanges: [
+        {
+          at: createdAt,
+          by: createdBy,
+          action: "series_created_from_proposed",
+          details: `Schedule: ${schedule.type}${
+            String(selectedProposed?.genre || "").trim()
+              ? ` • Genre: ${String(selectedProposed.genre).trim()}`
+              : ""
+          }${
+            String(selectedProposed?.budget || "").trim()
+              ? ` • Budget: ${String(selectedProposed.budget).trim()}`
+              : ""
+          }${
+            String(selectedProposed?.comments || "").trim()
+              ? ` • Comments: ${String(selectedProposed.comments).trim()}`
+              : ""
+          }`,
+        },
+      ],
+
+      // Proposed source audit
+      sourceProposedId: selectedProposed.id,
+      sourceProposedBy: selectedProposed.createdBy,
+      sourceProposedAt: selectedProposed.createdAt,
+
+      createdBy,
+      createdAt,
+      confirmed: true,
+    };
     setSeriesList((prev) => [series, ...(Array.isArray(prev) ? prev : [])]);
 
     // remove from pool
@@ -888,16 +976,25 @@ export default function ProductionPage({ loggedInUser }) {
   const [editFilmDate, setEditFilmDate] = useState("");
 
   /* ===========================
-     🏷️ Series header edit (NEW)
-     - Edit series title
-     - Add filming date(s) list (series-level planning)
-     - Filming dates input appears ONLY here (not per-episode)
-     =========================== */
-  const [seriesEditOpen, setSeriesEditOpen] = useState(false);
-  const [seriesEditId, setSeriesEditId] = useState(null);
-  const [seriesEditTitle, setSeriesEditTitle] = useState("");
-  const [seriesEditFilmDatesRaw, setSeriesEditFilmDatesRaw] = useState("");
-  const [seriesEditNote, setSeriesEditNote] = useState("");
+   🏷️ Series header edit (NEW)
+   - Edit series title
+   - Add filming date(s) list (series-level planning)
+   - ✅ Add Other Comments (collapsible)
+   - ✅ Add Budget + Budget Used (collapsible)
+   - Filming dates input appears ONLY here (not per-episode)
+   =========================== */
+const [seriesEditOpen, setSeriesEditOpen] = useState(false);
+const [seriesEditId, setSeriesEditId] = useState(null);
+const [seriesEditTitle, setSeriesEditTitle] = useState("");
+const [seriesEditFilmDatesRaw, setSeriesEditFilmDatesRaw] = useState("");
+const [seriesEditNote, setSeriesEditNote] = useState("");
+
+// ===========================
+// 🗒️ Other comments + 💰 budget fields (dialog state)
+// ===========================
+const [seriesEditOtherComments, setSeriesEditOtherComments] = useState("");
+const [seriesEditBudgetPlanned, setSeriesEditBudgetPlanned] = useState("");
+const [seriesEditBudgetUsed, setSeriesEditBudgetUsed] = useState("");
 
   /* ===========================
      🎬 Series filming date picker UI state (FIX)
@@ -997,73 +1094,99 @@ export default function ProductionPage({ loggedInUser }) {
   };
 
   const openSeriesEdit = (series) => {
-    if (!series?.id) return;
+  if (!series?.id) return;
 
-    setSeriesEditId(series.id);
-    setSeriesEditTitle(String(series?.title || "").trim() || "");
+  setSeriesEditId(series.id);
+  setSeriesEditTitle(String(series?.title || "").trim() || "");
 
-    const existing = Array.isArray(series?.filmingDates) ? series.filmingDates : [];
-    setSeriesEditFilmDatesRaw(existing.filter(Boolean).join("\n"));
+  const existing = Array.isArray(series?.filmingDates) ? series.filmingDates : [];
+  setSeriesEditFilmDatesRaw(existing.filter(Boolean).join("\n"));
 
-    // ✅ reset UI-only filming picker inputs so the dialog opens clean every time
-    setSeriesFilmOne("");
-    setSeriesFilmRangeStart("");
-    setSeriesFilmRangeEnd("");
+  // ✅ Other comments + budget values (series-level)
+  setSeriesEditOtherComments(String(series?.otherComments || "").trim());
+  setSeriesEditBudgetPlanned(
+    Number.isFinite(Number(series?.budgetPlanned)) ? String(Number(series.budgetPlanned)) : ""
+  );
+  setSeriesEditBudgetUsed(
+    Number.isFinite(Number(series?.budgetUsed)) ? String(Number(series.budgetUsed)) : ""
+  );
 
-    setSeriesEditNote("");
-    setSeriesEditOpen(true);
-  };
+  // ✅ reset UI-only filming picker inputs so the dialog opens clean every time
+  setSeriesFilmOne("");
+  setSeriesFilmRangeStart("");
+  setSeriesFilmRangeEnd("");
 
+  setSeriesEditOpen(true);
+};
   const saveSeriesHeader = () => {
-    if (!seriesEditId) return;
+  if (!seriesEditId) return;
 
-    const note = String(seriesEditNote || "").trim();
-    if (!note) {
-      toast({ title: "Missing note", description: "Please add a note explaining the change." });
-      return;
-    }
+  const nextTitle = String(seriesEditTitle || "").trim() || "Untitled";
+  const nextFilmingDates = parseCustomDates(seriesEditFilmDatesRaw || "");
 
-    const nextTitle = String(seriesEditTitle || "").trim() || "Untitled";
-    const nextFilmingDates = parseCustomDates(seriesEditFilmDatesRaw || "");
+  // ✅ Budget parsing (allow blank -> keep as 0)
+  const nextBudgetPlanned = Math.max(0, Number(seriesEditBudgetPlanned || 0) || 0);
+  const nextBudgetUsed = Math.max(0, Number(seriesEditBudgetUsed || 0) || 0);
 
-    const actor = loggedInUser?.name || "Unknown";
-    const at = new Date().toISOString();
+  const nextOtherComments = String(seriesEditOtherComments || "").trim();
 
-    setSeriesList((prev) => {
-      const list = Array.isArray(prev) ? prev : [];
-      return list.map((s) => {
-        if (s.id !== seriesEditId) return s;
+  const actor = loggedInUser?.name || "Unknown";
+  const at = new Date().toISOString();
 
-        const beforeTitle = String(s?.title || "Untitled");
-        const beforeFilm = Array.isArray(s?.filmingDates) ? s.filmingDates : [];
+  setSeriesList((prev) => {
+    const list = Array.isArray(prev) ? prev : [];
+    return list.map((s) => {
+      if (s.id !== seriesEditId) return s;
 
-        const titleChanged = beforeTitle !== nextTitle;
-        const beforeFilmKey = beforeFilm.join("|");
-        const afterFilmKey = nextFilmingDates.join("|");
-        const filmChanged = beforeFilmKey !== afterFilmKey;
+      const beforeTitle = String(s?.title || "Untitled");
+      const beforeFilm = Array.isArray(s?.filmingDates) ? s.filmingDates : [];
 
-        return {
-          ...s,
-          title: nextTitle,
-          filmingDates: nextFilmingDates,
-          seriesChanges: [
-            ...(Array.isArray(s.seriesChanges) ? s.seriesChanges : []),
-            {
-              at,
-              by: actor,
-              action: "series_header_updated",
-              details: `Note: ${note}. ${titleChanged ? `Title: "${beforeTitle}" → "${nextTitle}". ` : ""}${
-                filmChanged ? `Filming dates: ${beforeFilm.length} → ${nextFilmingDates.length}.` : ""
-              }`,
-            },
-          ],
-        };
-      });
+      const beforePlanned = Number.isFinite(Number(s?.budgetPlanned)) ? Number(s.budgetPlanned) : 0;
+      const beforeUsed = Number.isFinite(Number(s?.budgetUsed)) ? Number(s.budgetUsed) : 0;
+      const beforeComments = String(s?.otherComments || "").trim();
+
+      const titleChanged = beforeTitle !== nextTitle;
+
+      const beforeFilmKey = beforeFilm.join("|");
+      const afterFilmKey = nextFilmingDates.join("|");
+      const filmChanged = beforeFilmKey !== afterFilmKey;
+
+      const budgetChanged = beforePlanned !== nextBudgetPlanned || beforeUsed !== nextBudgetUsed;
+      const commentsChanged = beforeComments !== nextOtherComments;
+
+      return {
+        ...s,
+        title: nextTitle,
+        filmingDates: nextFilmingDates,
+
+        budgetPlanned: nextBudgetPlanned,
+        budgetUsed: nextBudgetUsed,
+        otherComments: nextOtherComments,
+
+               seriesChanges: [
+          ...(Array.isArray(s.seriesChanges) ? s.seriesChanges : []),
+          {
+            at,
+            by: actor,
+            action: "series_header_updated",
+            details: `${commentsChanged ? `Comments: "${nextOtherComments}". ` : ""}${
+              titleChanged ? `Title: "${beforeTitle}" → "${nextTitle}". ` : ""
+            }${
+              filmChanged ? `Filming dates: ${beforeFilm.length} → ${nextFilmingDates.length}. ` : ""
+            }${
+              budgetChanged ? `Budget: planned ${beforePlanned} → ${nextBudgetPlanned}, used ${beforeUsed} → ${nextBudgetUsed}. ` : ""
+            }${
+              commentsChanged ? `Other comments updated.` : ""
+            }`.trim(),
+          },
+        ],
+      };
     });
+  });
 
-    toast({ title: "Saved", description: "Series header updated." });
-    setSeriesEditOpen(false);
-  };
+  toast({ title: "Saved", description: "Series header updated." });
+  setSeriesEditOpen(false);
+};
   const openEditForOccurrence = (occ) => {
     if (!occ?.seriesId || !occ?.occurrenceIndex) return;
 
@@ -1460,17 +1583,70 @@ export default function ProductionPage({ loggedInUser }) {
      ✅ Confirmed series sorting (for the list)
      =========================== */
   const seriesSorted = useMemo(() => {
-    const copy = [...(Array.isArray(seriesList) ? seriesList : [])];
-    // Sort by earliest upcoming occurrence date
-    const earliest = (s) => {
-      const occ = buildOccurrences(s?.scheduleMeta || {});
-      const first = occ?.[0] || "9999-12-31";
-      const t = String(s?.airTime || s?.scheduleMeta?.airTime || "23:59");
-      return first + t;
+  const copy = [...(Array.isArray(seriesList) ? seriesList : [])];
+  // Sort by earliest upcoming occurrence date
+  const earliest = (s) => {
+    const occ = buildOccurrences(s?.scheduleMeta || {});
+    const first = occ?.[0] || "9999-12-31";
+    const t = String(s?.airTime || s?.scheduleMeta?.airTime || "23:59");
+    return first + t;
+  };
+  copy.sort((a, b) => earliest(a).localeCompare(earliest(b)));
+  return copy;
+}, [seriesList]);
+
+/* ===========================
+   💰 Budget summary (totals + per-series)
+   - Includes proposed vs manual source split
+   =========================== */
+const budgetSummary = useMemo(() => {
+  // ✅ CONFIRMED ONLY: totals must never include proposed pool
+  const list = (Array.isArray(seriesList) ? seriesList : []).filter((s) => !!s?.confirmed);
+
+  const items = list.map((s) => {
+    const planned = Number.isFinite(Number(s?.budgetPlanned)) ? Number(s.budgetPlanned) : 0;
+    const used = Number.isFinite(Number(s?.budgetUsed)) ? Number(s.budgetUsed) : 0;
+    const delta = planned - used; // + means left, - means over
+
+    return {
+      id: s?.id,
+      title: String(s?.title || "Untitled"),
+      planned,
+      used,
+      delta,
+      isOver: planned > 0 ? used > planned : used > 0, // if no planned set but used exists, treat as over
+      isExact: planned > 0 ? used === planned : false,
+      source: "Confirmed", // ✅ totals card is confirmed-only
     };
-    copy.sort((a, b) => earliest(a).localeCompare(earliest(b)));
-    return copy;
-  }, [seriesList]);
+  });
+
+  const totalPlanned = items.reduce((sum, x) => sum + (x.planned || 0), 0);
+  const totalUsed = items.reduce((sum, x) => sum + (x.used || 0), 0);
+  const totalDelta = totalPlanned - totalUsed;
+
+  const overPrograms = items.filter((x) => x.isOver);
+
+  // Sort breakdown: most over-budget first, then most spend
+  const breakdown = [...items].sort((a, b) => {
+    const ao = (a.used || 0) - (a.planned || 0);
+    const bo = (b.used || 0) - (b.planned || 0);
+    if (bo !== ao) return bo - ao;
+    return (b.used || 0) - (a.used || 0);
+  });
+
+  return {
+    totalPlanned,
+    totalUsed,
+    totalDelta,
+    overPrograms,
+
+    // ✅ kept for backward compatibility (but empty, because totals are confirmed-only)
+    manualOver: [],
+    proposedOver: [],
+
+    breakdown,
+  };
+}, [seriesList]);
 
   /* ===========================
      🧾 UI
@@ -1914,9 +2090,102 @@ export default function ProductionPage({ loggedInUser }) {
       </Card>
 
       {/* ===========================
-         🏭 Production Hub (secondary header)
-         =========================== */}
-      <Card className="rounded-2xl">
+   💰 Total Budget (overview)
+   - Click to expand breakdown by program
+   =========================== */}
+<Card className="rounded-2xl">
+  <CardContent className="p-4 space-y-3">
+    <details className="group rounded-xl border">
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-3 rounded-xl p-3">
+        <div className="space-y-1">
+          <div className="text-sm font-medium">Total budget</div>
+          <div className="text-sm text-muted-foreground">
+            Planned: <b>{budgetSummary.totalPlanned}</b> • Used: <b>{budgetSummary.totalUsed}</b>{" "}
+            {budgetSummary.totalDelta >= 0 ? (
+              <span className="ml-1">
+                • Left: <b className="text-green-600">{budgetSummary.totalDelta}</b>
+              </span>
+            ) : (
+              <span className="ml-1">
+                • Over: <b className="text-red-600">{Math.abs(budgetSummary.totalDelta)}</b>
+              </span>
+            )}
+          </div>
+
+                  {budgetSummary.overPrograms.length ? (
+            <div className="text-xs text-muted-foreground">
+              Over budget: <b className="text-red-600">{budgetSummary.overPrograms.length}</b>
+              <span className="ml-1">(confirmed programs only)</span>
+            </div>
+          ) : (
+            <div className="text-xs text-muted-foreground">
+              No confirmed programs are over budget right now.
+            </div>
+          )}
+        </div>
+
+        <div className="mt-0.5 select-none text-sm text-muted-foreground">
+          <span className="group-open:hidden">Show</span>
+          <span className="hidden group-open:inline">Hide</span>
+        </div>
+      </summary>
+
+      <div className="space-y-2 border-t p-3">
+        {budgetSummary.breakdown.length === 0 ? (
+          <div className="text-sm text-muted-foreground">No confirmed programs yet.</div>
+        ) : (
+          <div className="grid gap-2">
+            {budgetSummary.breakdown.map((x) => {
+              const diff = x.used - x.planned; // + means over
+              const isOver = diff > 0;
+              const isExact = diff === 0 && x.planned > 0;
+
+              return (
+                <div key={x.id} className="rounded-xl border p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="text-sm font-medium truncate">{x.title}</div>
+                      <div className="text-xs text-muted-foreground flex flex-wrap gap-2">
+                        <Badge variant="secondary">{x.source}</Badge>
+                        <Badge variant="outline">Planned: {x.planned}</Badge>
+                        <Badge variant="outline">Used: {x.used}</Badge>
+
+                        {x.planned === 0 && x.used === 0 ? (
+                          <Badge variant="secondary">No budget set</Badge>
+                        ) : isExact ? (
+                          <Badge variant="outline" className="text-green-600">
+                            Matched
+                          </Badge>
+                        ) : isOver ? (
+                          <Badge variant="outline" className="text-red-600">
+                            Over: {diff}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-green-600">
+                            Left: {Math.abs(diff)}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="text-xs text-muted-foreground">
+          Click a program title in “Confirmed Schedule” to edit its budget and comments.
+        </div>
+      </div>
+    </details>
+  </CardContent>
+</Card>
+
+{/* ===========================
+   🏭 Production Hub (secondary header)
+   =========================== */}
+<Card className="rounded-2xl">
         <CardHeader className="space-y-1">
           <CardTitle className="text-xl">Production Hub</CardTitle>
           <div className="text-sm text-muted-foreground">
@@ -2009,7 +2278,7 @@ export default function ProductionPage({ loggedInUser }) {
               )}
             </div>
 
-            {canEdit && (
+                     {canEdit && (
               <Card className="rounded-2xl">
                 <CardContent className="p-4 space-y-3">
                   <div className="text-sm font-medium">Submit a Proposed Program</div>
@@ -2025,33 +2294,33 @@ export default function ProductionPage({ loggedInUser }) {
                     </div>
 
                     <div className="space-y-2">
-  <div className="text-sm font-medium">Number of episodes</div>
+                      <div className="text-sm font-medium">Number of episodes</div>
 
-  <Select
-    value={pEpisodes ? String(pEpisodes) : "__ONGOING__"}
-    onValueChange={(v) => {
-      setPEpisodes(v === "__ONGOING__" ? "" : v);
-    }}
-  >
-    <SelectTrigger className="rounded-2xl">
-      <SelectValue placeholder="Select episode count" />
-    </SelectTrigger>
+                      <Select
+                        value={pEpisodes ? String(pEpisodes) : "__ONGOING__"}
+                        onValueChange={(v) => {
+                          setPEpisodes(v === "__ONGOING__" ? "" : v);
+                        }}
+                      >
+                        <SelectTrigger className="rounded-2xl">
+                          <SelectValue placeholder="Select episode count" />
+                        </SelectTrigger>
 
-    <SelectContent className="max-h-[300px]">
-      <SelectItem value="__ONGOING__">Ongoing / no fixed count</SelectItem>
+                        <SelectContent className="max-h-[300px]">
+                          <SelectItem value="__ONGOING__">Ongoing / no fixed count</SelectItem>
 
-      {Array.from({ length: 100 }, (_, i) => String(i + 1)).map((n) => (
-        <SelectItem key={n} value={n}>
-          {n}
-        </SelectItem>
-      ))}
-    </SelectContent>
-  </Select>
+                          {Array.from({ length: 100 }, (_, i) => String(i + 1)).map((n) => (
+                            <SelectItem key={n} value={n}>
+                              {n}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
 
-  <div className="text-xs text-muted-foreground">
-    Choose a number, or set as ongoing (magazine-style).
-  </div>
-</div>
+                      <div className="text-xs text-muted-foreground">
+                        Choose a number, or set as ongoing (magazine-style).
+                      </div>
+                    </div>
 
                     <div className="space-y-2">
                       <div className="text-sm font-medium">Genre</div>
@@ -2120,7 +2389,7 @@ export default function ProductionPage({ loggedInUser }) {
                             <SelectItem value="__ADD_NEW__">＋ Add new genre…</SelectItem>
                           </SelectContent>
                         </Select>
-                                         ) : (
+                      ) : (
                         <div className="space-y-2">
                           <Input
                             value={pGenreCustom}
@@ -2179,6 +2448,35 @@ export default function ProductionPage({ loggedInUser }) {
                         placeholder="What is the idea? What is the hook? Why this program?"
                       />
                     </div>
+
+                    {/* ===========================
+                       💰 Budget + Comments (optional) starts here
+                       - Visible while proposing
+                       - NOT required (unlike synopsis)
+                       - Must carry over into Confirmed Program header
+                       =========================== */}
+                    <div className="space-y-2">
+                      <div className="text-sm font-medium">Proposed budget (optional)</div>
+                      <Input
+                        value={pBudget}
+                        onChange={(e) => setPBudget(e.target.value)}
+                        placeholder="e.g. SCR 25,000"
+                      />
+                      <div className="text-xs text-muted-foreground">Optional. You can confirm without this.</div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="text-sm font-medium">Other comments (optional)</div>
+                      <Input
+                        value={pComments}
+                        onChange={(e) => setPComments(e.target.value)}
+                        placeholder="e.g. Needs drone + 2 filming days"
+                      />
+                      <div className="text-xs text-muted-foreground">Optional. Quick notes only.</div>
+                    </div>
+                    {/* ===========================
+                       💰 Budget + Comments (optional) ends here
+                       =========================== */}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -2401,10 +2699,13 @@ export default function ProductionPage({ loggedInUser }) {
                           }
                         }}
                       >
-                        <div className="flex items-start justify-between gap-3">
+                                        <div className="flex items-start justify-between gap-3">
                           <div className="space-y-1">
                             <div className="font-semibold">{p.title}</div>
 
+                            {/* ===========================
+                               💰 Proposed meta (budget + comments) starts here
+                               =========================== */}
                             <div className="text-sm text-muted-foreground flex flex-wrap gap-2">
                               {p.genre ? <Badge variant="secondary">{p.genre}</Badge> : null}
                               {p.episodes ? (
@@ -2412,7 +2713,22 @@ export default function ProductionPage({ loggedInUser }) {
                               ) : (
                                 <Badge variant="outline">No episode count</Badge>
                               )}
+
+                              {String(p?.budget || "").trim() ? (
+                                <Badge variant="outline" title="Proposed budget">
+                                  Budget: {String(p.budget).trim()}
+                                </Badge>
+                              ) : null}
+
+                              {String(p?.comments || "").trim() ? (
+                                <Badge variant="outline" title={String(p.comments).trim()}>
+                                  Comments: {String(p.comments).trim()}
+                                </Badge>
+                              ) : null}
                             </div>
+                            {/* ===========================
+                               💰 Proposed meta (budget + comments) ends here
+                               =========================== */}
 
                             <div className="text-xs text-muted-foreground">
                               Proposed by {p.createdBy}
@@ -2560,7 +2876,7 @@ export default function ProductionPage({ loggedInUser }) {
                               <div className="font-semibold">{s.title || "Untitled"}</div>
                             )}
 
-                            <div className="text-sm text-muted-foreground flex flex-wrap gap-2">
+                                                  <div className="text-sm text-muted-foreground flex flex-wrap gap-2">
                               <Badge variant="secondary">{scheduleLabel}</Badge>
 
                               {String(s?.genre || "").trim() ? (
@@ -2576,6 +2892,25 @@ export default function ProductionPage({ loggedInUser }) {
                                 Default time: {s?.airTime || s?.scheduleMeta?.airTime || "—"}
                               </Badge>
 
+                              {/* ===========================
+                                 💰 Series budget + comments starts here
+                                 - import-ready fields (from Proposed/Manual later)
+                                 =========================== */}
+                              {String(s?.budget || "").trim() ? (
+                                <Badge variant="outline" title="Series budget">
+                                  Budget: {String(s.budget).trim()}
+                                </Badge>
+                              ) : null}
+
+                              {String(s?.comments || "").trim() ? (
+                                <Badge variant="outline" title={String(s.comments).trim()}>
+                                  Comments: {String(s.comments).trim()}
+                                </Badge>
+                              ) : null}
+                              {/* ===========================
+                                 💰 Series budget + comments ends here
+                                 =========================== */}
+
                               {Array.isArray(s?.filmingDates) && s.filmingDates.length ? (
                                 <Badge variant="outline">Filming: {s.filmingDates.length} date(s)</Badge>
                               ) : null}
@@ -2583,7 +2918,10 @@ export default function ProductionPage({ loggedInUser }) {
                               {count ? <Badge variant="outline">{count} generated</Badge> : null}
 
                               {scheduleType === "weekly" ? (
-                                <Badge variant="outline" title="If you postpone one episode, the following episodes auto align week-to-week in the list.">
+                                <Badge
+                                  variant="outline"
+                                  title="If you postpone one episode, the following episodes auto align week-to-week in the list."
+                                >
                                   Auto-align weekly
                                 </Badge>
                               ) : null}
@@ -2897,7 +3235,7 @@ export default function ProductionPage({ loggedInUser }) {
                     </div>
                   </div>
 
-                  {/* ===========================
+                                 {/* ===========================
                      📅 Schedule-specific inputs
                      =========================== */}
                   {manualType === "weekly" ? (
@@ -3030,6 +3368,50 @@ export default function ProductionPage({ loggedInUser }) {
                       </div>
                     </div>
                   ) : null}
+
+                  {/* ===========================
+                     💰 Manual: Budget + Comments (on-card)
+                     =========================== */}
+                  <div className="space-y-2 md:col-span-2">
+                    <div className="rounded-xl border p-3 space-y-3">
+                      <div className="text-sm font-medium">Budget + comments (optional)</div>
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium">Planned budget</div>
+                          <Input
+                            inputMode="decimal"
+                            value={manualBudgetPlanned}
+                            onChange={(e) => setManualBudgetPlanned(e.target.value)}
+                            placeholder="e.g. 15000"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium">Budget used</div>
+                          <Input
+                            inputMode="decimal"
+                            value={manualBudgetUsed}
+                            onChange={(e) => setManualBudgetUsed(e.target.value)}
+                            placeholder="e.g. 12000"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="text-sm font-medium">Other comments</div>
+                        <Textarea
+                          value={manualOtherComments}
+                          onChange={(e) => setManualOtherComments(e.target.value)}
+                          placeholder="Any notes for this program (approvals, constraints, budget context, etc.)"
+                        />
+                      </div>
+
+                      <div className="text-xs text-muted-foreground">
+                        These are saved on the series header (same as proposed imports) and can be edited later.
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -3123,26 +3505,41 @@ export default function ProductionPage({ loggedInUser }) {
                       const createdBy = loggedInUser?.name || "Unknown";
                       const createdAt = new Date().toISOString();
 
+                                            const plannedNum = Number(String(manualBudgetPlanned || "").trim());
+                      const usedNum = Number(String(manualBudgetUsed || "").trim());
+
                       const series = {
-                        id: `series_${Date.now().toString()}_manual`,
-                        title,
-                        genre: finalGenre || "",
-                        episodesCount: hasEpisodes ? epsNum : null,
-                        airTime: scheduleMeta.airTime,
-                        scheduleMeta,
-                        overrides: {},
-                        seriesChanges: [
-                          {
-                            at: createdAt,
-                            by: createdBy,
-                            action: "series_created_manual",
-                            details: `Schedule: ${manualType}${finalGenre ? ` • Genre: ${finalGenre}` : ""}`,
-                          },
-                        ],
-                        createdBy,
-                        createdAt,
-                        confirmed: true,
-                      };
+  id: `series_${Date.now().toString()}_manual`,
+  title,
+  genre: finalGenre || "",
+  episodesCount: hasEpisodes ? epsNum : null,
+  airTime: scheduleMeta.airTime,
+  scheduleMeta,
+
+  // ===========================
+  // 💰 Budget + Comments (series-level)
+  // ===========================
+  budgetPlanned: Number.isFinite(plannedNum) ? plannedNum : 0,
+  budgetUsed: Number.isFinite(usedNum) ? usedNum : 0,
+  otherComments: String(manualOtherComments || "").trim(),
+
+  overrides: {},
+  seriesChanges: [
+    {
+      at: createdAt,
+      by: createdBy,
+      action: "series_created_manual",
+      details: `Schedule: ${manualType}${finalGenre ? ` • Genre: ${finalGenre}` : ""}${
+        String(manualOtherComments || "").trim() ? " • Comments added" : ""
+      }${
+        Number.isFinite(plannedNum) || Number.isFinite(usedNum) ? " • Budget tracked" : ""
+      }`,
+    },
+  ],
+  createdBy,
+  createdAt,
+  confirmed: true,
+};
 
                       setSeriesList((prev) => [series, ...(Array.isArray(prev) ? prev : [])]);
 
@@ -3166,6 +3563,13 @@ export default function ProductionPage({ loggedInUser }) {
 
                       setManualOneOffDate("");
                       setManualCustomDatesRaw("");
+
+                      // ===========================
+                      // 💰 Reset Manual: Budget + Comments
+                      // ===========================
+                      setManualBudgetPlanned("");
+                      setManualBudgetUsed("");
+                      setManualOtherComments("");
 
                       toast({ title: "Added", description: "Series added to confirmed schedule and calendar." });
                     }}
@@ -3263,192 +3667,270 @@ export default function ProductionPage({ loggedInUser }) {
          🏷️ Series header edit dialog (title + filming dates)
          Filming dates input appears ONLY here
          =========================== */}
-               <AlertDialog open={seriesEditOpen} onOpenChange={setSeriesEditOpen}>
-        <AlertDialogContent className="max-w-[720px]">
+                      <AlertDialog open={seriesEditOpen} onOpenChange={setSeriesEditOpen}>
+        <AlertDialogContent className="max-w-[720px] max-h-[85vh] overflow-y-auto">
           <AlertDialogHeader>
-            <AlertDialogTitle>Edit series header</AlertDialogTitle>
+            <AlertDialogTitle>Edit and make changes here</AlertDialogTitle>
             <AlertDialogDescription>
               Update the program name and add filming date(s) once confirmed. Changes apply to the whole series.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           <div className="space-y-3">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Series title</div>
+  <div className="space-y-2">
+    <div className="text-sm font-medium">Series title</div>
+    <Input
+      value={seriesEditTitle}
+      onChange={(e) => setSeriesEditTitle(e.target.value)}
+      placeholder="e.g. Island Kitchen"
+    />
+  </div>
+
+  {/* ===========================
+     🎬 Filming dates picker (FIXED)
+     - Add single date (controlled state so it sticks)
+     - Add range (inclusive)
+     - Shows badges with remove
+     - Stores back into seriesEditFilmDatesRaw (one ISO per line)
+     =========================== */}
+  <div className="space-y-2">
+    <div className="text-sm font-medium">Filming date(s) (optional)</div>
+
+    {/* Local helpers (derived from seriesEditFilmDatesRaw) */}
+    {(() => {
+      const current = parseCustomDates(seriesEditFilmDatesRaw || "");
+      const setDates = (arr) => setSeriesEditFilmDatesRaw((arr || []).join("\n"));
+
+      const addOne = (iso) => {
+        const d = normalizeISODate(iso);
+        if (!d) return;
+        const next = Array.from(new Set([...(current || []), d]));
+        next.sort((a, b) => a.localeCompare(b));
+        setDates(next);
+      };
+
+      const addRange = (startISO, endISO) => {
+        const a = normalizeISODate(startISO);
+        const b = normalizeISODate(endISO);
+        if (!a || !b) return;
+
+        const start = a <= b ? a : b;
+        const end = a <= b ? b : a;
+
+        const out = new Set(current || []);
+        let guard = 0;
+        let cursor = start;
+
+        while (cursor && cursor <= end && guard < 400) {
+          out.add(cursor);
+          cursor = addDaysISO(cursor, 1);
+          guard++;
+        }
+
+        const next = Array.from(out);
+        next.sort((x, y) => x.localeCompare(y));
+        setDates(next);
+      };
+
+      const removeOne = (iso) => {
+        const next = (current || []).filter((d) => d !== iso);
+        setDates(next);
+      };
+
+      return (
+        <div className="space-y-2">
+          <div className="grid gap-2 md:grid-cols-3">
+            <div className="space-y-1">
+              <div className="text-xs text-muted-foreground">Pick one date</div>
               <Input
-                value={seriesEditTitle}
-                onChange={(e) => setSeriesEditTitle(e.target.value)}
-                placeholder="e.g. Island Kitchen"
+                type="date"
+                value={seriesFilmOne}
+                onChange={(e) => setSeriesFilmOne(e.target.value)}
               />
             </div>
-            {/* ===========================
-               🎬 Filming dates picker (FIXED)
-               - Add single date (controlled state so it sticks)
-               - Add range (inclusive)
-               - Shows badges with remove
-               - Stores back into seriesEditFilmDatesRaw (one ISO per line)
-               =========================== */}
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Filming date(s) (optional)</div>
 
-              {/* Local helpers (derived from seriesEditFilmDatesRaw) */}
-              {(() => {
-                const current = parseCustomDates(seriesEditFilmDatesRaw || "");
-                const setDates = (arr) => setSeriesEditFilmDatesRaw((arr || []).join("\n"));
+            <div className="flex items-end gap-2 md:col-span-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  addOne(seriesFilmOne);
+                  setSeriesFilmOne("");
+                }}
+                disabled={!seriesFilmOne}
+              >
+                Add date
+              </Button>
 
-                const addOne = (iso) => {
-                  const d = normalizeISODate(iso);
-                  if (!d) return;
-                  const next = Array.from(new Set([...(current || []), d]));
-                  next.sort((a, b) => a.localeCompare(b));
-                  setDates(next);
-                };
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setDates([]);
+                  setSeriesFilmOne("");
+                  setSeriesFilmRangeStart("");
+                  setSeriesFilmRangeEnd("");
+                }}
+                disabled={!current.length}
+              >
+                Clear
+              </Button>
 
-                const addRange = (startISO, endISO) => {
-                  const a = normalizeISODate(startISO);
-                  const b = normalizeISODate(endISO);
-                  if (!a || !b) return;
-
-                  const start = a <= b ? a : b;
-                  const end = a <= b ? b : a;
-
-                  const out = new Set(current || []);
-                  let guard = 0;
-                  let cursor = start;
-
-                  while (cursor && cursor <= end && guard < 400) {
-                    out.add(cursor);
-                    cursor = addDaysISO(cursor, 1);
-                    guard++;
-                  }
-
-                  const next = Array.from(out);
-                  next.sort((x, y) => x.localeCompare(y));
-                  setDates(next);
-                };
-
-                const removeOne = (iso) => {
-                  const next = (current || []).filter((d) => d !== iso);
-                  setDates(next);
-                };
-
-                return (
-                  <div className="space-y-2">
-                    <div className="grid gap-2 md:grid-cols-3">
-                      <div className="space-y-1">
-                        <div className="text-xs text-muted-foreground">Pick one date</div>
-                        <Input
-                          type="date"
-                          value={seriesFilmOne}
-                          onChange={(e) => setSeriesFilmOne(e.target.value)}
-                        />
-                      </div>
-
-                      <div className="flex items-end gap-2 md:col-span-2">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          onClick={() => {
-                            addOne(seriesFilmOne);
-                            setSeriesFilmOne("");
-                          }}
-                          disabled={!seriesFilmOne}
-                        >
-                          Add date
-                        </Button>
-
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() => {
-                            setDates([]);
-                            setSeriesFilmOne("");
-                            setSeriesFilmRangeStart("");
-                            setSeriesFilmRangeEnd("");
-                          }}
-                          disabled={!current.length}
-                        >
-                          Clear
-                        </Button>
-
-                        <div className="text-xs text-muted-foreground">
-                          {current.length ? `${current.length} selected` : "No filming dates set"}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border p-3 space-y-2">
-                      <div className="text-xs text-muted-foreground font-medium">
-                        Add a date range (optional)
-                      </div>
-
-                      <div className="grid gap-2 md:grid-cols-3">
-                        <div className="space-y-1">
-                          <div className="text-xs text-muted-foreground">Start</div>
-                          <Input
-                            type="date"
-                            value={seriesFilmRangeStart}
-                            onChange={(e) => setSeriesFilmRangeStart(e.target.value)}
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <div className="text-xs text-muted-foreground">End</div>
-                          <Input
-                            type="date"
-                            value={seriesFilmRangeEnd}
-                            onChange={(e) => setSeriesFilmRangeEnd(e.target.value)}
-                          />
-                        </div>
-
-                        <div className="flex items-end">
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            className="w-full"
-                            onClick={() => {
-                              addRange(seriesFilmRangeStart, seriesFilmRangeEnd);
-                              setSeriesFilmRangeStart("");
-                              setSeriesFilmRangeEnd("");
-                            }}
-                            disabled={!seriesFilmRangeStart || !seriesFilmRangeEnd}
-                          >
-                            Add range
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="text-[11px] text-muted-foreground">
-                        Range adds every day inclusive (useful when filming runs across multiple days).
-                      </div>
-                    </div>
-
-                    {current.length ? (
-                      <div className="flex flex-wrap gap-2">
-                        {current.map((d) => (
-                          <Badge key={d} variant="secondary" className="flex items-center gap-2">
-                            {d}
-                            <button
-                              type="button"
-                              className="text-xs opacity-70 hover:opacity-100"
-                              onClick={() => removeOne(d)}
-                              title="Remove"
-                            >
-                              ✕
-                            </button>
-                          </Badge>
-                        ))}
-                      </div>
-                    ) : null}
-
-                    <div className="text-xs text-muted-foreground">
-                      These are series-level planning dates. They don’t change the airing schedule.
-                    </div>
-                  </div>
-                );
-              })()}
+              <div className="text-xs text-muted-foreground">
+                {current.length ? `${current.length} selected` : "No filming dates set"}
+              </div>
             </div>
           </div>
+
+          <div className="rounded-xl border p-3 space-y-2">
+            <div className="text-xs text-muted-foreground font-medium">
+              Add a date range (optional)
+            </div>
+
+            <div className="grid gap-2 md:grid-cols-3">
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">Start</div>
+                <Input
+                  type="date"
+                  value={seriesFilmRangeStart}
+                  onChange={(e) => setSeriesFilmRangeStart(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-xs text-muted-foreground">End</div>
+                <Input
+                  type="date"
+                  value={seriesFilmRangeEnd}
+                  onChange={(e) => setSeriesFilmRangeEnd(e.target.value)}
+                />
+              </div>
+
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={() => {
+                    addRange(seriesFilmRangeStart, seriesFilmRangeEnd);
+                    setSeriesFilmRangeStart("");
+                    setSeriesFilmRangeEnd("");
+                  }}
+                  disabled={!seriesFilmRangeStart || !seriesFilmRangeEnd}
+                >
+                  Add range
+                </Button>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-muted-foreground">
+              Range adds every day inclusive (useful when filming runs across multiple days).
+            </div>
+          </div>
+
+          {current.length ? (
+            <div className="flex flex-wrap gap-2">
+              {current.map((d) => (
+                <Badge key={d} variant="secondary" className="flex items-center gap-2">
+                  {d}
+                  <button
+                    type="button"
+                    className="text-xs opacity-70 hover:opacity-100"
+                    onClick={() => removeOne(d)}
+                    title="Remove"
+                  >
+                    ✕
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="text-xs text-muted-foreground">
+            These are series-level planning dates. They don’t change the airing schedule.
+          </div>
+        </div>
+      );
+    })()}
+  </div>
+
+  {/* ===========================
+     🔽 Collapsible: Other Comments
+     =========================== */}
+  <details className="group rounded-xl border">
+    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl p-3">
+      <div className="space-y-1">
+        <div className="text-sm font-medium">Other comments</div>
+        <div className="text-xs text-muted-foreground">
+          Extra notes for accountability (not required).
+        </div>
+      </div>
+      <div className="select-none text-xs text-muted-foreground">
+        <span className="group-open:hidden">Show</span>
+        <span className="hidden group-open:inline">Hide</span>
+      </div>
+    </summary>
+
+    <div className="space-y-2 border-t p-3">
+      <Textarea
+        value={seriesEditOtherComments}
+        onChange={(e) => setSeriesEditOtherComments(e.target.value)}
+        placeholder="Any other comments for this program (budget context, approvals, constraints, etc.)"
+      />
+      <div className="text-xs text-muted-foreground">
+        Saved on the series header (not per-episode).
+      </div>
+    </div>
+  </details>
+
+  {/* ===========================
+     🔽 Collapsible: Budget
+     =========================== */}
+  <details className="group rounded-xl border">
+    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl p-3">
+      <div className="space-y-1">
+        <div className="text-sm font-medium">Budget</div>
+        <div className="text-xs text-muted-foreground">
+          Track planned vs used. (Numbers only)
+        </div>
+      </div>
+      <div className="select-none text-xs text-muted-foreground">
+        <span className="group-open:hidden">Show</span>
+        <span className="hidden group-open:inline">Hide</span>
+      </div>
+    </summary>
+
+    <div className="space-y-3 border-t p-3">
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-2">
+          <div className="text-sm font-medium">Planned budget</div>
+          <Input
+            inputMode="decimal"
+            value={seriesEditBudgetPlanned}
+            onChange={(e) => setSeriesEditBudgetPlanned(e.target.value)}
+            placeholder="e.g. 15000"
+          />
+          <div className="text-xs text-muted-foreground">Total planned allocation for this program.</div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-sm font-medium">Budget used</div>
+          <Input
+            inputMode="decimal"
+            value={seriesEditBudgetUsed}
+            onChange={(e) => setSeriesEditBudgetUsed(e.target.value)}
+            placeholder="e.g. 12000"
+          />
+          <div className="text-xs text-muted-foreground">Actual spend so far.</div>
+        </div>
+      </div>
+
+      <div className="text-xs text-muted-foreground">
+        Tip: if used is higher than planned, it will show as over budget in the totals card.
+      </div>
+    </div>
+  </details>
+</div>
 
                   <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setSeriesEditOpen(false)}>
