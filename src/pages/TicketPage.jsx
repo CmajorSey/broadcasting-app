@@ -2839,7 +2839,7 @@ await sendTicketPageNotification({
   {showArchived && (
     <div className="mt-3 border rounded shadow p-2">
       {tickets.filter((t) => t.archived).length === 0 ? (
-        <p className="text-gray-500 px-2 py-2">No archived forms.</p>
+        <p className="text-gray-500 px-2 py-2">No archived requests.</p>
       ) : (
         <>
           {/* Controls row: Select all, Search, Status filter, Bulk actions */}
@@ -3476,7 +3476,7 @@ await sendTicketPageNotification({
             </div>
 
             {tickets.filter((t) => t.deleted).length === 0 ? (
-              <p className="text-gray-500 px-2 py-2">No deleted forms.</p>
+              <p className="text-gray-500 px-2 py-2">No deleted requests.</p>
             ) : (
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-200">
