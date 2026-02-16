@@ -125,9 +125,25 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
   /* ===========================
      📦 Backend Store (week + recurring)
      =========================== */
-  const [weekData, setWeekData] = useState(() => makeEmptyWeek());
+   const [weekData, setWeekData] = useState(() => makeEmptyWeek());
   const [recurring, setRecurring] = useState(() => []);
   const [isLoading, setIsLoading] = useState(false);
+
+  /* ===========================
+     ✍️ Form state (fixes "is not defined" vars)
+     - showTitle, showDay, showTime, showPresenter
+     - customTitle, customDate, customTime, customPresenter, customRecurrence
+     =========================== */
+  const [showTitle, setShowTitle] = useState("");
+  const [showDay, setShowDay] = useState("daily"); // "daily" or "0".."6"
+  const [showTime, setShowTime] = useState("19:00"); // HH:MM
+  const [showPresenter, setShowPresenter] = useState("");
+
+  const [customTitle, setCustomTitle] = useState("");
+  const [customDate, setCustomDate] = useState(""); // YYYY-MM-DD
+  const [customTime, setCustomTime] = useState("19:00"); // HH:MM
+  const [customPresenter, setCustomPresenter] = useState("");
+  const [customRecurrence, setCustomRecurrence] = useState("one-off"); // "one-off" | "weekly"
 
   /* ===========================
      ✅ Week alias (fixes currentWeek is not defined)
