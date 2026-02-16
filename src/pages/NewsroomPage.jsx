@@ -8,9 +8,39 @@ import { useToast } from "@/hooks/use-toast";
 import { getSectionPermissions } from "@/lib/permissions";
 
 /* ===========================
-   🧠 Local Storage (v2)
+   🌐 Backend (replaces LS_KEY)
+   - Week is stored by weekStartISO
+   - Recurring list is global
    =========================== */
-const LS_KEY = "hub_newsroom_presenters_v2";
+const API_BASE =
+  import.meta.env.VITE_API_BASE ||
+  import.meta.env.VITE_BACKEND_URL ||
+  "http://localhost:4000";
+
+const safeJson = async (res) => {
+  const text = await res.text();
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
+};
+
+const fetchJSON = async (url, opts = {}) => {
+  const res = await fetch(url, {
+    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+    ...opts,
+  });
+
+  const data = await safeJson(res);
+  if (!res.ok) {
+    const msg =
+      (data && (data.error || data.message)) ||
+      `Request failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return data;
+};
 
 /* ===========================
    🗓️ Date helpers (Monday week)
@@ -55,28 +85,6 @@ const weekTitle = (weekStartISO) => {
   return `${formatDDMMYYYY(start)} → ${formatDDMMYYYY(end)}`;
 };
 
-const load = () => {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    if (!parsed || typeof parsed !== "object") {
-      return { weeks: {}, recurring: [] };
-    }
-    return {
-      weeks: parsed.weeks && typeof parsed.weeks === "object" ? parsed.weeks : {},
-      recurring: Array.isArray(parsed.recurring) ? parsed.recurring : [],
-    };
-  } catch {
-    return { weeks: {}, recurring: [] };
-  }
-};
-
-const save = (data) => {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(data));
-  } catch {}
-};
-
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 /* ===========================
@@ -114,10 +122,12 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
   const { toast } = useToast();
   const { canEdit } = getSectionPermissions("newsroom", loggedInUser);
 
-  /* ===========================
-     📦 Store
+   /* ===========================
+     📦 Backend Store (week + recurring)
      =========================== */
-  const [store, setStore] = useState(() => load());
+  const [weekData, setWeekData] = useState(() => makeEmptyWeek());
+  const [recurring, setRecurring] = useState(() => []);
+  const [isLoading, setIsLoading] = useState(false);
 
   /* ===========================
      🗓️ Week navigation
@@ -125,69 +135,73 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
   const [weekStartISO, setWeekStartISO] = useState(() => getMondayISO(new Date()));
 
   /* ===========================
-     ✍️ Calendar add form (one-off / weekly)
+     📥 Load (week + recurring)
      =========================== */
-  const [customTitle, setCustomTitle] = useState("");
-  const [customDate, setCustomDate] = useState(() => "");
-  const [customTime, setCustomTime] = useState("19:00");
-  const [customPresenter, setCustomPresenter] = useState("");
-  const [customRecurrence, setCustomRecurrence] = useState("one-off"); // one-off | weekly
-
-  /* ===========================
-     🎙️ Show setup form
-     =========================== */
-  const [showTitle, setShowTitle] = useState("");
-  const [showDay, setShowDay] = useState("daily"); // daily | "0".."6"
-  const [showTime, setShowTime] = useState("19:00");
-  const [showPresenter, setShowPresenter] = useState("");
-
   useEffect(() => {
-    save(store);
-  }, [store]);
+    let cancelled = false;
 
-  useEffect(() => {
-    // Default the custom date to the currently viewed Monday if empty
-    if (!customDate) setCustomDate(weekStartISO);
+    const run = async () => {
+      setIsLoading(true);
+      try {
+        // Week payload
+        // Expected: { week: {...} } (but we tolerate {data}, or direct object)
+        const weekRes = await fetchJSON(`${API_BASE}/newsroom/${weekStartISO}`);
+        const wk =
+          (weekRes && (weekRes.week || weekRes.data)) ||
+          (weekRes && typeof weekRes === "object" ? weekRes : null);
+
+        // Recurring payload
+        // Expected: { recurring: [...] } (but we tolerate {data}, or direct array)
+        const recRes = await fetchJSON(`${API_BASE}/newsroom/recurring`);
+        const rec =
+          (recRes && (recRes.recurring || recRes.data)) ||
+          (Array.isArray(recRes) ? recRes : []);
+
+        if (cancelled) return;
+
+        setWeekData(wk && typeof wk === "object" ? { ...makeEmptyWeek(), ...wk } : makeEmptyWeek());
+        setRecurring(Array.isArray(rec) ? rec : []);
+      } catch (err) {
+        if (cancelled) return;
+        setWeekData(makeEmptyWeek());
+        setRecurring([]);
+        toast({
+          title: "Load failed",
+          description: err?.message || "Could not load newsroom data from the server.",
+        });
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStartISO]);
 
-  const presenterOptions = useMemo(() => {
-    // Newsroom roster: ONLY News journalists
-    // Exclude Sports + Admin etc, and explicitly exclude Clive Camille
-    return (users || [])
-      .filter((u) => {
-        const name = String(u?.name || "").trim();
-        const desc = String(u?.description || "").trim().toLowerCase();
-
-        if (!name) return false;
-        if (name.toLowerCase() === "clive camille") return false;
-
-        // Keep only "journalist" and exclude "sports journalist"
-        const isJournalist = desc.includes("journalist");
-        const isSports = desc.includes("sports");
-        if (!isJournalist) return false;
-        if (isSports) return false;
-
-        return true;
-      })
-      .map((u) => String(u?.name || "").trim())
-      .filter(Boolean)
-      .sort((a, b) => a.localeCompare(b));
-  }, [users]);
-
-  const currentWeek = useMemo(() => {
-    const existing = store.weeks?.[weekStartISO];
-    return existing && typeof existing === "object" ? existing : makeEmptyWeek();
-  }, [store.weeks, weekStartISO]);
+  /* ===========================
+     💾 Save week (server)
+     =========================== */
+  const persistWeek = async (nextWeekObj) => {
+    // Optimistic UI already applied by caller
+    await fetchJSON(`${API_BASE}/newsroom/${weekStartISO}`, {
+      method: "PATCH",
+      body: JSON.stringify({ week: nextWeekObj }),
+    });
+  };
 
   const setWeek = (nextWeekObj) => {
-    setStore((prev) => ({
-      ...prev,
-      weeks: {
-        ...(prev.weeks || {}),
-        [weekStartISO]: nextWeekObj,
-      },
-    }));
+    setWeekData(nextWeekObj);
+
+    // Save in background (still in this same user action)
+    persistWeek(nextWeekObj).catch((err) => {
+      toast({
+        title: "Save failed",
+        description: err?.message || "Could not save changes. Please try again.",
+      });
+    });
   };
 
   /* ===========================
@@ -373,12 +387,25 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
         createdAt: nowISO,
       };
 
-      setStore((prev) => ({
-        ...prev,
-        recurring: [rec, ...(prev.recurring || [])],
-      }));
+      // Optimistic
+      setRecurring((prev) => [rec, ...(prev || [])]);
 
-      toast({ title: "Saved", description: "Weekly recurring item added." });
+      // Persist
+      fetchJSON(`${API_BASE}/newsroom/recurring`, {
+        method: "POST",
+        body: JSON.stringify(rec),
+      })
+        .then(() => {
+          toast({ title: "Saved", description: "Weekly recurring item added." });
+        })
+        .catch((err) => {
+          // Rollback
+          setRecurring((prev) => (prev || []).filter((x) => x.id !== rec.id));
+          toast({
+            title: "Save failed",
+            description: err?.message || "Could not save recurring item.",
+          });
+        });
     } else {
       const newItem = {
         id: Date.now().toString(),
@@ -413,11 +440,22 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
   };
 
   const removeRecurring = (id) => {
-    setStore((prev) => ({
-      ...prev,
-      recurring: (prev.recurring || []).filter((x) => x.id !== id),
-    }));
-    toast({ title: "Removed", description: "Weekly recurring item removed." });
+    // Optimistic
+    const prev = Array.isArray(recurring) ? recurring : [];
+    setRecurring(prev.filter((x) => x.id !== id));
+
+    fetchJSON(`${API_BASE}/newsroom/recurring/${id}`, { method: "DELETE" })
+      .then(() => {
+        toast({ title: "Removed", description: "Weekly recurring item removed." });
+      })
+      .catch((err) => {
+        // Rollback
+        setRecurring(prev);
+        toast({
+          title: "Remove failed",
+          description: err?.message || "Could not remove recurring item.",
+        });
+      });
   };
 
   /* ===========================
@@ -427,7 +465,7 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
     const weekStart = weekStartISO;
 
     // recurring visible if startWeekISO <= viewed week
-    const recurringForWeek = (store.recurring || []).filter((r) => {
+    const recurringForWeek = (recurring || []).filter((r) => {
       const startWeek = String(r?.startWeekISO || "");
       return startWeek && startWeek <= weekStart;
     });
@@ -484,14 +522,14 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
         recurringItems,
       };
     });
-  }, [weekStartISO, currentWeek, store.recurring]);
+  }, [weekStartISO, currentWeek, recurring]);
 
   const weekCounts = useMemo(() => {
     const oneOffCount = (currentWeek.oneOff || []).length;
-    const recurringCount = (store.recurring || []).length;
+    const recurringCount = (recurring || []).length;
     const showsCount = (currentWeek.shows || []).length;
     return { oneOffCount, recurringCount, showsCount };
-  }, [currentWeek.oneOff, store.recurring, currentWeek.shows]);
+  }, [currentWeek.oneOff, recurring, currentWeek.shows]);
 
   return (
     <div className="p-4 space-y-4">

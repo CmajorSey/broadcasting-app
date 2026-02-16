@@ -778,157 +778,153 @@ const [manualGenreCustom, setManualGenreCustom] = useState("");
      - Per-episode edits are overrides (date/time/film + change note)
      =========================== */
   const confirmSelectedProposedToCalendar = () => {
-    if (!selectedProposed) {
-      toast({ title: "Nothing selected", description: "Click a proposed program first." });
-      return;
-    }
+  if (!selectedProposed) {
+    toast({ title: "Nothing selected", description: "Click a proposed program first." });
+    return;
+  }
 
-    const cleanTitle = String(selectedProposed?.title || "").trim();
-    if (!cleanTitle) {
-      toast({ title: "Missing title", description: "Selected program has no title." });
-      return;
-    }
+  const cleanTitle = String(selectedProposed?.title || "").trim();
+  if (!cleanTitle) {
+    toast({ title: "Missing title", description: "Selected program has no title." });
+    return;
+  }
 
-    const epsNum = Number(selectedProposed?.episodes);
-    const hasEpisodes = Number.isFinite(epsNum) && epsNum >= 1;
+  const epsNum = Number(selectedProposed?.episodes);
+  const hasEpisodes = Number.isFinite(epsNum) && epsNum >= 1;
 
-    const schedule = {
-      type: confirmType,
-      episodes: hasEpisodes ? epsNum : null,
-      startDate: normalizeISODate(confirmStartDate),
-      airTime: String(confirmAirTime || "").trim() || "21:00",
+  const schedule = {
+    type: confirmType,
+    episodes: hasEpisodes ? epsNum : null,
+    startDate: normalizeISODate(confirmStartDate),
+    airTime: String(confirmAirTime || "").trim() || "21:00",
 
-      weeklyWeekday: Number(confirmWeeklyWeekday),
+    weeklyWeekday: Number(confirmWeeklyWeekday),
 
-      monthlyRule: String(confirmMonthlyRule || "last"),
-      monthlyNth: Number(confirmMonthlyNth),
-      monthlyWeekday: Number(confirmMonthlyWeekday),
+    monthlyRule: String(confirmMonthlyRule || "last"),
+    monthlyNth: Number(confirmMonthlyNth),
+    monthlyWeekday: Number(confirmMonthlyWeekday),
 
-      oneOffDate: normalizeISODate(confirmOneOffDate || confirmStartDate),
+    oneOffDate: normalizeISODate(confirmOneOffDate || confirmStartDate),
 
-      customDatesRaw: String(confirmCustomDatesRaw || "").trim(),
-    };
+    customDatesRaw: String(confirmCustomDatesRaw || "").trim(),
+  };
 
-    // Validate minimum inputs per type
-    if (schedule.type === "custom") {
-      const list = parseCustomDates(schedule.customDatesRaw);
-      if (list.length === 0) {
-        toast({
-          title: "Missing dates",
-          description: "Enter at least one date (YYYY-MM-DD), separated by comma or new line.",
-        });
-        return;
-      }
-    } else if (schedule.type === "oneOff") {
-      if (!schedule.oneOffDate) {
-        toast({ title: "Missing date", description: "Please select the airing date." });
-        return;
-      }
-    } else {
-      if (!schedule.startDate) {
-        toast({ title: "Missing start date", description: "Please select a start date." });
-        return;
-      }
-    }
-
-    // sanity-check occurrences can be built
-    const occPreview = buildOccurrences(schedule);
-    if (!occPreview.length) {
+  // ----------------------------
+  // ✅ Validation (same rules as manual add)
+  // ----------------------------
+  if (schedule.type === "custom") {
+    const list = parseCustomDates(schedule.customDatesRaw);
+    if (list.length === 0) {
       toast({
-        title: "Could not build schedule",
-        description: "Try a different start date/rule (some months don’t have that weekday pattern).",
+        title: "Missing dates",
+        description: "Enter at least one date (YYYY-MM-DD), separated by comma or new line.",
       });
       return;
     }
+  } else if (schedule.type === "oneOff") {
+    if (!schedule.oneOffDate) {
+      toast({ title: "Missing date", description: "Please select the airing date." });
+      return;
+    }
+  } else {
+    if (!schedule.startDate) {
+      toast({ title: "Missing start date", description: "Please select a start date." });
+      return;
+    }
+  }
 
-    const createdBy = loggedInUser?.name || "Unknown";
-    const createdAt = new Date().toISOString();
-
-    const seriesId = `series_${Date.now().toString()}_${selectedProposed.id}`;
-
-     const series = {
-      id: seriesId,
-      title: cleanTitle,
-
-      // ✅ keep parity with Manual series (genre shows in Confirmed + can be filtered later)
-      genre: String(selectedProposed?.genre || "").trim(),
-
-      episodesCount: hasEpisodes ? epsNum : null,
-      airTime: schedule.airTime,
-      scheduleMeta: schedule,
-
-      /* ===========================
-         💰 Import from Proposed (display-level)
-         - These show in the Confirmed header badges you already added:
-           {s.budget} and {s.comments}
-         =========================== */
-      budget: String(selectedProposed?.budget || "").trim(),
-      comments: String(selectedProposed?.comments || "").trim(),
-
-      // ===========================
-      // 💰 Budget + Comments (series-level)
-      // - planned + used are numeric
-      // - otherComments is free text
-      //
-      // ✅ budgetPlanned attempts to parse digits from proposed budget string:
-      //    "SCR 25,000" -> 25000
-      // ===========================
-      budgetPlanned: (() => {
-        const raw = String(selectedProposed?.budget || "").trim();
-        if (!raw) return 0;
-        const digits = raw.replace(/[^\d.]/g, "");
-        const n = Number(digits);
-        return Number.isFinite(n) ? n : 0;
-      })(),
-      budgetUsed: 0,
-      otherComments: String(selectedProposed?.comments || "").trim(),
-
-      overrides: {}, // per-episode overrides written later
-      seriesChanges: [
-        {
-          at: createdAt,
-          by: createdBy,
-          action: "series_created_from_proposed",
-          details: `Schedule: ${schedule.type}${
-            String(selectedProposed?.genre || "").trim()
-              ? ` • Genre: ${String(selectedProposed.genre).trim()}`
-              : ""
-          }${
-            String(selectedProposed?.budget || "").trim()
-              ? ` • Budget: ${String(selectedProposed.budget).trim()}`
-              : ""
-          }${
-            String(selectedProposed?.comments || "").trim()
-              ? ` • Comments: ${String(selectedProposed.comments).trim()}`
-              : ""
-          }`,
-        },
-      ],
-
-      // Proposed source audit
-      sourceProposedId: selectedProposed.id,
-      sourceProposedBy: selectedProposed.createdBy,
-      sourceProposedAt: selectedProposed.createdAt,
-
-      createdBy,
-      createdAt,
-      confirmed: true,
-    };
-    setSeriesList((prev) => [series, ...(Array.isArray(prev) ? prev : [])]);
-
-    // remove from pool
-    setProposedPrograms((prev) =>
-      Array.isArray(prev) ? prev.filter((p) => p.id !== selectedProposed.id) : []
-    );
-    setSelectedProposedId(null);
-
+  // Build preview occurrences to confirm it will populate calendar
+  const preview = buildOccurrences(schedule);
+  if (!preview.length) {
     toast({
-      title: "Confirmed",
-      description: hasEpisodes
-        ? `Series created (${epsNum} episode(s)). You can edit the series or individual episodes from the calendar.`
-        : `Series created (ongoing). You can edit the series or individual dates from the calendar.`,
+      title: "Could not build schedule",
+      description: "Try a different start date/rule (some months don’t have that weekday pattern).",
     });
+    return;
+  }
+
+  // ----------------------------
+  // ✅ Import Proposed → Confirmed fields
+  // Proposed stores:
+  //   - budget: string (e.g. "SCR 25,000")
+  //   - comments: string
+  // Confirmed stores:
+  //   - budgetPlanned: number
+  //   - budgetUsed: number
+  //   - otherComments: string
+  // ----------------------------
+  const proposedBudgetRaw = String(selectedProposed?.budget || "").trim();
+  const proposedCommentsRaw = String(selectedProposed?.comments || "").trim();
+
+  // Pull a numeric value out of budget string safely (keeps decimals)
+  const parseMoneyLike = (raw) => {
+    const s = String(raw || "").trim();
+    if (!s) return 0;
+    const cleaned = s.replace(/[^0-9.]/g, "");
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? Math.max(0, n) : 0;
   };
+
+  const plannedImported = parseMoneyLike(proposedBudgetRaw);
+  const otherCommentsImported = proposedCommentsRaw;
+
+  const createdBy = loggedInUser?.name || "Unknown";
+  const createdAt = new Date().toISOString();
+
+  const series = {
+    id: `series_${Date.now().toString()}_proposed`,
+    title: cleanTitle,
+    genre: String(selectedProposed?.genre || "").trim(),
+
+    // ✅ episode count stays null for ongoing
+    episodesCount: hasEpisodes ? epsNum : null,
+
+    airTime: schedule.airTime,
+    scheduleMeta: schedule,
+
+    // ✅ Filming dates are series-level and start empty
+    filmingDates: [],
+
+    // ✅ CONFIRMED budget/comments model
+    budgetPlanned: plannedImported,
+    budgetUsed: 0,
+    otherComments: otherCommentsImported,
+
+    overrides: {},
+    seriesChanges: [
+      {
+        at: createdAt,
+        by: createdBy,
+        action: "series_created_from_proposed",
+        details: [
+          `Schedule: ${String(schedule.type || "weekly")}`,
+          String(selectedProposed?.genre || "").trim() ? `Genre: ${String(selectedProposed.genre).trim()}` : null,
+          hasEpisodes ? `Episodes: ${epsNum}` : "Ongoing",
+          plannedImported > 0 ? `Imported planned budget: ${plannedImported}` : null,
+          otherCommentsImported ? "Imported other comments" : null,
+        ]
+          .filter(Boolean)
+          .join(" • "),
+      },
+    ],
+
+    createdBy,
+    createdAt,
+    confirmed: true,
+
+    // ✅ Provenance (so you can show “From Proposed Pool …” like you already do)
+    sourceProposedId: selectedProposed?.id,
+    sourceProposedBy: selectedProposed?.createdBy,
+    sourceProposedAt: selectedProposed?.createdAt,
+  };
+
+  setSeriesList((prev) => [series, ...(Array.isArray(prev) ? prev : [])]);
+
+  // Optional UX: clear selection + collapse confirm card
+  setSelectedProposedId(null);
+
+  toast({ title: "Confirmed", description: "Series added to confirmed schedule and calendar." });
+};
 
   /* ===========================
      🧹 Remove series
@@ -1169,15 +1165,14 @@ const [seriesEditBudgetUsed, setSeriesEditBudgetUsed] = useState("");
             at,
             by: actor,
             action: "series_header_updated",
-            details: `${commentsChanged ? `Comments: "${nextOtherComments}". ` : ""}${
-              titleChanged ? `Title: "${beforeTitle}" → "${nextTitle}". ` : ""
-            }${
-              filmChanged ? `Filming dates: ${beforeFilm.length} → ${nextFilmingDates.length}. ` : ""
-            }${
-              budgetChanged ? `Budget: planned ${beforePlanned} → ${nextBudgetPlanned}, used ${beforeUsed} → ${nextBudgetUsed}. ` : ""
-            }${
-              commentsChanged ? `Other comments updated.` : ""
-            }`.trim(),
+            details: [
+  titleChanged ? `Title: "${beforeTitle}" → "${nextTitle}"` : null,
+  filmChanged ? `Filming dates: ${beforeFilm.length} → ${nextFilmingDates.length}` : null,
+  budgetChanged ? `Budget: planned ${beforePlanned} → ${nextBudgetPlanned}, used ${beforeUsed} → ${nextBudgetUsed}` : null,
+  commentsChanged ? `Other comments updated` : null,
+]
+  .filter(Boolean)
+  .join(" • "),
           },
         ],
       };
@@ -1188,25 +1183,29 @@ const [seriesEditBudgetUsed, setSeriesEditBudgetUsed] = useState("");
   setSeriesEditOpen(false);
 };
   const openEditForOccurrence = (occ) => {
-    if (!occ?.seriesId || !occ?.occurrenceIndex) return;
+  // ✅ occurrenceIndex can be 1 (valid) — do NOT use falsy checks
+  const sid = String(occ?.seriesId || "").trim();
+  const idx = Number(occ?.occurrenceIndex);
 
-    setEditOcc({
-      seriesId: occ.seriesId,
-      occurrenceIndex: occ.occurrenceIndex,
-      title: occ.title,
-      currentAirDate: occ.airDate || "",
-      currentAirTime: occ.airTime || "",
-      currentFilmDate: occ.filmDate || "",
-    });
+  if (!sid || !Number.isFinite(idx) || idx < 1) return;
 
-    setEditAirDate(occ.airDate || "");
-    setEditAirTime(occ.airTime || "");
-    setEditFilmDate(occ.filmDate || "");
+  setEditOcc({
+    seriesId: sid,
+    occurrenceIndex: idx,
+    title: occ?.title || "",
+    currentAirDate: occ?.airDate || "",
+    currentAirTime: occ?.airTime || "",
+    currentFilmDate: occ?.filmDate || "",
+  });
 
-    setEditScope("one");
-    setEditNote("");
-    setEditOpen(true);
-  };
+  setEditAirDate(occ?.airDate || "");
+  setEditAirTime(occ?.airTime || "");
+  setEditFilmDate(occ?.filmDate || "");
+
+  setEditScope("one");
+  setEditNote("");
+  setEditOpen(true);
+};
 
   const applyEditSave = () => {
     if (!editOcc?.seriesId) return;
@@ -2893,23 +2892,28 @@ const budgetSummary = useMemo(() => {
                               </Badge>
 
                               {/* ===========================
-                                 💰 Series budget + comments starts here
-                                 - import-ready fields (from Proposed/Manual later)
-                                 =========================== */}
-                              {String(s?.budget || "").trim() ? (
-                                <Badge variant="outline" title="Series budget">
-                                  Budget: {String(s.budget).trim()}
-                                </Badge>
-                              ) : null}
+                            💰 Series budget + comments (CONFIRMED DATA MODEL)
+                            - Uses: budgetPlanned, budgetUsed, otherComments
+                            =========================== */}
+                          {Number(s?.budgetPlanned) > 0 || Number(s?.budgetUsed) > 0 ? (
+                            <>
+                              <Badge variant="outline" title="Planned budget">
+                                Planned: {Number(s?.budgetPlanned) || 0}
+                              </Badge>
+                              <Badge variant="outline" title="Budget used">
+                                Used: {Number(s?.budgetUsed) || 0}
+                              </Badge>
+                            </>
+                          ) : null}
 
-                              {String(s?.comments || "").trim() ? (
-                                <Badge variant="outline" title={String(s.comments).trim()}>
-                                  Comments: {String(s.comments).trim()}
-                                </Badge>
-                              ) : null}
-                              {/* ===========================
-                                 💰 Series budget + comments ends here
-                                 =========================== */}
+                          {String(s?.otherComments || "").trim() ? (
+                            <Badge variant="outline" title={String(s.otherComments).trim()}>
+                              Comments: {String(s.otherComments).trim()}
+                            </Badge>
+                          ) : null}
+                          {/* ===========================
+                            💰 Series budget + comments ends here
+                            =========================== */}
 
                               {Array.isArray(s?.filmingDates) && s.filmingDates.length ? (
                                 <Badge variant="outline">Filming: {s.filmingDates.length} date(s)</Badge>

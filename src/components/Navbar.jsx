@@ -250,19 +250,14 @@ export default function Navbar({
 
       {/*
         ===========================
-        🔒 Team Hubs visibility gate
-        - Only "Admin" and "Stephanie Remie"
-        - Uses NAME (not role)
-        - Respects Admin "View As"
+        🔓 Team Hubs visibility gate (OPEN)
+        - All logged-in users may see:
+          Newsroom / Sports / Production
+        - Still respects Admin "View As" via effectiveUser
         ===========================
       */}
       {(() => {
-        const currentName =
-          effectiveUser?.name || loggedInUser?.name || "";
-
-        const canAccessTeamHubs =
-          currentName === "Admin" ||
-          currentName === "Stephanie Remie";
+        const canAccessTeamHubs = !!loggedInUser;
 
         return (
           <>

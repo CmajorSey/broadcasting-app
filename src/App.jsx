@@ -1182,17 +1182,14 @@ fireGlobalAlert,
              =========================== */}
           {/*
             ===========================
-            🔒 Team Hubs access gate
-            - Only "Admin" and "Stephanie Remie" may access:
+            🔓 Team Hubs access gate (OPEN)
+            - All logged-in users may access:
               /newsroom, /sports, /production
-            - Uses NAME (not role) by request
-            - Respects Admin "View As" via effectiveUser
+            - Still respects Admin "View As" via effectiveUser
             ===========================
           */}
           {(() => {
-            const currentName = effectiveUser?.name || loggedInUser?.name || "";
-            const canAccessTeamHubs =
-              currentName === "Admin" || currentName === "Stephanie Remie";
+            const canAccessTeamHubs = true;
 
             return (
               <>

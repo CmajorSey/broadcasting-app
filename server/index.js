@@ -14,13 +14,28 @@ import { GoogleAuth } from "google-auth-library";
 import { createRequire } from "module";
 import authRouter from "./routes/auth.js";
 import userPrefsRouter from "./routes/user-prefs.js";
-import holidaysRouter from "./routes/holidays.js"
+import holidaysRouter from "./routes/holidays.js";
 // 👉 NEW (v0.7.1): settings + leave management
 import settingsRouter from "./routes/settings.js";
 import leaveRouter from "./routes/leave.js";
 
 // 📅 Calendar (Production Calendar API)
 import calendarRouter from "./routes/calendar.js";
+  /* ===========================
+   📅 Calendar store init lives in calendarStore.js
+   (avoid duplicate init logic here)
+   =========================== */
+import { readCalendarSafe, writeCalendarSafe, ensureCalendarFile } from "./utils/calendarStore.js";
+
+/* ===========================
+   📰 Newsroom Hub API
+   =========================== */
+import newsroomRouter from "./routes/newsroom.js";
+
+/* ===========================
+   🏈 Sports Hub API
+   =========================== */
+import sportsRouter from "./routes/sports.js";
 
 const require = createRequire(import.meta.url);
 
@@ -29,7 +44,6 @@ dotenv.config();
 
 // ✅ Load service account from env in prod, fall back to local file in dev
 let serviceAccount = null;
-
 
 // Option 1: whole JSON in FIREBASE_SERVICE_ACCOUNT
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
@@ -147,9 +161,7 @@ async function sendPushToUsers(users, title, message, opts = {}) {
   // ✅ Important for Web Push icons:
   // Use an absolute URL to your Netlify site so the icon loads reliably.
   // (Relative "/logo.png" from the FCM notification may not resolve as expected.)
-  const icon =
-    safeStr(opts.icon).trim() ||
-    "https://loboard.netlify.app/logo.png";
+  const icon = safeStr(opts.icon).trim() || "https://loboard.netlify.app/logo.png";
 
   // FCM data must be STRING values
   const dataPayload = {
@@ -356,7 +368,10 @@ app.post("/auth/login", (req, res) => {
     }
 
     // ✅ Enforce temp password expiry (if applicable)
-    const isTemp = user.passwordIsTemp === true || user.requiresPasswordReset === true || user.forcePasswordChange === true;
+    const isTemp =
+      user.passwordIsTemp === true ||
+      user.requiresPasswordReset === true ||
+      user.forcePasswordChange === true;
 
     if (isTemp && user.tempPasswordExpires) {
       const exp = Date.parse(user.tempPasswordExpires);
@@ -402,7 +417,6 @@ app.post("/auth/login", (req, res) => {
    🔐 Auth + forced password change ends here
    =========================== */
 
-
 // ✅ Mount password reset routes
 app.use("/auth", authRouter);
 app.use("/user-prefs", userPrefsRouter);
@@ -418,18 +432,22 @@ app.use("/leave", leaveRouter); // alias for older frontend calls
 // 📅 Calendar routes (Production Calendar)
 app.use("/calendar", calendarRouter);
 
+/* ===========================
+   📰 Newsroom Hub routes
+   =========================== */
+app.use("/hub/newsroom", newsroomRouter);
+
+/* ===========================
+   🏈 Sports Hub routes
+   =========================== */
+app.use("/hub/sports", sportsRouter);
+
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const VEHICLES_FILE = path.join(DATA_DIR, "vehicles.json");
 const ROSTERS_FILE = path.join(DATA_DIR, "rosters.json");
 const PASSWORD_RESET_REQUESTS_FILE = path.join(DATA_DIR, "passwordResetRequests.json");
 const groupsPath = path.join(DATA_DIR, "notificationGroups.json");
-
-/* ===========================
-   📅 Calendar store init lives in calendarStore.js
-   (avoid duplicate init logic here)
-   =========================== */
-import { readCalendarSafe, writeCalendarSafe, ensureCalendarFile } from "./utils/calendarStore.js";
 
 // 🔧 Ensure data directory and files exist (all under /data)
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -459,10 +477,7 @@ if (!fs.existsSync(USERS_FILE)) {
 
 // Settings default
 if (!fs.existsSync(SETTINGS_FILE)) {
-  fs.writeFileSync(
-    SETTINGS_FILE,
-    JSON.stringify({ siteName: "Byenveni Lo Board" }, null, 2)
-  );
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify({ siteName: "Byenveni Lo Board" }, null, 2));
 }
 
 // Password reset requests
@@ -485,6 +500,21 @@ if (!fs.existsSync(SUGGESTIONS_FILE)) {
   fs.writeFileSync(SUGGESTIONS_FILE, JSON.stringify([], null, 2));
 }
 
+/* ===========================
+   📰 Newsroom hub store (weeks map)
+   =========================== */
+const NEWSROOM_FILE = path.join(DATA_DIR, "newsroom.json");
+if (!fs.existsSync(NEWSROOM_FILE)) {
+  fs.writeFileSync(NEWSROOM_FILE, JSON.stringify({ weeks: {} }, null, 2));
+}
+
+/* ===========================
+   🏈 Sports hub store (weeks map)
+   =========================== */
+const SPORTS_FILE = path.join(DATA_DIR, "sports.json");
+if (!fs.existsSync(SPORTS_FILE)) {
+  fs.writeFileSync(SPORTS_FILE, JSON.stringify({ weeks: {} }, null, 2));
+}
 
 /* ===========================
    📅 Rosters API starts here
@@ -2613,6 +2643,12 @@ if (!IS_RENDER && fs.existsSync(distPath)) {
       "/rosters",
       "/calendar",
 
+      /* ===========================
+         📰 Team hubs
+         =========================== */
+      "/hub/newsroom",
+      "/hub/sports",
+
       // notifications/suggestions
       "/notification-groups",
       "/notifications",
@@ -2675,6 +2711,12 @@ if (!IS_RENDER && fs.existsSync(distPath)) {
       "/vehicles",
       "/rosters",
       "/calendar",
+
+      /* ===========================
+         📰 Team hubs
+         =========================== */
+      "/hub/newsroom",
+      "/hub/sports",
 
       // notifications/suggestions
       "/notification-groups",
