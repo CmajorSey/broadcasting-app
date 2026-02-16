@@ -421,25 +421,129 @@ export default function ProductionPage({ loggedInUser }) {
   const { toast } = useToast();
   const { canEdit, canSeeNotes } = getSectionPermissions("production", loggedInUser);
 
-  /* ===========================
+   /* ===========================
      📆 Calendar base (Seasons + Proposed)
      =========================== */
   const [seasons, setSeasons] = useState(() => {
-    // Start with cached LS (fast UI), then hydrate from backend
+    // Fast boot from LS cache, then hydrate from backend
     const stored = loadArray(LS_KEY_SEASONS);
     return stored.length ? stored : DEFAULT_SEASONS;
   });
 
   const [proposedPrograms, setProposedPrograms] = useState(() => {
-    // Start with cached LS (fast UI), then hydrate from backend
+    // Fast boot from LS cache, then hydrate from backend
     return loadArray(LS_KEY_PROPOSED);
   });
 
   /* ===========================
+     ✅ Confirmed: MASTER series list
+     =========================== */
+  const [seriesList, setSeriesList] = useState(() => {
+    // 1) Load current v2 series
+    const storedRaw = loadArray(LS_KEY_SERIES);
+
+    // 2) Load tombstones (deleted series IDs) so they never come back
+    const tombstones = new Set(
+      (Array.isArray(loadArray(LS_KEY_SERIES_TOMBSTONES)) ? loadArray(LS_KEY_SERIES_TOMBSTONES) : [])
+        .map((x) => String(x || "").trim())
+        .filter(Boolean)
+    );
+
+    // Filter out deleted series immediately
+    const stored = (Array.isArray(storedRaw) ? storedRaw : []).filter((s) => {
+      const id = String(s?.id || "").trim();
+      return id && !tombstones.has(id);
+    });
+
+    // If we cleaned anything, persist the cleaned list back to LS
+    if (stored.length !== storedRaw.length) {
+      try {
+        localStorage.setItem(LS_KEY_SERIES, JSON.stringify(stored));
+      } catch {}
+    }
+
+    // ✅ HARD STOP: if we already migrated once, never re-import legacy again
+    let migratedAlready = false;
+    try {
+      migratedAlready = localStorage.getItem(LS_KEY_SERIES_MIGRATION_DONE) === "1";
+    } catch {
+      migratedAlready = false;
+    }
+
+    // One-time best-effort migration from legacy confirmed list (episodes stored as items)
+    // Only runs if NO v2 series exist AND migration not done.
+    if (!stored.length && !migratedAlready) {
+      const legacy = loadArray(LS_KEY_CONFIRMED_LEGACY);
+
+      if (legacy.length) {
+        // Convert each legacy item into a one-off series (so nothing is lost)
+        const migrated = legacy.map((it) => ({
+          id: `migrated_${it?.id || Date.now().toString()}`,
+          title: String(it?.title || "Untitled"),
+          episodesCount: 1,
+          airTime: String(it?.airTime || "21:00"),
+          scheduleMeta: {
+            type: "oneOff",
+            episodes: 1,
+            startDate: normalizeISODate(it?.airDate || ""),
+            airTime: String(it?.airTime || "21:00"),
+            oneOffDate: normalizeISODate(it?.airDate || ""),
+          },
+          overrides: {
+            "1": {
+              airDate: normalizeISODate(it?.airDate || ""),
+              airTime: String(it?.airTime || "21:00"),
+              filmDate: normalizeISODate(it?.filmDate || ""),
+              note: String(it?.note || ""),
+              changes: [
+                {
+                  at: it?.createdAt || new Date().toISOString(),
+                  by: it?.createdBy || "Unknown",
+                  action: "migrated_from_legacy_item",
+                  details: "Imported from v1 confirmed list.",
+                },
+              ],
+            },
+          },
+          seriesChanges: [
+            {
+              at: it?.createdAt || new Date().toISOString(),
+              by: it?.createdBy || "Unknown",
+              action: "series_created",
+              details: "Migrated series (one-off).",
+            },
+          ],
+          createdBy: it?.createdBy || "Unknown",
+          createdAt: it?.createdAt || new Date().toISOString(),
+          confirmed: true,
+          sourceProposedId: it?.sourceProposedId || null,
+          sourceProposedBy: it?.sourceProposedBy || null,
+          sourceProposedAt: it?.sourceProposedAt || null,
+        }));
+
+        // ✅ Mark migration complete AND delete legacy key so it cannot reappear
+        try {
+          localStorage.setItem(LS_KEY_SERIES_MIGRATION_DONE, "1");
+          localStorage.removeItem(LS_KEY_CONFIRMED_LEGACY);
+          localStorage.setItem(LS_KEY_SERIES, JSON.stringify(migrated));
+        } catch {}
+
+        return migrated;
+      }
+
+      // Even if legacy is empty, mark as “done” so we don’t keep checking forever
+      try {
+        localStorage.setItem(LS_KEY_SERIES_MIGRATION_DONE, "1");
+        localStorage.removeItem(LS_KEY_CONFIRMED_LEGACY);
+      } catch {}
+    }
+
+    return stored;
+  });
+
+  /* ===========================
      🌐 Initial hydration (backend → state)
-     - Seasons: /calendar/seasons
-     - Proposed pool: /calendar/programs?status=proposed
-     - Series master list: /calendar/series
+     - IMPORTANT: must be AFTER seriesList is declared
      =========================== */
   useEffect(() => {
     let cancelled = false;
@@ -460,11 +564,10 @@ export default function ProductionPage({ loggedInUser }) {
         }
 
         if (Array.isArray(proposedApi)) {
-          // Map backend "programs" into your existing proposed shape if needed
           const mapped = proposedApi.map((p) => ({
             id: String(p.id),
             title: String(p.title || ""),
-            episodes: typeof p.episodes === "number" ? p.episodes : null,
+            episodes: typeof p.episodes === "number" && p.episodes > 0 ? p.episodes : null,
             genre: String(p.genre || p.genreId || ""),
             synopsis: String(p.synopsis || p.notes || ""),
             budget: String(p.budget || ""),
@@ -482,7 +585,6 @@ export default function ProductionPage({ loggedInUser }) {
           saveArray(LS_KEY_SERIES, seriesApi);
         }
       } catch (e) {
-        // Backend might be temporarily down; keep LS fallback
         console.warn("Production hydration failed; using local fallback.", e);
       }
     };
@@ -494,7 +596,7 @@ export default function ProductionPage({ loggedInUser }) {
   }, []);
 
   /* ===========================
-     💾 Keep localStorage as cache
+     💾 Persist local cache (keeps current behavior)
      =========================== */
   useEffect(() => saveArray(LS_KEY_SEASONS, seasons), [seasons]);
   useEffect(() => saveArray(LS_KEY_PROPOSED, proposedPrograms), [proposedPrograms]);
@@ -502,8 +604,6 @@ export default function ProductionPage({ loggedInUser }) {
 
   /* ===========================
      🌐 Sync series master list to backend
-     - This is the BIG one: fixes "only my browser sees it"
-     - Debounced to avoid spamming Render
      =========================== */
   useEffect(() => {
     const t = setTimeout(() => {
