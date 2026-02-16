@@ -245,6 +245,55 @@ router.delete("/programs/:id", (req, res) => {
 });
 
 /* ===========================
+   ✅ Proposed Programs Alias (optional)
+   - Uses same storage as programs[]
+   - Proposed Pool == programs with status="proposed"
+   =========================== */
+
+router.get("/proposed", (req, res) => {
+  const store = readCalendarSafe();
+  const programs = Array.isArray(store.programs) ? store.programs : [];
+  const proposed = programs.filter((p) => String(p.status || "proposed") === "proposed");
+  return res.json(proposed);
+});
+
+/* ===========================
+   ✅ Production Series (MASTER LIST) Bulk Sync
+   - This fixes "only my browser sees changes"
+   - Frontend can PUT the entire seriesList just like localStorage used to
+   =========================== */
+
+router.get("/series", (req, res) => {
+  const store = readCalendarSafe();
+  const list = Array.isArray(store.series) ? store.series : [];
+  return res.json(list);
+});
+
+router.put("/series", (req, res) => {
+  const store = readCalendarSafe();
+  const body = req.body;
+
+  if (!Array.isArray(body)) {
+    return res.status(400).json({ error: "Body must be an array of series" });
+  }
+
+  // Light validation: keep objects only, force id to string if present
+  const cleaned = body
+    .filter((x) => x && typeof x === "object")
+    .map((s) => ({
+      ...s,
+      id: safeStr(s.id) || `series_${Date.now()}`,
+    }));
+
+  store.series = cleaned;
+
+  const saved = writeCalendarSafe(store);
+  if (!saved) return res.status(500).json({ error: "Failed to save series list" });
+
+  return res.json({ success: true, count: cleaned.length });
+});
+
+/* ===========================
    ✅ Proposed Programs Alias
    - Fixes: GET /calendar/proposed 404
    - Uses same storage as programs[]

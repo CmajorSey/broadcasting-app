@@ -94,6 +94,48 @@ const saveArray = (key, items) => {
   } catch {}
 };
 
+/* ===========================
+   🌐 Calendar/Production API
+   - Backend is the shared source of truth
+   - localStorage is fallback + one-time migration source
+   =========================== */
+
+const API_BASE =
+  import.meta?.env?.VITE_API_BASE ||
+  "https://loboard-server-backend.onrender.com";
+
+const apiGet = async (path) => {
+  const res = await fetch(`${API_BASE}${path}`);
+  if (!res.ok) throw new Error(`GET ${path} failed (${res.status})`);
+  return res.json();
+};
+
+const apiPut = async (path, body) => {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`PUT ${path} failed (${res.status})`);
+  return res.json();
+};
+
+const apiPost = async (path, body) => {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`POST ${path} failed (${res.status})`);
+  return res.json();
+};
+
+const apiDelete = async (path) => {
+  const res = await fetch(`${API_BASE}${path}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`DELETE ${path} failed (${res.status})`);
+  return res.json().catch(() => ({}));
+};
+
 const DEFAULT_SEASONS = [
   { id: "season_pre", name: "Pre-Season", startMonth: 1, endMonth: 2, order: 1, active: true },
   { id: "season_1", name: "Season 1", startMonth: 3, endMonth: 5, order: 2, active: true },
@@ -383,122 +425,95 @@ export default function ProductionPage({ loggedInUser }) {
      📆 Calendar base (Seasons + Proposed)
      =========================== */
   const [seasons, setSeasons] = useState(() => {
+    // Start with cached LS (fast UI), then hydrate from backend
     const stored = loadArray(LS_KEY_SEASONS);
     return stored.length ? stored : DEFAULT_SEASONS;
   });
 
-  const [proposedPrograms, setProposedPrograms] = useState(() => loadArray(LS_KEY_PROPOSED));
-
-  /* ===========================
-     ✅ Confirmed: MASTER series list
-     =========================== */
-  const [seriesList, setSeriesList] = useState(() => {
-    // 1) Load current v2 series
-    const storedRaw = loadArray(LS_KEY_SERIES);
-
-    // 2) Load tombstones (deleted series IDs) so they never come back
-    const tombstones = new Set(
-      (Array.isArray(loadArray(LS_KEY_SERIES_TOMBSTONES)) ? loadArray(LS_KEY_SERIES_TOMBSTONES) : [])
-        .map((x) => String(x || "").trim())
-        .filter(Boolean)
-    );
-
-    // Filter out deleted series immediately
-    const stored = (Array.isArray(storedRaw) ? storedRaw : []).filter((s) => {
-      const id = String(s?.id || "").trim();
-      return id && !tombstones.has(id);
-    });
-
-    // If we cleaned anything, persist the cleaned list back to LS
-    if (stored.length !== storedRaw.length) {
-      try {
-        localStorage.setItem(LS_KEY_SERIES, JSON.stringify(stored));
-      } catch {}
-    }
-
-    // ✅ HARD STOP: if we already migrated once, never re-import legacy again
-    let migratedAlready = false;
-    try {
-      migratedAlready = localStorage.getItem(LS_KEY_SERIES_MIGRATION_DONE) === "1";
-    } catch {
-      migratedAlready = false;
-    }
-
-    // One-time best-effort migration from legacy confirmed list (episodes stored as items)
-    // Only runs if NO v2 series exist AND migration not done.
-    if (!stored.length && !migratedAlready) {
-      const legacy = loadArray(LS_KEY_CONFIRMED_LEGACY);
-
-      if (legacy.length) {
-        // Convert each legacy item into a one-off series (so nothing is lost)
-        const migrated = legacy.map((it) => ({
-          id: `migrated_${it?.id || Date.now().toString()}`,
-          title: String(it?.title || "Untitled"),
-          episodesCount: 1,
-          airTime: String(it?.airTime || "21:00"),
-          scheduleMeta: {
-            type: "oneOff",
-            episodes: 1,
-            startDate: normalizeISODate(it?.airDate || ""),
-            airTime: String(it?.airTime || "21:00"),
-            oneOffDate: normalizeISODate(it?.airDate || ""),
-          },
-          overrides: {
-            "1": {
-              airDate: normalizeISODate(it?.airDate || ""),
-              airTime: String(it?.airTime || "21:00"),
-              filmDate: normalizeISODate(it?.filmDate || ""),
-              note: String(it?.note || ""),
-              changes: [
-                {
-                  at: it?.createdAt || new Date().toISOString(),
-                  by: it?.createdBy || "Unknown",
-                  action: "migrated_from_legacy_item",
-                  details: "Imported from v1 confirmed list.",
-                },
-              ],
-            },
-          },
-          seriesChanges: [
-            {
-              at: it?.createdAt || new Date().toISOString(),
-              by: it?.createdBy || "Unknown",
-              action: "series_created",
-              details: "Migrated series (one-off).",
-            },
-          ],
-          createdBy: it?.createdBy || "Unknown",
-          createdAt: it?.createdAt || new Date().toISOString(),
-          confirmed: true,
-          sourceProposedId: it?.sourceProposedId || null,
-          sourceProposedBy: it?.sourceProposedBy || null,
-          sourceProposedAt: it?.sourceProposedAt || null,
-        }));
-
-        // ✅ Mark migration complete AND delete legacy key so it cannot reappear
-        try {
-          localStorage.setItem(LS_KEY_SERIES_MIGRATION_DONE, "1");
-          localStorage.removeItem(LS_KEY_CONFIRMED_LEGACY);
-          localStorage.setItem(LS_KEY_SERIES, JSON.stringify(migrated));
-        } catch {}
-
-        return migrated;
-      }
-
-      // Even if legacy is empty, mark as “done” so we don’t keep checking forever
-      try {
-        localStorage.setItem(LS_KEY_SERIES_MIGRATION_DONE, "1");
-        localStorage.removeItem(LS_KEY_CONFIRMED_LEGACY);
-      } catch {}
-    }
-
-    return stored;
+  const [proposedPrograms, setProposedPrograms] = useState(() => {
+    // Start with cached LS (fast UI), then hydrate from backend
+    return loadArray(LS_KEY_PROPOSED);
   });
 
-  // Persist seasons + proposed programs + confirmed series
+  /* ===========================
+     🌐 Initial hydration (backend → state)
+     - Seasons: /calendar/seasons
+     - Proposed pool: /calendar/programs?status=proposed
+     - Series master list: /calendar/series
+     =========================== */
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const [seasonsApi, proposedApi, seriesApi] = await Promise.all([
+          apiGet("/calendar/seasons"),
+          apiGet("/calendar/programs?status=proposed"),
+          apiGet("/calendar/series"),
+        ]);
+
+        if (cancelled) return;
+
+        if (Array.isArray(seasonsApi) && seasonsApi.length) {
+          setSeasons(seasonsApi);
+          saveArray(LS_KEY_SEASONS, seasonsApi);
+        }
+
+        if (Array.isArray(proposedApi)) {
+          // Map backend "programs" into your existing proposed shape if needed
+          const mapped = proposedApi.map((p) => ({
+            id: String(p.id),
+            title: String(p.title || ""),
+            episodes: typeof p.episodes === "number" ? p.episodes : null,
+            genre: String(p.genre || p.genreId || ""),
+            synopsis: String(p.synopsis || p.notes || ""),
+            budget: String(p.budget || ""),
+            comments: String(p.comments || ""),
+            createdBy: String(p.createdBy || "Unknown"),
+            createdAt: p.createdAt || new Date().toISOString(),
+          }));
+
+          setProposedPrograms(mapped);
+          saveArray(LS_KEY_PROPOSED, mapped);
+        }
+
+        if (Array.isArray(seriesApi)) {
+          setSeriesList(seriesApi);
+          saveArray(LS_KEY_SERIES, seriesApi);
+        }
+      } catch (e) {
+        // Backend might be temporarily down; keep LS fallback
+        console.warn("Production hydration failed; using local fallback.", e);
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /* ===========================
+     💾 Keep localStorage as cache
+     =========================== */
   useEffect(() => saveArray(LS_KEY_SEASONS, seasons), [seasons]);
   useEffect(() => saveArray(LS_KEY_PROPOSED, proposedPrograms), [proposedPrograms]);
   useEffect(() => saveArray(LS_KEY_SERIES, seriesList), [seriesList]);
+
+  /* ===========================
+     🌐 Sync series master list to backend
+     - This is the BIG one: fixes "only my browser sees it"
+     - Debounced to avoid spamming Render
+     =========================== */
+  useEffect(() => {
+    const t = setTimeout(() => {
+      apiPut("/calendar/series", Array.isArray(seriesList) ? seriesList : []).catch((e) => {
+        console.warn("Failed to sync series list to backend (kept in LS).", e);
+      });
+    }, 350);
+
+    return () => clearTimeout(t);
+  }, [seriesList]);
 
   /* ===========================
      🧹 Legacy safety cleanup
@@ -714,7 +729,7 @@ const [manualGenreCustom, setManualGenreCustom] = useState("");
   /* ===========================
      🧾 Proposed pool helpers
      =========================== */
-   const addProposed = () => {
+    const addProposed = async () => {
     const cleanTitle = (pTitle || "").trim();
     if (!cleanTitle) {
       toast({ title: "Missing title", description: "Please enter a proposed program title." });
@@ -723,52 +738,114 @@ const [manualGenreCustom, setManualGenreCustom] = useState("");
 
     const eps = Number(pEpisodes);
     const safeEpisodes = Number.isFinite(eps) && eps >= 1 && eps <= 100 ? eps : null; // ✅ null = ongoing
-
     const cleanGenre = String(pGenre || "").trim();
 
-    /* ===========================
-       💰 Proposed optional fields (Budget + Comments)
-       - NOT required
-       - Saved into proposed record so it can carry into confirmed series later
-       =========================== */
     const cleanBudget = String(pBudget || "").trim();
     const cleanComments = String(pComments || "").trim();
 
-    const newProg = {
+    // Keep your current UI object shape
+    const newProgLocal = {
       id: Date.now().toString(),
       title: cleanTitle,
       episodes: safeEpisodes, // number or null
       genre: cleanGenre,
       synopsis: (pSynopsis || "").trim(),
-
-      // ✅ new optional fields
       budget: cleanBudget,
       comments: cleanComments,
-
       createdBy: loggedInUser?.name || "Unknown",
       createdAt: new Date().toISOString(),
     };
 
-    setProposedPrograms((prev) => [newProg, ...(Array.isArray(prev) ? prev : [])]);
+    // Optimistic UI
+    setProposedPrograms((prev) => [newProgLocal, ...(Array.isArray(prev) ? prev : [])]);
 
     setPTitle("");
     setPEpisodes("");
     setPGenre("");
     setPSynopsis("");
-
-    // ✅ reset optional fields too
     setPBudget("");
     setPComments("");
-
     setPGenreMode("select");
     setPGenreCustom("");
 
-    toast({ title: "Submitted", description: "Proposed program added to the pool." });
+    try {
+      // Save to backend as a "program" with status=proposed
+      const saved = await apiPost("/calendar/programs", {
+        id: newProgLocal.id,
+        title: newProgLocal.title,
+        episodes: typeof newProgLocal.episodes === "number" ? newProgLocal.episodes : 0,
+        status: "proposed",
+        // Store extra fields in notes-like fields (backend already has notes)
+        notes: newProgLocal.synopsis,
+        createdBy: newProgLocal.createdBy,
+        createdAt: newProgLocal.createdAt,
+
+        // Optional: if you later add explicit fields to backend, these will already be here
+        genreId: null,
+        seasonId: null,
+        budget: newProgLocal.budget,
+        comments: newProgLocal.comments,
+      });
+
+      // If backend changed anything, refresh proposed list from server
+      const proposedApi = await apiGet("/calendar/programs?status=proposed");
+      const mapped = proposedApi.map((p) => ({
+        id: String(p.id),
+        title: String(p.title || ""),
+        episodes: typeof p.episodes === "number" && p.episodes > 0 ? p.episodes : null,
+        genre: String(p.genre || p.genreId || ""),
+        synopsis: String(p.synopsis || p.notes || ""),
+        budget: String(p.budget || ""),
+        comments: String(p.comments || ""),
+        createdBy: String(p.createdBy || "Unknown"),
+        createdAt: p.createdAt || new Date().toISOString(),
+      }));
+      setProposedPrograms(mapped);
+
+      toast({ title: "Submitted", description: "Proposed program saved (shared across devices)." });
+      void saved; // keep linter quiet if needed
+    } catch (e) {
+      console.warn("Failed to save proposed program to backend (kept locally).", e);
+      toast({
+        title: "Saved locally only",
+        description: "Backend save failed. This proposal is only on this browser for now.",
+      });
+    }
   };
 
-  const removeProposed = (id) => {
-    setProposedPrograms((prev) => (Array.isArray(prev) ? prev.filter((p) => p.id !== id) : []));
-    toast({ title: "Removed", description: "Proposed program removed." });
+  const removeProposed = async (id) => {
+    const pid = String(id || "").trim();
+    if (!pid) return;
+
+    // Optimistic UI
+    setProposedPrograms((prev) => (Array.isArray(prev) ? prev.filter((p) => String(p.id) !== pid) : []));
+
+    try {
+      await apiDelete(`/calendar/programs/${encodeURIComponent(pid)}`);
+
+      // Refresh from backend for consistency
+      const proposedApi = await apiGet("/calendar/programs?status=proposed");
+      const mapped = proposedApi.map((p) => ({
+        id: String(p.id),
+        title: String(p.title || ""),
+        episodes: typeof p.episodes === "number" && p.episodes > 0 ? p.episodes : null,
+        genre: String(p.genre || p.genreId || ""),
+        synopsis: String(p.synopsis || p.notes || ""),
+        budget: String(p.budget || ""),
+        comments: String(p.comments || ""),
+        createdBy: String(p.createdBy || "Unknown"),
+        createdAt: p.createdAt || new Date().toISOString(),
+      }));
+      setProposedPrograms(mapped);
+
+      toast({ title: "Removed", description: "Proposed program removed (shared across devices)." });
+    } catch (e) {
+      console.warn("Failed to delete proposed program from backend (may still exist on server).", e);
+      toast({
+        title: "Removed locally only",
+        description: "Backend delete failed. It may still appear on other devices.",
+      });
+    }
   };
 
   /* ===========================
