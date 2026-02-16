@@ -260,7 +260,7 @@ router.get("/proposed", (req, res) => {
 /* ===========================
    ✅ Production Series (MASTER LIST) Bulk Sync
    - This fixes "only my browser sees changes"
-   - Frontend can PUT the entire seriesList just like localStorage used to
+   - Frontend can PUT/PATCH the entire series list (localStorage-style sync)
    =========================== */
 
 router.get("/series", (req, res) => {
@@ -269,16 +269,24 @@ router.get("/series", (req, res) => {
   return res.json(list);
 });
 
-router.put("/series", (req, res) => {
+/* ===========================
+   🔄 Bulk replace series list
+   - Accepts ARRAY body: [ { ...series }, ... ]
+   - Also accepts object body: { series: [ ... ] } (optional compatibility)
+   =========================== */
+const bulkReplaceSeries = (req, res) => {
   const store = readCalendarSafe();
   const body = req.body;
 
-  if (!Array.isArray(body)) {
-    return res.status(400).json({ error: "Body must be an array of series" });
+  // ✅ Allow either [] or { series: [] } to avoid frontend shape mismatches
+  const incoming = Array.isArray(body) ? body : Array.isArray(body?.series) ? body.series : null;
+
+  if (!Array.isArray(incoming)) {
+    return res.status(400).json({ error: "Body must be an array of series (or { series: [...] })" });
   }
 
   // Light validation: keep objects only, force id to string if present
-  const cleaned = body
+  const cleaned = incoming
     .filter((x) => x && typeof x === "object")
     .map((s) => ({
       ...s,
@@ -291,7 +299,11 @@ router.put("/series", (req, res) => {
   if (!saved) return res.status(500).json({ error: "Failed to save series list" });
 
   return res.json({ success: true, count: cleaned.length });
-});
+};
+
+// ✅ Support BOTH verbs (frontend currently calls PATCH)
+router.put("/series", bulkReplaceSeries);
+router.patch("/series", bulkReplaceSeries);
 
 /* ===========================
    ✅ Proposed Programs Alias
