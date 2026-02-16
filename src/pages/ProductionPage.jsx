@@ -1872,7 +1872,7 @@ const budgetSummary = useMemo(() => {
             </div>
           </div>
 
-          {/* ===========================
+                  {/* ===========================
              🎠 Month carousel (single month)
              =========================== */}
           {calendarView === "month" ? (
@@ -1921,10 +1921,13 @@ const budgetSummary = useMemo(() => {
 
                   return (
                     <>
-                      {/* Header row (centered) */}
-                      <div className="grid grid-cols-3 items-center gap-2">
-                        <div className="flex items-center justify-start">
-                          <Button variant="secondary" onClick={goPrevMonth}>
+                      {/* ===========================
+                         📱 Mobile-friendly header
+                         - stacks on small screens
+                         =========================== */}
+                      <div className="grid gap-2 sm:grid-cols-3 sm:items-center">
+                        <div className="flex items-center justify-between sm:justify-start">
+                          <Button variant="secondary" onClick={goPrevMonth} className="w-full sm:w-auto">
                             Prev
                           </Button>
                         </div>
@@ -1944,136 +1947,157 @@ const budgetSummary = useMemo(() => {
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-end gap-2">
-                          <Badge variant="outline">{occurrencesForViewMonth.length} airing</Badge>
-                          <Button variant="secondary" onClick={goNextMonth}>
+                        <div className="flex items-center justify-between gap-2 sm:justify-end">
+                          <Badge variant="outline" className="shrink-0">
+                            {occurrencesForViewMonth.length} airing
+                          </Badge>
+                          <Button variant="secondary" onClick={goNextMonth} className="w-full sm:w-auto">
                             Next
                           </Button>
                         </div>
                       </div>
 
-                      {/* Weekday header */}
-                      <div className="grid grid-cols-7 gap-2 pt-2">
-                        {weekday.map((d) => (
-                          <div
-                            key={d}
-                            className="text-center text-xs font-medium text-muted-foreground"
-                          >
-                            {d}
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Calendar grid */}
-                      <div className="grid grid-cols-7 gap-2">
-                        {Array.from({ length: cellCount }).map((_, idx) => {
-                          const dayNum = idx - firstDowMon + 1;
-                          const isInMonth = dayNum >= 1 && dayNum <= dim;
-
-                          if (!isInMonth) {
-                            return (
+                      {/* ===========================
+                         📱 Mobile: horizontal scroll
+                         - keeps 7-column calendar usable
+                         =========================== */}
+                      <div className="-mx-4 overflow-x-auto px-4">
+                        <div className="min-w-[720px]">
+                          {/* Weekday header */}
+                          <div className="grid grid-cols-7 gap-1 sm:gap-2 pt-2">
+                            {weekday.map((d) => (
                               <div
-                                key={`empty_${idx}`}
-                                className="rounded-xl border bg-muted/20 p-2 min-h-[92px]"
-                              />
-                            );
-                          }
-
-                          const dateISO = isoForDay(dayNum);
-                          const itemsForDay = byDate.get(dateISO) || [];
-                          const filmingForDay = filmByDate.get(dateISO) || [];
-                          const showMore = itemsForDay.length > 2;
-
-                          return (
-                            <div
-                              key={dateISO}
-                              className="rounded-xl border p-2 min-h-[92px] flex flex-col gap-2"
-                            >
-                              <div className="flex items-center justify-between">
-                                <div className="text-sm font-semibold">{dayNum}</div>
-
-                                <div className="flex items-center gap-2">
-                                  {filmingForDay.length ? (
-                                    <Badge variant="outline" className="text-[10px] px-2 py-0">
-                                      🎬 {filmingForDay.length}
-                                    </Badge>
-                                  ) : null}
-
-                                  {itemsForDay.length ? (
-                                    <Badge variant="secondary" className="text-[10px] px-2 py-0">
-                                      {itemsForDay.length}
-                                    </Badge>
-                                  ) : null}
-                                </div>
+                                key={d}
+                                className="text-center text-[11px] sm:text-xs font-medium text-muted-foreground"
+                              >
+                                {d}
                               </div>
+                            ))}
+                          </div>
 
-                              {filmingForDay.length ? (
-                                <div className="space-y-1">
-                                  <div className="text-[10px] text-muted-foreground">Filming</div>
+                          {/* Calendar grid */}
+                          <div className="grid grid-cols-7 gap-1 sm:gap-2">
+                            {Array.from({ length: cellCount }).map((_, idx) => {
+                              const dayNum = idx - firstDowMon + 1;
+                              const isInMonth = dayNum >= 1 && dayNum <= dim;
 
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      // Everyone can open the day view; only editors can change/delete inside
-                                      openFilmingDay(dateISO, filmingForDay);
-                                    }}
-                                    className="w-full text-left rounded-md px-2 py-1 text-[10px] bg-muted/30 hover:bg-muted/50 transition"
-                                    title={canEdit ? "Click to view/edit filming for this day" : "Click to view filming for this day"}
-                                  >
-                                    <div className="truncate font-medium">
-                                      🎬 {filmingForDay[0]?.title || "Filming"}
+                              if (!isInMonth) {
+                                return (
+                                  <div
+                                    key={`empty_${idx}`}
+                                    className="rounded-xl border bg-muted/20 p-2 min-h-[72px] sm:min-h-[92px]"
+                                  />
+                                );
+                              }
+
+                              const dateISO = isoForDay(dayNum);
+                              const itemsForDay = byDate.get(dateISO) || [];
+                              const filmingForDay = filmByDate.get(dateISO) || [];
+                              const showMore = itemsForDay.length > 2;
+
+                              return (
+                                <div
+                                  key={dateISO}
+                                  className="rounded-xl border p-2 min-h-[72px] sm:min-h-[92px] flex flex-col gap-2"
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="text-sm font-semibold">{dayNum}</div>
+
+                                    <div className="flex items-center gap-2">
+                                      {filmingForDay.length ? (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[9px] sm:text-[10px] px-2 py-0"
+                                        >
+                                          🎬 {filmingForDay.length}
+                                        </Badge>
+                                      ) : null}
+
+                                      {itemsForDay.length ? (
+                                        <Badge
+                                          variant="secondary"
+                                          className="text-[9px] sm:text-[10px] px-2 py-0"
+                                        >
+                                          {itemsForDay.length}
+                                        </Badge>
+                                      ) : null}
                                     </div>
+                                  </div>
 
-                                    {filmingForDay.length > 1 ? (
-                                      <div className="text-[10px] text-muted-foreground">
-                                        +{filmingForDay.length - 1} more
-                                      </div>
-                                    ) : null}
-                                  </button>
-                                </div>
-                              ) : null}
-                              {itemsForDay.length === 0 ? (
-                                <div className="text-xs text-muted-foreground">—</div>
-                              ) : (
-                                <div className="space-y-1">
-                                  {itemsForDay.slice(0, 2).map((it) => (
-                                    <button
-                                      key={it.id}
-                                      type="button"
-                                      onClick={() => {
-                                        if (!canEdit) return;
-                                        openEditForOccurrence(it);
-                                      }}
-                                      className={`w-full text-left rounded-md px-2 py-1 text-xs ${
-                                        canEdit ? "bg-muted/40 hover:bg-muted/60" : "bg-muted/30"
-                                      }`}
-                                      title={
-                                        canEdit
-                                          ? "Click to edit this airing (or whole series)"
-                                          : `${it.title || "Untitled"}`
-                                      }
-                                    >
-                                      <div className="truncate font-medium">
-                                        {it.title || "Untitled"}
-                                      </div>
-                                      <div className="text-[10px] text-muted-foreground truncate">
-                                        {it.airTime ? `@ ${it.airTime}` : "Time —"}{" "}
-                                        {it.filmDate ? `• Film: ${formatDDMMYYYY(it.filmDate)}` : ""}
-                                        {it.episodeNote ? " • ✍️ changed" : ""}
-                                      </div>
-                                    </button>
-                                  ))}
+                                  {filmingForDay.length ? (
+                                    <div className="space-y-1">
+                                      <div className="text-[10px] text-muted-foreground">Filming</div>
 
-                                  {showMore ? (
-                                    <div className="text-[10px] text-muted-foreground">
-                                      +{itemsForDay.length - 2} more
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          // Everyone can open the day view; only editors can change/delete inside
+                                          openFilmingDay(dateISO, filmingForDay);
+                                        }}
+                                        className="w-full text-left rounded-md px-2 py-1 text-[10px] bg-muted/30 hover:bg-muted/50 transition"
+                                        title={
+                                          canEdit
+                                            ? "Click to view/edit filming for this day"
+                                            : "Click to view filming for this day"
+                                        }
+                                      >
+                                        <div className="truncate font-medium">
+                                          🎬 {filmingForDay[0]?.title || "Filming"}
+                                        </div>
+
+                                        {filmingForDay.length > 1 ? (
+                                          <div className="text-[10px] text-muted-foreground">
+                                            +{filmingForDay.length - 1} more
+                                          </div>
+                                        ) : null}
+                                      </button>
                                     </div>
                                   ) : null}
+
+                                  {itemsForDay.length === 0 ? (
+                                    <div className="text-xs text-muted-foreground">—</div>
+                                  ) : (
+                                    <div className="space-y-1">
+                                      {itemsForDay.slice(0, 2).map((it) => (
+                                        <button
+                                          key={it.id}
+                                          type="button"
+                                          onClick={() => {
+                                            if (!canEdit) return;
+                                            openEditForOccurrence(it);
+                                          }}
+                                          className={`w-full text-left rounded-md px-2 py-1 text-[11px] sm:text-xs ${
+                                            canEdit ? "bg-muted/40 hover:bg-muted/60" : "bg-muted/30"
+                                          }`}
+                                          title={
+                                            canEdit
+                                              ? "Click to edit this airing (or whole series)"
+                                              : `${it.title || "Untitled"}`
+                                          }
+                                        >
+                                          <div className="truncate font-medium">
+                                            {it.title || "Untitled"}
+                                          </div>
+                                          <div className="text-[10px] text-muted-foreground truncate">
+                                            {it.airTime ? `@ ${it.airTime}` : "Time —"}{" "}
+                                            {it.filmDate ? `• Film: ${formatDDMMYYYY(it.filmDate)}` : ""}
+                                            {it.episodeNote ? " • ✍️ changed" : ""}
+                                          </div>
+                                        </button>
+                                      ))}
+
+                                      {showMore ? (
+                                        <div className="text-[10px] text-muted-foreground">
+                                          +{itemsForDay.length - 2} more
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                              );
+                            })}
+                          </div>
+                        </div>
                       </div>
 
                       {occurrencesForViewMonth.length === 0 ? (
@@ -2097,9 +2121,7 @@ const budgetSummary = useMemo(() => {
               </CardContent>
             </Card>
           ) : (
-            /* ===========================
-               🧱 Year view (all months)
-               =========================== */
+
             <Card className="rounded-2xl">
               <CardContent className="p-4 space-y-2">
                 <div className="flex items-center justify-between gap-2">
