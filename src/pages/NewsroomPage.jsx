@@ -134,7 +134,7 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
      =========================== */
   const [weekStartISO, setWeekStartISO] = useState(() => getMondayISO(new Date()));
 
-  /* ===========================
+   /* ===========================
      📥 Load (week + recurring)
      =========================== */
   useEffect(() => {
@@ -143,23 +143,24 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
     const run = async () => {
       setIsLoading(true);
       try {
-        // Week payload
-        // Expected: { week: {...} } (but we tolerate {data}, or direct object)
-        const weekRes = await fetchJSON(`${API_BASE}/newsroom/${weekStartISO}`);
+        // ✅ Newsroom Hub API is mounted at /hub/newsroom
+        // Expected: { weekStart, data } OR direct week object
+        const weekRes = await fetchJSON(`${API_BASE}/hub/newsroom/${weekStartISO}`);
         const wk =
           (weekRes && (weekRes.week || weekRes.data)) ||
           (weekRes && typeof weekRes === "object" ? weekRes : null);
 
-        // Recurring payload
-        // Expected: { recurring: [...] } (but we tolerate {data}, or direct array)
-        const recRes = await fetchJSON(`${API_BASE}/newsroom/recurring`);
+        // ✅ Recurring should also be under /hub/newsroom
+        const recRes = await fetchJSON(`${API_BASE}/hub/newsroom/recurring`);
         const rec =
           (recRes && (recRes.recurring || recRes.data)) ||
           (Array.isArray(recRes) ? recRes : []);
 
         if (cancelled) return;
 
-        setWeekData(wk && typeof wk === "object" ? { ...makeEmptyWeek(), ...wk } : makeEmptyWeek());
+        setWeekData(
+          wk && typeof wk === "object" ? { ...makeEmptyWeek(), ...wk } : makeEmptyWeek()
+        );
         setRecurring(Array.isArray(rec) ? rec : []);
       } catch (err) {
         if (cancelled) return;
@@ -185,10 +186,11 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
      💾 Save week (server)
      =========================== */
   const persistWeek = async (nextWeekObj) => {
-    // Optimistic UI already applied by caller
-    await fetchJSON(`${API_BASE}/newsroom/${weekStartISO}`, {
+    // ✅ Newsroom Hub API is mounted at /hub/newsroom
+    // NOTE: Send the week object directly (router stores it under weeks[weekStart])
+    await fetchJSON(`${API_BASE}/hub/newsroom/${weekStartISO}`, {
       method: "PATCH",
-      body: JSON.stringify({ week: nextWeekObj }),
+      body: JSON.stringify(nextWeekObj),
     });
   };
 
@@ -390,8 +392,8 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
       // Optimistic
       setRecurring((prev) => [rec, ...(prev || [])]);
 
-      // Persist
-      fetchJSON(`${API_BASE}/newsroom/recurring`, {
+          // Persist
+      fetchJSON(`${API_BASE}/hub/newsroom/recurring`, {
         method: "POST",
         body: JSON.stringify(rec),
       })
@@ -444,7 +446,7 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
     const prev = Array.isArray(recurring) ? recurring : [];
     setRecurring(prev.filter((x) => x.id !== id));
 
-    fetchJSON(`${API_BASE}/newsroom/recurring/${id}`, { method: "DELETE" })
+    fetchJSON(`${API_BASE}/hub/newsroom/recurring/${id}`, { method: "DELETE" })
       .then(() => {
         toast({ title: "Removed", description: "Weekly recurring item removed." });
       })

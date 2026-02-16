@@ -250,18 +250,23 @@ export default function SportsPage({ loggedInUser, users = [] }) {
     const run = async () => {
       setIsLoading(true);
       try {
-        const weekRes = await fetchJSON(`${API_BASE}/sports/${weekStartISO}`);
+        // ✅ Sports Hub API is mounted at /hub/sports
+        const weekRes = await fetchJSON(`${API_BASE}/hub/sports/${weekStartISO}`);
         const wk =
           (weekRes && (weekRes.week || weekRes.data)) ||
           (weekRes && typeof weekRes === "object" ? weekRes : null);
 
-        const recRes = await fetchJSON(`${API_BASE}/sports/recurring`);
+        // ✅ Recurring endpoint should also live under /hub/sports
+        const recRes = await fetchJSON(`${API_BASE}/hub/sports/recurring`);
         const rec =
-          (recRes && (recRes.recurring || recRes.data)) || (Array.isArray(recRes) ? recRes : []);
+          (recRes && (recRes.recurring || recRes.data)) ||
+          (Array.isArray(recRes) ? recRes : []);
 
         if (cancelled) return;
 
-        setWeekData(wk && typeof wk === "object" ? { ...makeEmptyWeek(), ...wk } : makeEmptyWeek());
+        setWeekData(
+          wk && typeof wk === "object" ? { ...makeEmptyWeek(), ...wk } : makeEmptyWeek()
+        );
         setRecurring(Array.isArray(rec) ? rec : []);
       } catch (err) {
         if (cancelled) return;
@@ -287,9 +292,10 @@ export default function SportsPage({ loggedInUser, users = [] }) {
      💾 Save week (server)
      =========================== */
   const persistWeek = async (targetWeekISO, nextWeekObj) => {
-    await fetchJSON(`${API_BASE}/sports/${targetWeekISO}`, {
+    // ✅ Sports Hub API is mounted at /hub/sports
+    await fetchJSON(`${API_BASE}/hub/sports/${targetWeekISO}`, {
       method: "PATCH",
-      body: JSON.stringify({ week: nextWeekObj }),
+      body: JSON.stringify(nextWeekObj),
     });
   };
 
