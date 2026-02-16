@@ -153,7 +153,16 @@ router.patch("/genres/:id", (req, res) => {
 // ----------------------
 router.get("/programs", (req, res) => {
   const store = readCalendarSafe();
-  return res.json(store.programs || []);
+
+  // Optional filter: ?status=proposed|approved|scheduled
+  const { status } = req.query || {};
+  let programs = Array.isArray(store.programs) ? store.programs : [];
+
+  if (status) {
+    programs = programs.filter((p) => String(p.status || "") === String(status));
+  }
+
+  return res.json(programs);
 });
 
 router.post("/programs", (req, res) => {
@@ -203,7 +212,8 @@ router.patch("/programs/:id", (req, res) => {
   const updated = { ...programs[idx] };
 
   if (typeof body.title === "string") updated.title = safeStr(body.title);
-  if (typeof body.episodes !== "undefined") updated.episodes = Math.max(0, safeInt(body.episodes, updated.episodes));
+  if (typeof body.episodes !== "undefined")
+    updated.episodes = Math.max(0, safeInt(body.episodes, updated.episodes));
   if (typeof body.genreId !== "undefined") updated.genreId = safeStr(body.genreId) || null;
   if (typeof body.seasonId !== "undefined") updated.seasonId = safeStr(body.seasonId) || null;
   if (typeof body.status === "string") updated.status = safeStr(body.status) || updated.status;
@@ -230,6 +240,102 @@ router.delete("/programs/:id", (req, res) => {
   store.programs = next;
   const saved = writeCalendarSafe(store);
   if (!saved) return res.status(500).json({ error: "Failed to delete program" });
+
+  return res.json({ success: true });
+});
+
+/* ===========================
+   ✅ Proposed Programs Alias
+   - Fixes: GET /calendar/proposed 404
+   - Uses same storage as programs[]
+   - Proposed Pool == programs with status="proposed"
+   =========================== */
+
+router.get("/proposed", (req, res) => {
+  const store = readCalendarSafe();
+  const programs = Array.isArray(store.programs) ? store.programs : [];
+  const proposed = programs.filter((p) => String(p.status || "proposed") === "proposed");
+  return res.json(proposed);
+});
+
+router.post("/proposed", (req, res) => {
+  // Force status to "proposed" while keeping your existing program schema
+  req.body = { ...(req.body || {}), status: "proposed" };
+  // Delegate to the same logic by calling the /programs handler path manually is messy;
+  // so we just re-run the same creation logic inline.
+  const store = readCalendarSafe();
+  const body = req.body || {};
+
+  const title = safeStr(body.title) || "";
+
+  const newProgram = {
+    id: safeStr(body.id) || `prog_${Date.now()}`,
+    title,
+    episodes: Math.max(0, safeInt(body.episodes, 0)),
+    genreId: safeStr(body.genreId) || null,
+    seasonId: safeStr(body.seasonId) || null,
+    status: "proposed",
+    notes: safeStr(body.notes) || "",
+    createdBy: safeStr(body.createdBy) || "Unknown",
+    createdAt:
+      body.createdAt && !Number.isNaN(new Date(body.createdAt).getTime())
+        ? new Date(body.createdAt).toISOString()
+        : new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  store.programs = Array.isArray(store.programs) ? store.programs : [];
+  store.programs.push(newProgram);
+
+  const saved = writeCalendarSafe(store);
+  if (!saved) return res.status(500).json({ error: "Failed to save proposed program" });
+  return res.status(201).json(newProgram);
+});
+
+router.patch("/proposed/:id", (req, res) => {
+  // Same as PATCH program, but keep status at proposed unless explicitly set
+  const { id } = req.params;
+  const store = readCalendarSafe();
+  const programs = Array.isArray(store.programs) ? store.programs : [];
+
+  const idx = programs.findIndex((p) => String(p.id) === String(id));
+  if (idx === -1) return res.status(404).json({ error: "Program not found" });
+
+  const body = req.body || {};
+  const updated = { ...programs[idx] };
+
+  if (typeof body.title === "string") updated.title = safeStr(body.title);
+  if (typeof body.episodes !== "undefined")
+    updated.episodes = Math.max(0, safeInt(body.episodes, updated.episodes));
+  if (typeof body.genreId !== "undefined") updated.genreId = safeStr(body.genreId) || null;
+  if (typeof body.seasonId !== "undefined") updated.seasonId = safeStr(body.seasonId) || null;
+  if (typeof body.notes === "string") updated.notes = safeStr(body.notes);
+
+  // Allow status changes if you intentionally promote it (e.g. proposed -> approved)
+  if (typeof body.status === "string") updated.status = safeStr(body.status) || updated.status;
+
+  updated.updatedAt = new Date().toISOString();
+
+  programs[idx] = updated;
+  store.programs = programs;
+
+  const saved = writeCalendarSafe(store);
+  if (!saved) return res.status(500).json({ error: "Failed to save proposed program" });
+  return res.json({ success: true, program: updated });
+});
+
+router.delete("/proposed/:id", (req, res) => {
+  // Same as DELETE program
+  const { id } = req.params;
+  const store = readCalendarSafe();
+  const programs = Array.isArray(store.programs) ? store.programs : [];
+
+  const next = programs.filter((p) => String(p.id) !== String(id));
+  if (next.length === programs.length) return res.status(404).json({ error: "Program not found" });
+
+  store.programs = next;
+  const saved = writeCalendarSafe(store);
+  if (!saved) return res.status(500).json({ error: "Failed to delete proposed program" });
 
   return res.json({ success: true });
 });
