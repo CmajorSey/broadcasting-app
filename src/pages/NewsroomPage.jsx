@@ -122,7 +122,7 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
   const { toast } = useToast();
   const { canEdit } = getSectionPermissions("newsroom", loggedInUser);
 
-   /* ===========================
+  /* ===========================
      📦 Backend Store (week + recurring)
      =========================== */
   const [weekData, setWeekData] = useState(() => makeEmptyWeek());
@@ -130,11 +130,18 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
   const [isLoading, setIsLoading] = useState(false);
 
   /* ===========================
+     ✅ Week alias (fixes currentWeek is not defined)
+     - Existing code below uses currentWeek everywhere
+     - Keep logic intact by mapping currentWeek -> weekData
+     =========================== */
+  const currentWeek = weekData;
+
+  /* ===========================
      🗓️ Week navigation
      =========================== */
   const [weekStartISO, setWeekStartISO] = useState(() => getMondayISO(new Date()));
 
-   /* ===========================
+  /* ===========================
      📥 Load (week + recurring)
      =========================== */
   useEffect(() => {
