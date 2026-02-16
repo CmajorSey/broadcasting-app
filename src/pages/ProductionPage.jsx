@@ -110,13 +110,13 @@ const apiGet = async (path) => {
   return res.json();
 };
 
-const apiPut = async (path, body) => {
+const apiPatch = async (path, body) => {
   const res = await fetch(`${API_BASE}${path}`, {
-    method: "PUT",
+    method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`PUT ${path} failed (${res.status})`);
+  if (!res.ok) throw new Error(`PATCH ${path} failed (${res.status})`);
   return res.json();
 };
 
@@ -605,9 +605,9 @@ export default function ProductionPage({ loggedInUser }) {
   /* ===========================
      🌐 Sync series master list to backend
      =========================== */
-  useEffect(() => {
+ useEffect(() => {
     const t = setTimeout(() => {
-      apiPut("/calendar/series", Array.isArray(seriesList) ? seriesList : []).catch((e) => {
+      apiPatch("/calendar/series", Array.isArray(seriesList) ? seriesList : []).catch((e) => {
         console.warn("Failed to sync series list to backend (kept in LS).", e);
       });
     }, 350);
