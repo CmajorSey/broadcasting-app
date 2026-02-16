@@ -137,6 +137,41 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
   const currentWeek = weekData;
 
   /* ===========================
+     👥 Presenter options (fixes presenterOptions is not defined)
+     - Newsroom presenters dropdown source
+     - Includes journalists + key ops name (Clive Camille)
+     - Deduped + sorted
+     =========================== */
+  const presenterOptions = useMemo(() => {
+    const base = Array.isArray(users) ? users : [];
+
+    const namesFromUsers = base
+      .filter((u) => {
+        const name = String(u?.name || "").trim();
+        if (!name) return false;
+
+        const roles = Array.isArray(u?.roles) ? u.roles : [];
+        const desc = String(u?.description || "").toLowerCase();
+
+        // ✅ Keep "News journalists only (Sports excluded)"
+        const isSports =
+          roles.some((r) => String(r || "").toLowerCase().includes("sports")) ||
+          desc.includes("sports");
+
+        const isJournalist =
+          roles.some((r) => String(r || "").toLowerCase().includes("journalist")) ||
+          desc.includes("journalist") ||
+          desc.includes("news");
+
+        return isJournalist && !isSports;
+      })
+      .map((u) => String(u?.name || "").trim());
+
+    const merged = [...namesFromUsers, "Clive Camille"];
+    return [...new Set(merged)].filter(Boolean).sort((a, b) => a.localeCompare(b));
+  }, [users]);
+
+  /* ===========================
      🗓️ Week navigation
      =========================== */
   const [weekStartISO, setWeekStartISO] = useState(() => getMondayISO(new Date()));
