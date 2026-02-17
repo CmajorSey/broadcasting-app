@@ -830,88 +830,134 @@ const [manualGenreCustom, setManualGenreCustom] = useState("");
      🧾 Proposed pool helpers
      =========================== */
     const addProposed = async () => {
-    const cleanTitle = (pTitle || "").trim();
-    if (!cleanTitle) {
-      toast({ title: "Missing title", description: "Please enter a proposed program title." });
-      return;
-    }
+  const cleanTitle = (pTitle || "").trim();
+  if (!cleanTitle) {
+    toast({ title: "Missing title", description: "Please enter a proposed program title." });
+    return;
+  }
 
-    const eps = Number(pEpisodes);
-    const safeEpisodes = Number.isFinite(eps) && eps >= 1 && eps <= 100 ? eps : null; // ✅ null = ongoing
-    const cleanGenre = String(pGenre || "").trim();
+  const eps = Number(pEpisodes);
+  const safeEpisodes = Number.isFinite(eps) && eps >= 1 && eps <= 100 ? eps : null; // ✅ null = ongoing
 
-    const cleanBudget = String(pBudget || "").trim();
-    const cleanComments = String(pComments || "").trim();
+  // ----------------------------
+  // ✅ Genre normalization (source of truth for filtering)
+  // - Dropdown genre: pGenre
+  // - Custom typed genre: pGenreCustom (when pGenreMode === "add")
+  // ----------------------------
+  const cleanDropdownGenre = String(pGenre || "").trim();
+  const cleanCustomGenre = String(pGenreCustom || "").trim();
 
-    // Keep your current UI object shape
-    const newProgLocal = {
-      id: Date.now().toString(),
-      title: cleanTitle,
-      episodes: safeEpisodes, // number or null
-      genre: cleanGenre,
-      synopsis: (pSynopsis || "").trim(),
-      budget: cleanBudget,
-      comments: cleanComments,
-      createdBy: loggedInUser?.name || "Unknown",
-      createdAt: new Date().toISOString(),
-    };
+  const finalGenre =
+    (pGenreMode === "add" ? cleanCustomGenre : cleanDropdownGenre) ||
+    cleanDropdownGenre ||
+    cleanCustomGenre ||
+    "";
 
-    // Optimistic UI
-    setProposedPrograms((prev) => [newProgLocal, ...(Array.isArray(prev) ? prev : [])]);
-
-    setPTitle("");
-    setPEpisodes("");
-    setPGenre("");
-    setPSynopsis("");
-    setPBudget("");
-    setPComments("");
-    setPGenreMode("select");
-    setPGenreCustom("");
-
+  // Persist custom genres globally so they show everywhere immediately
+  if (finalGenre && pGenreMode === "add") {
     try {
-      // Save to backend as a "program" with status=proposed
-      const saved = await apiPost("/calendar/programs", {
-        id: newProgLocal.id,
-        title: newProgLocal.title,
-        episodes: typeof newProgLocal.episodes === "number" ? newProgLocal.episodes : 0,
-        status: "proposed",
-        // Store extra fields in notes-like fields (backend already has notes)
-        notes: newProgLocal.synopsis,
-        createdBy: newProgLocal.createdBy,
-        createdAt: newProgLocal.createdAt,
-
-        // Optional: if you later add explicit fields to backend, these will already be here
-        genreId: null,
-        seasonId: null,
-        budget: newProgLocal.budget,
-        comments: newProgLocal.comments,
-      });
-
-      // If backend changed anything, refresh proposed list from server
-      const proposedApi = await apiGet("/calendar/programs?status=proposed");
-      const mapped = proposedApi.map((p) => ({
-        id: String(p.id),
-        title: String(p.title || ""),
-        episodes: typeof p.episodes === "number" && p.episodes > 0 ? p.episodes : null,
-        genre: String(p.genre || p.genreId || ""),
-        synopsis: String(p.synopsis || p.notes || ""),
-        budget: String(p.budget || ""),
-        comments: String(p.comments || ""),
-        createdBy: String(p.createdBy || "Unknown"),
-        createdAt: p.createdAt || new Date().toISOString(),
-      }));
-      setProposedPrograms(mapped);
-
-      toast({ title: "Submitted", description: "Proposed program saved (shared across devices)." });
-      void saved; // keep linter quiet if needed
-    } catch (e) {
-      console.warn("Failed to save proposed program to backend (kept locally).", e);
-      toast({
-        title: "Saved locally only",
-        description: "Backend save failed. This proposal is only on this browser for now.",
-      });
+      const raw = localStorage.getItem("calendar.customGenres");
+      const arr = raw ? JSON.parse(raw) : [];
+      const safe = Array.isArray(arr) ? arr : [];
+      const merged = Array.from(new Set([...(safe || []), finalGenre]));
+      localStorage.setItem("calendar.customGenres", JSON.stringify(merged));
+    } catch {
+      // ignore
     }
+  }
+
+  const cleanBudget = String(pBudget || "").trim();
+  const cleanComments = String(pComments || "").trim();
+
+  // Keep your current UI object shape
+  const newProgLocal = {
+    id: Date.now().toString(),
+    title: cleanTitle,
+    episodes: safeEpisodes, // number or null
+    genre: finalGenre,
+    synopsis: (pSynopsis || "").trim(),
+    budget: cleanBudget,
+    comments: cleanComments,
+    createdBy: loggedInUser?.name || "Unknown",
+    createdAt: new Date().toISOString(),
   };
+
+  // Optimistic UI
+  setProposedPrograms((prev) => [newProgLocal, ...(Array.isArray(prev) ? prev : [])]);
+
+  setPTitle("");
+  setPEpisodes("");
+  setPGenre("");
+  setPSynopsis("");
+  setPBudget("");
+  setPComments("");
+  setPGenreMode("select");
+  setPGenreCustom("");
+
+  try {
+    /* ===========================
+       ✅ Backend payload (FIX)
+       The filter breaks after refresh because the backend program record
+       was NOT receiving/storing the "genre" field — so on reload every
+       proposed program comes back with genre="".
+       =========================== */
+    const saved = await apiPost("/calendar/programs", {
+      id: newProgLocal.id,
+      title: newProgLocal.title,
+
+      // Keep backend numeric episodes rules
+      episodes: typeof newProgLocal.episodes === "number" ? newProgLocal.episodes : 0,
+
+      status: "proposed",
+
+      // ✅ send genre as a real field (do NOT rely on genreId for this right now)
+      genre: String(newProgLocal.genre || "").trim(),
+
+      // ✅ also send these as real fields (backend may store some as notes; this keeps both paths working)
+      synopsis: String(newProgLocal.synopsis || "").trim(),
+      budget: String(newProgLocal.budget || "").trim(),
+      comments: String(newProgLocal.comments || "").trim(),
+
+      // Backward compatibility: keep notes too (in case backend currently persists notes only)
+      notes: String(newProgLocal.synopsis || "").trim(),
+
+      createdBy: newProgLocal.createdBy,
+      createdAt: newProgLocal.createdAt,
+
+      // Optional legacy fields (harmless if backend ignores)
+      genreId: null,
+      seasonId: null,
+    });
+
+    // If backend changed anything, refresh proposed list from server
+    const proposedApi = await apiGet("/calendar/programs?status=proposed");
+    const mapped = proposedApi.map((p) => ({
+      id: String(p.id),
+      title: String(p.title || ""),
+      episodes: typeof p.episodes === "number" && p.episodes > 0 ? p.episodes : null,
+
+      // ✅ robust read: support multiple backend shapes
+      genre: String(p.genre || p.genreName || p.genreId || "").trim(),
+
+      synopsis: String(p.synopsis || p.notes || "").trim(),
+      budget: String(p.budget || "").trim(),
+      comments: String(p.comments || "").trim(),
+
+      createdBy: String(p.createdBy || "Unknown"),
+      createdAt: p.createdAt || new Date().toISOString(),
+    }));
+    setProposedPrograms(mapped);
+
+    toast({ title: "Submitted", description: "Proposed program saved (shared across devices)." });
+    void saved; // keep linter quiet if needed
+  } catch (e) {
+    console.warn("Failed to save proposed program to backend (kept locally).", e);
+    toast({
+      title: "Saved locally only",
+      description: "Backend save failed. This proposal is only on this browser for now.",
+    });
+  }
+};
 
   const removeProposed = async (id) => {
     const pid = String(id || "").trim();
@@ -2409,18 +2455,27 @@ const budgetSummary = useMemo(() => {
               <Badge variant="outline">{proposedPrograms.length} proposed</Badge>
             </div>
 
-            {/* ===========================
+                       {/* ===========================
                🧪 Genre filter (Pool)
                ✅ Includes saved custom genres (localStorage)
+               ===========================
+               FIX:
+               - Use empty string "" to represent "All genres"
+               - Keeps UI + filter logic consistent even if other code checks falsy for "All"
                =========================== */}
             <div className="flex flex-wrap items-center gap-2">
               <div className="text-sm text-muted-foreground">Filter:</div>
 
-              <Select value={genreFilter} onValueChange={setGenreFilter}>
+                           <Select
+                value={String(genreFilter || "__ALL__")}
+                onValueChange={(v) => setGenreFilter(String(v || "__ALL__"))}
+              >
                 <SelectTrigger className="w-[240px] rounded-2xl">
                   <SelectValue placeholder="All genres" />
                 </SelectTrigger>
+
                 <SelectContent>
+                  {/* ✅ Radix SelectItem value MUST NOT be "" */}
                   <SelectItem value="__ALL__">All genres</SelectItem>
 
                   {Array.from(
@@ -2469,13 +2524,12 @@ const budgetSummary = useMemo(() => {
                 </SelectContent>
               </Select>
 
-              {genreFilter !== "__ALL__" ? (
-                <Badge variant="secondary">Showing: {genreFilter}</Badge>
-              ) : (
-                <Badge variant="outline">Showing: All</Badge>
-              )}
+              {String(genreFilter || "__ALL__").trim() !== "__ALL__" ? (
+  <Badge variant="secondary">Showing: {genreFilter}</Badge>
+) : (
+  <Badge variant="outline">Showing: All</Badge>
+)}
             </div>
-
                      {canEdit && (
               <Card className="rounded-2xl">
                 <CardContent className="p-4 space-y-3">
@@ -2872,15 +2926,39 @@ const budgetSummary = useMemo(() => {
             ) : (
               <div className="grid gap-2 md:grid-cols-2">
                 {proposedPrograms
-                  .filter((p) => {
-                    if (genreFilter === "__ALL__") return true;
-                    return String(p?.genre || "").trim() === String(genreFilter || "").trim();
-                  })
-                  .map((p) => {
-                    const ddmmyy = p?.createdAt ? formatDDMMYYYY(p.createdAt) : "";
-                    return (
-                      <div
-                        key={p.id}
+                      .filter((p) => {
+                        // ✅ "__ALL__" means "All genres"
+                        const selectedRaw = String(genreFilter || "__ALL__").trim();
+                        if (selectedRaw === "__ALL__") return true;
+
+                        /* ===========================
+                          ✅ Canonical genre matching (FIX)
+                          Handles:
+                          - NBSP (\u00A0)
+                          - extra spaces / newlines
+                          - double spaces
+                          - case differences
+                          =========================== */
+                        const canon = (v) =>
+                          String(v || "")
+                            .replace(/\u00A0/g, " ")      // NBSP → normal space
+                            .replace(/\s+/g, " ")         // collapse whitespace
+                            .trim()
+                            .toLowerCase();
+
+                        const selected = canon(selectedRaw);
+                        const pg = canon(p?.genre);
+
+                        // If a proposed program somehow has no genre, it should never match a specific selection
+                        if (!pg) return false;
+
+                        return pg === selected;
+                      })
+                      .map((p) => {
+                        const ddmmyy = p?.createdAt ? formatDDMMYYYY(p.createdAt) : "";
+                        return (
+                          <div
+                            key={p.id}
                         className={`text-left rounded-2xl border p-4 space-y-2 cursor-pointer ${
                           selectedProposedId === p.id ? "ring-2 ring-ring" : ""
                         }`}

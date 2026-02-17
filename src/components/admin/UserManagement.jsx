@@ -56,54 +56,85 @@ const [branding, setBranding] = useState({ siteName: "" }); // no longer used he
     return `${first}${rand}!`; // e.g., "Alex537!"
   };
 
-   const handleResetPassword = async () => {
-    if (!resetTarget || !newPassword.trim()) return;
+ const handleResetPassword = async () => {
+  const userId = resetTarget?.id ? String(resetTarget.id) : "";
+  const tempPw = String(newPassword || "").trim();
 
-    try {
-      // ✅ Keep same default TTL as backend (72h)
-      const TTL_HOURS = 72;
-      const expiresIso = new Date(Date.now() + TTL_HOURS * 60 * 60 * 1000).toISOString();
-      const nowIso = new Date().toISOString();
+  if (!userId) {
+    toast({ title: "No user selected", variant: "destructive" });
+    return;
+  }
 
-      const res = await fetch(`${API_BASE}/users/${resetTarget.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          password: newPassword.trim(),
+  if (!tempPw) {
+    toast({
+      title: "Temporary password required",
+      description: "Click Generate or type a temporary password.",
+      variant: "destructive",
+    });
+    return;
+  }
 
-          // 👇 force new-password screen on next login
-          forcePasswordChange: true,
-          requiresPasswordReset: true,
+  try {
+    // ✅ Keep same default TTL as backend (72h)
+    const TTL_HOURS = 72;
+    const expiresIso = new Date(Date.now() + TTL_HOURS * 60 * 60 * 1000).toISOString();
+    const nowIso = new Date().toISOString();
 
-          // ✅ Mark as temp + set expiry + audit stamp
-          passwordIsTemp: true,
-          tempPasswordExpires: expiresIso,
-          passwordUpdatedAt: nowIso,
+    const res = await fetch(`${API_BASE}/users/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        password: tempPw,
 
-          // Optional hint (backend supports it if you keep it)
-          tempPasswordTtlHours: TTL_HOURS,
-        }),
-      });
+        // 👇 force new-password screen on next login
+        forcePasswordChange: true,
+        requiresPasswordReset: true,
 
-      if (!res.ok) throw new Error("Failed to reset password");
-      const data = await res.json();
+        // ✅ Mark as temp + set expiry + audit stamp
+        passwordIsTemp: true,
+        tempPasswordExpires: expiresIso,
+        passwordUpdatedAt: nowIso,
 
-      toast({ title: `Temp password set for ${resetTarget.name}` });
+        // Optional hint (backend supports it if you keep it)
+        tempPasswordTtlHours: TTL_HOURS,
+      }),
+    });
 
-      // optionally update local list if server echoed user
-      // (your /users/:id PATCH returns RAW user in your current server)
-      const updatedUser = data?.user || data;
-      if (updatedUser?.id) {
-        setUsers((prev) => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
-      }
+    const data = await res.json().catch(() => ({}));
 
-      setResetTarget(null);
-      setNewPassword("");
-    } catch (err) {
-      console.error("Reset failed", err);
-      toast({ title: "Failed to reset password", variant: "destructive" });
+    if (!res.ok) {
+      throw new Error(data?.error || `Failed to reset password (${res.status})`);
     }
-  };
+
+    toast({
+      title: `Temp password set for ${resetTarget?.name || "user"}`,
+      description: `Expires in ${TTL_HOURS} hours.`,
+      duration: 3500,
+    });
+
+    // Your /users/:id PATCH returns RAW user (not { user })
+    const updatedUser = data?.user || data;
+
+    if (updatedUser?.id) {
+      const updatedId = String(updatedUser.id);
+      setUsers((prev) =>
+        Array.isArray(prev)
+          ? prev.map((u) => (String(u?.id) === updatedId ? updatedUser : u))
+          : prev
+      );
+    }
+
+    setResetTarget(null);
+    setNewPassword("");
+  } catch (err) {
+    console.error("Reset failed", err);
+    toast({
+      title: "Failed to reset password",
+      description: err?.message || "Could not reset password.",
+      variant: "destructive",
+    });
+  }
+};
 
   // Branding fetch moved to SettingsPage
 useEffect(() => {

@@ -171,33 +171,67 @@ router.post("/programs", (req, res) => {
 
   /* ===========================
      📺 Programs (drafts allowed)
+     - Supports BOTH:
+       ✅ genreId (new)
+       ✅ genre (legacy string from older UI)
      =========================== */
 
   // ✅ Allow saving drafts/proposed programs with empty fields
   const title = safeStr(body.title) || "";
 
-  const newProgram = {
-    id: safeStr(body.id) || `prog_${Date.now()}`,
-    title,
-    episodes: Math.max(0, safeInt(body.episodes, 0)),
-    genreId: safeStr(body.genreId) || null,
-    seasonId: safeStr(body.seasonId) || null,
-    status: safeStr(body.status) || "proposed", // proposed | approved | scheduled
-    notes: safeStr(body.notes) || "",
-    createdBy: safeStr(body.createdBy) || "Unknown",
-    createdAt:
-      body.createdAt && !Number.isNaN(new Date(body.createdAt).getTime())
-        ? new Date(body.createdAt).toISOString()
-        : new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+  // --------------------------
+  // 🎭 Genre compatibility
+  // - If UI sends "genre" string, resolve to genreId when possible
+  // - Also return a stable "genre" label for filtering in frontend
+  // --------------------------
+  const incomingGenreId = safeStr(body.genreId) || "";
+  const incomingGenreName = safeStr(body.genre) || "";
 
-  store.programs = Array.isArray(store.programs) ? store.programs : [];
-  store.programs.push(newProgram);
+  const genres = Array.isArray(store.genres) ? store.genres : [];
+  let resolvedGenreId = incomingGenreId || null;
 
-  const saved = writeCalendarSafe(store);
-  if (!saved) return res.status(500).json({ error: "Failed to save program" });
-  return res.status(201).json(newProgram);
+  if (!resolvedGenreId && incomingGenreName) {
+    const match = genres.find(
+      (g) => safeStr(g?.name).toLowerCase() === incomingGenreName.toLowerCase()
+    );
+    resolvedGenreId = match ? safeStr(match.id) : null;
+  }
+
+  const resolvedGenreName =
+    incomingGenreName ||
+    (resolvedGenreId
+      ? safeStr(genres.find((g) => String(g.id) === String(resolvedGenreId))?.name)
+      : "");
+
+  const program = {
+  id: String(body.id || Date.now().toString()),
+  title: safeStr(body.title),
+  status: safeStr(body.status) || "proposed",
+
+  // IMPORTANT: keep numeric rule, but store the real genre + text fields
+  episodes: safeInt(body.episodes, 0),
+
+  // ✅ these are the missing pieces that break filtering if not stored
+  genre: safeStr(body.genre),
+  synopsis: safeStr(body.synopsis),
+  budget: safeStr(body.budget),
+  comments: safeStr(body.comments),
+
+  // keep notes for backward compatibility if you want
+  notes: safeStr(body.notes),
+
+  createdBy: safeStr(body.createdBy) || "Unknown",
+  createdAt: safeStr(body.createdAt) || new Date().toISOString(),
+
+  // optional legacy passthrough
+  genreId: body.genreId ?? null,
+  seasonId: body.seasonId ?? null,
+};
+
+ store.programs = Array.isArray(store.programs) ? store.programs : [];
+store.programs.unshift(program);
+writeCalendarSafe(store);
+return res.json(program);
 });
 
 router.patch("/programs/:id", (req, res) => {
@@ -214,7 +248,36 @@ router.patch("/programs/:id", (req, res) => {
   if (typeof body.title === "string") updated.title = safeStr(body.title);
   if (typeof body.episodes !== "undefined")
     updated.episodes = Math.max(0, safeInt(body.episodes, updated.episodes));
-  if (typeof body.genreId !== "undefined") updated.genreId = safeStr(body.genreId) || null;
+
+  // --------------------------
+  // 🎭 Genre compatibility
+  // - Accept genreId OR legacy genre string
+  // - Keep both fields aligned for frontend filters
+  // --------------------------
+  const genres = Array.isArray(store.genres) ? store.genres : [];
+
+  if (typeof body.genreId !== "undefined") {
+    updated.genreId = safeStr(body.genreId) || null;
+    if (updated.genreId) {
+      const g = genres.find((x) => String(x.id) === String(updated.genreId));
+      updated.genre = safeStr(g?.name) || safeStr(updated.genre) || "";
+    } else {
+      updated.genre = safeStr(updated.genre) || "";
+    }
+  }
+
+  if (typeof body.genre !== "undefined") {
+    const incomingGenreName = safeStr(body.genre) || "";
+    updated.genre = incomingGenreName;
+
+    if (incomingGenreName) {
+      const match = genres.find(
+        (g) => safeStr(g?.name).toLowerCase() === incomingGenreName.toLowerCase()
+      );
+      if (match) updated.genreId = safeStr(match.id) || updated.genreId || null;
+    }
+  }
+
   if (typeof body.seasonId !== "undefined") updated.seasonId = safeStr(body.seasonId) || null;
   if (typeof body.status === "string") updated.status = safeStr(body.status) || updated.status;
   if (typeof body.notes === "string") updated.notes = safeStr(body.notes);
@@ -245,17 +308,13 @@ router.delete("/programs/:id", (req, res) => {
 });
 
 /* ===========================
-   ✅ Proposed Programs Alias (optional)
-   - Uses same storage as programs[]
-   - Proposed Pool == programs with status="proposed"
+   ✅ Proposed Programs Routes
+   - Defined BELOW with full CRUD:
+     GET /proposed
+     POST /proposed
+     PATCH /proposed/:id
+     DELETE /proposed/:id
    =========================== */
-
-router.get("/proposed", (req, res) => {
-  const store = readCalendarSafe();
-  const programs = Array.isArray(store.programs) ? store.programs : [];
-  const proposed = programs.filter((p) => String(p.status || "proposed") === "proposed");
-  return res.json(proposed);
-});
 
 /* ===========================
    ✅ Production Series (MASTER LIST) Bulk Sync

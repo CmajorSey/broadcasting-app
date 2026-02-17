@@ -17,6 +17,31 @@ import API_BASE from "@/api";
 
 const CLOCK_STORAGE_KEY = "navbar.clock.format"; // "12h" | "24h"
 
+/* ===========================
+   🔒 Admin detection (Navbar)
+   =========================== */
+function isAdminUser(user) {
+  const roles = Array.isArray(user?.roles) ? user.roles : [];
+  const role = String(user?.role || "").toLowerCase();
+  return roles.includes("admin") || role === "admin";
+}
+
+/* ===========================
+   🧪 View-As resolver (Navbar)
+   - If admin is "viewing as" someone, the app should behave like that user
+   - This is what controls Admin link visibility + access expectations
+   =========================== */
+function readAdminViewAsFromStorage() {
+  try {
+    const raw = localStorage.getItem("adminViewAs");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function Navbar({
   loggedInUser,
   setLoggedInUser,
@@ -51,9 +76,10 @@ export default function Navbar({
     }
   }, [location?.pathname]);
 
-    const handleLogout = () => {
+  const handleLogout = () => {
     localStorage.removeItem("loggedInUser");
-    localStorage.removeItem("rememberedUser");    localStorage.removeItem("adminViewAs");
+    localStorage.removeItem("rememberedUser");
+    localStorage.removeItem("adminViewAs");
 
     // 🔴 clear unread badge
     try {
@@ -81,14 +107,15 @@ export default function Navbar({
     window.addEventListener("storage", handleStorageChange);
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
-    // 🔴 Unread notifications badge (Inbox-driven)
+
+  // 🔴 Unread notifications badge (Inbox-driven)
   // Goal: badge reflects how many items are actually in the user's inbox.
   // Fallback: if inbox is not stamped into localStorage yet, use loBoard.unreadCount.
   const readInboxCountFromStorage = () => {
     const tryKeys = [
-      "loBoard.inbox",                 // ✅ preferred (array of inbox items)
-      "loBoard.notificationsInbox",     // ✅ alternate (if you used a different key)
-      "loBoard.inboxNotifications",     // ✅ alternate (if you used a different key)
+      "loBoard.inbox", // ✅ preferred (array of inbox items)
+      "loBoard.notificationsInbox", // ✅ alternate (if you used a different key)
+      "loBoard.inboxNotifications", // ✅ alternate (if you used a different key)
     ];
 
     for (const k of tryKeys) {
@@ -154,7 +181,7 @@ export default function Navbar({
   const [now, setNow] = useState(() => new Date());
 
   const initial12h =
-    (loggedInUser?.preferredTimeFormat === "12h") ||
+    loggedInUser?.preferredTimeFormat === "12h" ||
     (loggedInUser?.preferredTimeFormat == null &&
       localStorage.getItem(CLOCK_STORAGE_KEY) === "12h");
 
@@ -199,7 +226,9 @@ export default function Navbar({
         const updated = { ...loggedInUser, preferredTimeFormat: nextFormat };
         localStorage.setItem("loggedInUser", JSON.stringify(updated));
       }
-    } catch {/* ignore and keep local */}
+    } catch {
+      /* ignore and keep local */
+    }
   };
 
   const toggleFormat = () => {
@@ -220,6 +249,20 @@ export default function Navbar({
     window.location.hostname.includes("localhost") &&
     Array.isArray(users) &&
     users.length > 0;
+
+  /* ===========================
+     ✅ The “acting user” for UI
+     - If admin is viewing-as, hide admin UI and links
+     - Regular users behave normally
+     =========================== */
+  const storageViewAs = typeof window !== "undefined" ? readAdminViewAsFromStorage() : null;
+  const actingUser = effectiveUser || adminViewAs || storageViewAs || loggedInUser;
+
+  /* ===========================
+     🔒 Admin link visibility rule
+     - Based on actingUser (View As)
+     =========================== */
+  const canSeeAdminUI = isAdminUser(actingUser);
 
   // Reusable pieces to keep JSX tidy
   const LeftLinks = (
@@ -244,7 +287,7 @@ export default function Navbar({
         Operations
       </Link>
 
-           {/* ===========================
+      {/* ===========================
          🏢 Team Hubs (NEW)
          =========================== */}
 
@@ -262,30 +305,21 @@ export default function Navbar({
         return (
           <>
             {canAccessTeamHubs && (
-              <Link
-                to="/newsroom"
-                className="flex items-center gap-1 hover:underline"
-              >
+              <Link to="/newsroom" className="flex items-center gap-1 hover:underline">
                 <Newspaper size={18} />
                 Newsroom
               </Link>
             )}
 
             {canAccessTeamHubs && (
-              <Link
-                to="/sports"
-                className="flex items-center gap-1 hover:underline"
-              >
+              <Link to="/sports" className="flex items-center gap-1 hover:underline">
                 <Trophy size={18} />
                 Sports
               </Link>
             )}
 
             {canAccessTeamHubs && (
-              <Link
-                to="/production"
-                className="flex items-center gap-1 hover:underline"
-              >
+              <Link to="/production" className="flex items-center gap-1 hover:underline">
                 <Clapperboard size={18} />
                 Production
               </Link>
@@ -299,7 +333,10 @@ export default function Navbar({
         Create Request
       </Link>
 
-      {loggedInUser?.roles?.includes("admin") && (
+      {/* ===========================
+         🔒 Admin link (View As aware)
+         =========================== */}
+      {canSeeAdminUI && (
         <Link to="/admin" className="flex items-center gap-1 hover:underline">
           <Users size={18} />
           Admin
@@ -317,7 +354,7 @@ export default function Navbar({
           size="xs"
           variant="secondary"
           className={`text-xs ${u.name === adminViewAs?.name ? "bg-primary text-white" : ""}`}
-                 onClick={() => {
+          onClick={() => {
             // ✅ App state drives the UI/fetches
             setAdminViewAs(u);
 
@@ -338,7 +375,7 @@ export default function Navbar({
         size="xs"
         variant="ghost"
         className="text-[10px] ml-2"
-             onClick={() => {
+        onClick={() => {
           // ✅ App state drives the UI/fetches
           setAdminViewAs(null);
 
@@ -379,7 +416,7 @@ export default function Navbar({
           <div className="flex items-center gap-4 flex-wrap justify-start md:justify-end">
             {AdminDevPanel}
             {ClockBox}
-                       {loggedInUser && (
+            {loggedInUser && (
               <ProfileDropdown loggedInUser={loggedInUser} onLogout={handleLogout} />
             )}
           </div>
@@ -391,11 +428,9 @@ export default function Navbar({
           {LeftLinks}
 
           {/* Centered clock */}
-          <div className="flex justify-center order-3 md:order-none">
-            {ClockBox}
-          </div>
+          <div className="flex justify-center order-3 md:order-none">{ClockBox}</div>
 
-          {/* Right: (no admin panel here), just profile */}
+          {/* Right: just profile */}
           <div className="flex items-center gap-4 flex-wrap justify-start md:justify-end">
             {loggedInUser && (
               <ProfileDropdown loggedInUser={loggedInUser} onLogout={handleLogout} />

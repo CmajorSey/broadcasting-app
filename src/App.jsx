@@ -193,6 +193,26 @@ function App() {
   const hideLayout = PUBLIC_PATHS.includes(location.pathname);
   const { toast } = useToast();
 
+    /* ===========================
+     🟢 Session restore stamp starts here
+     - If user session is restored from localStorage (no fresh /auth/login),
+       ensure lastOnline moves immediately.
+     =========================== */
+  useEffect(() => {
+    const userId = String(loggedInUser?.id || "").trim();
+    if (!userId) return;
+
+    // Fire-and-forget; do not block UI
+    fetch(`${API_BASE}/users/${userId}/last-online`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lastOnline: new Date().toISOString(), source: "restore" }),
+    }).catch(() => {});
+  }, [loggedInUser?.id]);
+  /* ===========================
+     🟢 Session restore stamp ends here
+     =========================== */
+
   /* ===========================
      🔐 Auth redirect starts here
      - If refresh loads as “guest”, force user back to /login
@@ -1076,16 +1096,21 @@ fireGlobalAlert,
      🔔 FCM token sync ends here
      =========================== */
 
-    // ✅ NEW: Heartbeat that stamps "lastOnline" for the logged-in user
+    // ✅ Heartbeat that stamps "lastOnline" for the logged-in user
   const onlineHeartbeatRef = useRef(null);
+
+  // ✅ If backend route is missing, disable heartbeats for this session to avoid spam
+  const lastOnlineDisabledRef = useRef(false);
 
   /* ===========================
      🟢 Last-online heartbeat starts here
-     - (DISABLED for now) Prevents Render 404 spam until /users routes are confirmed
-     - Re-enable later once backend has PATCH /users/:id/last-online
+     - Fixes: "I'm logged in but lastOnline didn't change"
+     - Works even when session is restored from localStorage (no /auth/login call)
+     - Auto-disables for the session if backend route is missing (404/405) to prevent spam
      =========================== */
 
-  const ENABLE_LAST_ONLINE = false;
+  // ✅ Enable safely (we self-disable on missing route)
+  const ENABLE_LAST_ONLINE = true;
 
   useEffect(() => {
     if (!ENABLE_LAST_ONLINE) return;
@@ -1096,23 +1121,35 @@ fireGlobalAlert,
       onlineHeartbeatRef.current = null;
     }
 
-    if (!loggedInUser?.id) return;
+    // Reset session disable when user changes
+    lastOnlineDisabledRef.current = false;
 
-    const ping = async () => {
+    const userId = String(loggedInUser?.id || "").trim();
+    if (!userId) return;
+
+    const ping = async (source = "heartbeat") => {
       try {
-        await fetch(`${API_BASE}/users/${loggedInUser.id}/last-online`, {
+        if (lastOnlineDisabledRef.current) return;
+
+        const res = await fetch(`${API_BASE}/users/${userId}/last-online`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lastOnline: new Date().toISOString() }),
+          body: JSON.stringify({ lastOnline: new Date().toISOString(), source }),
         });
+
+        // If route doesn't exist on some environment, disable for this session.
+        if (res.status === 404 || res.status === 405) {
+          lastOnlineDisabledRef.current = true;
+          return;
+        }
       } catch {
         // Silent: network hiccups shouldn't spam console
       }
     };
 
-    // Stamp immediately, then every 5 minutes
-    ping();
-    onlineHeartbeatRef.current = setInterval(ping, 5 * 60 * 1000);
+    // ✅ Stamp immediately on mount/restore, then every 5 minutes
+    ping("mount");
+    onlineHeartbeatRef.current = setInterval(() => ping("interval"), 5 * 60 * 1000);
 
     return () => {
       if (onlineHeartbeatRef.current) {

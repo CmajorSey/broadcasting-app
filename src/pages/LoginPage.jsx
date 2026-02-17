@@ -272,40 +272,68 @@ const handleLogin = async (e) => {
 // B: END handleLogin (temp-password → redirect to /set-password)
 
   // 🔹 Inline Forgot submit
-  const handleForgotSubmit = async (e) => {
-    e.preventDefault();
-    const first = fpFirst.trim();
-    const last = fpLast.trim();
-    if (!first || !last) {
-      toast({ title: "Please enter your full name.", variant: "destructive" });
-      return;
+const handleForgotSubmit = async (e) => {
+  e.preventDefault();
+
+  const first = String(fpFirst || "").trim();
+  const last = String(fpLast || "").trim();
+
+  // ✅ Build a clean identifier: collapse multiple spaces
+  const fullName = `${first} ${last}`.replace(/\s+/g, " ").trim();
+
+  if (!first || !last || fullName.length < 3) {
+    toast({
+      title: "Please enter your full name.",
+      description: "Both Name and Surname are required.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  setFpSubmitting(true);
+
+  try {
+    // ✅ Send multiple keys for compatibility across your different auth contracts
+    const payload = {
+      identifier: fullName, // current backend expects this
+      name: fullName,       // legacy variants sometimes read body.name
+      username: fullName,   // some variants check username too
+      firstName: first,
+      lastName: last,
+    };
+
+    const res = await fetch(`${API_BASE}/auth/request-admin-reset`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    // ✅ Respect backend status
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.error || `Request failed (${res.status})`);
     }
-    setFpSubmitting(true);
-    try {
-      await fetch(`${API_BASE}/auth/request-admin-reset`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier: `${first} ${last}` }),
-      });
-      toast({
-        title: "Request sent",
-        description:
-          "We’ve notified the admin. They’ll issue a temporary password shortly.",
-        duration: 4000,
-      });
-      setShowForgot(false);
-      setFpFirst("");
-      setFpLast("");
-    } catch {
-      toast({
-        title: "Error",
-        description: "Could not submit request.",
-        variant: "destructive",
-      });
-    } finally {
-      setFpSubmitting(false);
-    }
-  };
+
+    toast({
+      title: "Request sent",
+      description:
+        "We’ve notified the admin. They’ll issue a temporary password shortly.",
+      duration: 4000,
+    });
+
+    setShowForgot(false);
+    setFpFirst("");
+    setFpLast("");
+  } catch (err) {
+    toast({
+      title: "Error",
+      description: err?.message || "Could not submit request.",
+      variant: "destructive",
+    });
+  } finally {
+    setFpSubmitting(false);
+  }
+};
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 px-4 py-8">

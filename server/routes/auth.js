@@ -114,29 +114,92 @@ router.post("/login", async (req, res) => {
   }
 
   const users = readUsers();
-  const user = findUserByIdentifier(users, identifier);
-  if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
-  const stored = String(user.password || "");
-  let valid = false;
+  /* ===========================
+     👤 User lookup (duplicate-safe)
+     - Some legacy datasets may contain duplicate records with same name/username/email
+     - If multiple matches exist, pick the one whose password validates
+     =========================== */
+  const lower = String(identifier || "").trim().toLowerCase();
 
-  if (isBcryptHash(stored)) {
-    try {
-      valid = await bcrypt.compare(password, stored);
-    } catch {
-      valid = false;
+  const matches = users.filter((u) => {
+    const name = String(u.name || "").trim().toLowerCase();
+    const username = String(u.username || "").trim().toLowerCase();
+    const email = String(u.email || "").trim().toLowerCase();
+    return name === lower || username === lower || email === lower;
+  });
+
+  if (!matches.length) return res.status(401).json({ error: "Invalid credentials" });
+
+  // Validate against ALL matches to avoid “wrong duplicate” failures.
+  const validMatches = [];
+  for (const candidate of matches) {
+    const stored = String(candidate.password || "");
+    let ok = false;
+
+    if (isBcryptHash(stored)) {
+      try {
+        ok = await bcrypt.compare(password, stored);
+      } catch {
+        ok = false;
+      }
+    } else {
+      ok = password === stored; // legacy plaintext
     }
-  } else {
-    valid = password === stored; // legacy plaintext
+
+    if (ok) validMatches.push(candidate);
   }
 
-  if (!valid) return res.status(401).json({ error: "Invalid credentials" });
+  if (!validMatches.length) return res.status(401).json({ error: "Invalid credentials" });
 
-  // Compute signals
+  // If multiple valid matches (true duplicates), choose the most recently updated record.
+  let user = validMatches[0];
+  if (validMatches.length > 1) {
+    console.warn(
+      "[auth] Duplicate valid users for identifier:",
+      identifier,
+      "ids=",
+      validMatches.map((u) => u?.id)
+    );
+
+    const toTime = (v) => {
+      const t = Date.parse(v);
+      return Number.isFinite(t) ? t : 0;
+    };
+
+    user = validMatches
+      .slice()
+      .sort((a, b) => {
+        const aScore = Math.max(
+          toTime(a.updatedAt),
+          toTime(a.passwordUpdatedAt),
+          toTime(a.lastLogin),
+          toTime(a.lastLoginAt),
+          toTime(a.createdAt)
+        );
+        const bScore = Math.max(
+          toTime(b.updatedAt),
+          toTime(b.passwordUpdatedAt),
+          toTime(b.lastLogin),
+          toTime(b.lastLoginAt),
+          toTime(b.createdAt)
+        );
+        return bScore - aScore;
+      })[0];
+  }
+
+  /* ===========================
+     ✅ Credential validated
+     - From this point onward, we can safely stamp login metadata
+     =========================== */
+
+  // Compute signals (must-change-password rules)
+  const stored = String(user.password || "");
   const firstName = String(user.name || "").trim().split(/\s+/)[0] || "";
   const defaultPassword = firstName ? `${firstName}1` : null;
   const isDefaultPassword =
     !isBcryptHash(stored) && defaultPassword && stored === defaultPassword;
+
   const hasMustChangeFlag = !!(
     user.forcePasswordChange ||
     user.requiresPasswordReset ||
@@ -176,6 +239,22 @@ router.post("/login", async (req, res) => {
     isDefaultPassword
   );
 
+  // ✅ Normalize and unify login timestamps (fixes lastLogin vs lastLoginAt drift)
+  // - lastLogin: canonical
+  // - lastLoginAt: legacy alias (keep for older UI)
+  // - lastOnline: “presence” signal (also refreshed on login)
+  const nowISO = new Date().toISOString();
+
+  // Stamp “presence” and “login” even if we must redirect to set-password:
+  // the user DID successfully authenticate.
+  try {
+    user.lastLogin = nowISO;
+    user.lastLoginAt = nowISO; // legacy alias
+    user.lastOnline = nowISO;
+    user.updatedAt = nowISO;
+    writeUsers(users);
+  } catch {}
+
   // Hard gate: if a change is required, FORCE the client into /set-password.
   // Use 428 so it is never treated as a normal login session.
   if (mustChangePassword) {
@@ -198,11 +277,6 @@ router.post("/login", async (req, res) => {
   }
 
   // Normal login path
-  try {
-    user.lastLoginAt = new Date().toISOString();
-    writeUsers(users);
-  } catch {}
-
   return res.json({
     ok: true,
     user: sanitizeUser(user),

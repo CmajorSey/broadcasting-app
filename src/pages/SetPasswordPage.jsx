@@ -90,24 +90,26 @@ export default function SetPasswordPage() {
       const identifier = u?.email || u?.username || u?.name || displayName;
       if (!identifier) throw new Error("Could not resolve identifier for auto-login");
 
-      const resLogin = await fetch(`${API_BASE}/auth/login`, {
+           const resLogin = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier, password: newPassword }),
+
+        /* ===========================
+           🔐 Auto-login payload (compat)
+           - Some backends read: body.name
+           - Others read: body.identifier
+           - Send BOTH to prevent "invalid credentials" edge cases
+           =========================== */
+        body: JSON.stringify({
+          identifier,
+          name: identifier,
+          password: newPassword,
+        }),
       });
 
       // If backend still requires a change or says expired, fall back to Login
       if (resLogin.status === 410) {
         // expired temp (shouldn't happen after successful set, but guard anyway)
-        setShowDoneDialog(true);
-        return;
-      }
-
-      const data = await resLogin.json().catch(() => ({}));
-
-      // New backend contract: if login returns mustChangePassword=true with 200,
-      // treat it as "not fully logged" and show the fallback dialog.
-      if (!resLogin.ok || !data?.ok || !data?.user || data?.mustChangePassword) {
         setShowDoneDialog(true);
         return;
       }

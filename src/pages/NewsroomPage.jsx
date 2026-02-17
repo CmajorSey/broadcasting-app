@@ -754,7 +754,7 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
 
             <div className="flex items-center justify-between gap-2">
               <div className="text-sm font-medium">Presenter Roster (Mon → Sun)</div>
-              <Badge variant="outline">Excel style</Badge>
+              
             </div>
 
             <Card className="rounded-2xl">
@@ -920,10 +920,6 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
                     </tbody>
                   </table>
                 </div>
-
-                <div className="text-xs text-muted-foreground">
-                  Note: dropdown list is restricted to News journalists only (Sports excluded). Clive Camille is included.
-                </div>
               </CardContent>
             </Card>
           </div>
@@ -936,7 +932,6 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
 
             <div className="flex items-center justify-between gap-2">
               <div className="text-sm font-medium">Show Setup</div>
-              <Badge variant="secondary">Shows + Calendar Adds</Badge>
             </div>
 
             {/* ===========================
@@ -944,7 +939,7 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
                =========================== */}
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-medium">Presenter Roster (Shows)</div>
+                <div className="text-sm font-medium">Presenter Roster</div>
                 <Badge variant="outline">{weekCounts.showsCount} show(s)</Badge>
               </div>
 

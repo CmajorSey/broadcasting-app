@@ -36,8 +36,22 @@ export const DEFAULT_CALENDAR = {
     { id: "genre_sports", name: "Sports", active: true },
     { id: "genre_news", name: "News", active: true },
   ],
+
+  /* ===========================
+     🧾 Proposed + Series (NEW)
+     - proposed: proposed pool items
+     - series: confirmed scheduled series
+     =========================== */
+  proposed: [],
+  series: [],
+
+  /* ===========================
+     ♻️ Back-compat keys (KEEP)
+     - Some older UI/routes may still write here
+     =========================== */
   programs: [],
   events: [],
+
   meta: { version: "0.1", updatedAt: "" },
 };
 
@@ -77,11 +91,32 @@ export const readCalendarSafe = () => {
       ...(parsed && typeof parsed === "object" ? parsed : {}),
     };
 
-    // Guard shapes
+        // Guard shapes
     out.seasons = Array.isArray(out.seasons) ? out.seasons : DEFAULT_CALENDAR.seasons;
     out.genres = Array.isArray(out.genres) ? out.genres : DEFAULT_CALENDAR.genres;
+
+    // ✅ New canonical keys
+    out.proposed = Array.isArray(out.proposed) ? out.proposed : [];
+    out.series = Array.isArray(out.series) ? out.series : [];
+
+    // ♻️ Back-compat keys (keep existing behavior intact)
     out.programs = Array.isArray(out.programs) ? out.programs : [];
     out.events = Array.isArray(out.events) ? out.events : [];
+
+    /*
+      ===========================
+      🔁 Compatibility aliasing
+      - If older routes saved Proposed into "programs", expose it as "proposed"
+      - If older routes saved Series into "events", expose it as "series"
+      ===========================
+    */
+    if (out.proposed.length === 0 && out.programs.length > 0) {
+      out.proposed = out.programs;
+    }
+    if (out.series.length === 0 && out.events.length > 0) {
+      out.series = out.events;
+    }
+
     out.meta = out.meta && typeof out.meta === "object" ? out.meta : { ...DEFAULT_CALENDAR.meta };
 
     return out;
@@ -90,6 +125,9 @@ export const readCalendarSafe = () => {
     return { ...DEFAULT_CALENDAR };
   }
 };
+console.log("📅 calendarStore DATA_DIR:", DATA_DIR);
+console.log("📅 calendarStore file:", CALENDAR_FILE);
+
 
 export const writeCalendarSafe = (obj) => {
   try {

@@ -21,14 +21,32 @@ function normalizeInitialTab(initialTab, hasHighlight) {
   return VALID_TABS.has(t) ? t : "users";
 }
 
+/* ===========================
+   🔒 Admin gate (single source)
+   - Only admins can see AdminPanel UI
+   - Works with roles array OR role string
+   =========================== */
+function isAdminUser(user) {
+  const roles = Array.isArray(user?.roles) ? user.roles : [];
+  const role = String(user?.role || "").toLowerCase();
+  return roles.includes("admin") || role === "admin";
+}
+
 export default function AdminPanel({
   users,
   setUsers,
   loggedInUser,
-  initialTab,       // <-- from AdminPage query param ?tab=...
-  highlightId,      // <-- from AdminPage query param ?highlight=<userId>
-  highlightName,    // <-- from AdminPage query param ?highlightName=<name>
+  initialTab, // <-- from AdminPage query param ?tab=...
+  highlightId, // <-- from AdminPage query param ?highlight=<userId>
+  highlightName, // <-- from AdminPage query param ?highlightName=<name>
 }) {
+  /* ===========================
+     🔒 Hard block non-admins
+     - Prevents accidental local "view as" leaks
+     - Navbar gating will be patched next
+     =========================== */
+  const canSeeAdmin = isAdminUser(loggedInUser);
+
   const hasHighlight = Boolean(highlightId || highlightName);
   const [tab, setTab] = useState(() => normalizeInitialTab(initialTab, hasHighlight));
 
@@ -45,6 +63,17 @@ export default function AdminPanel({
     () => ({ highlightId: highlightId || null, highlightName: highlightName || null }),
     [highlightId, highlightName]
   );
+
+  if (!canSeeAdmin) {
+    return (
+      <div className="bg-white p-4 rounded-xl shadow-md w-full max-w-6xl space-y-2">
+        <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+        <div className="text-sm text-muted-foreground">
+          Access denied. You must be an admin to view this page.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white p-4 rounded-xl shadow-md w-full max-w-6xl space-y-4">
@@ -64,7 +93,7 @@ export default function AdminPanel({
             setUsers={setUsers}
             defaultRoles={defaultRoles}
             protectedRoles={protectedRoles}
-            {...highlightProps}  // <-- new
+            {...highlightProps} // <-- new
           />
         </TabsContent>
 

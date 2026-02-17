@@ -1,10 +1,9 @@
 console.log("🚨 First checkpoint reached");
 // @ts-nocheck
+import "dotenv/config";
 import express from "express";
 import http from "http";
 import cors from "cors";
-import dotenv from "dotenv";
-
 import fs from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
@@ -39,8 +38,6 @@ import sportsRouter from "./routes/sports.js";
 
 const require = createRequire(import.meta.url);
 
-// Ensure .env is loaded before we read process.env (helps local dev)
-dotenv.config();
 
 // ✅ Load service account from env in prod, fall back to local file in dev
 let serviceAccount = null;
@@ -262,7 +259,6 @@ console.log("▶️ Running from:", __filename);
 console.log("🚨 Imports completed");
 console.log("🚨 ROUTE CHECKPOINT 1");
 
-dotenv.config();
 
 // ✅ Persistent storage root
 // - On Render: use /data (persistent disk)
@@ -270,6 +266,8 @@ dotenv.config();
 const DATA_DIR =
   process.env.DATA_DIR ||
   ((process.env.RENDER || process.env.ON_RENDER) ? "/data" : path.join(__dirname, "data"));
+  process.env.DATA_DIR = DATA_DIR;
+
 
 console.log("💾 DATA_DIR:", DATA_DIR, "— (env wins; Render => /data, Local => ./data)");
 
@@ -337,35 +335,110 @@ app.use(express.json());
    - It also enforces temp-password expiry (410 Gone)
    - IMPORTANT: defined BEFORE app.use("/auth", authRouter) so it wins.
    =========================== */
-app.post("/auth/login", (req, res) => {
+app.post("/auth/login", async (req, res) => {
   try {
+    /* ===========================
+       🔐 Auth + forced password change starts here (OVERRIDE)
+       - This route runs BEFORE app.use("/auth", authRouter), so it WINS.
+       - Fixes:
+         ✅ duplicate-name invalid credentials (validates across all matches)
+         ✅ stamps lastLogin + lastLoginAt + lastOnline on successful auth
+         ✅ keeps forced-password-change flags behavior unchanged
+         ✅ does NOT leak password back to frontend
+       =========================== */
+
     const body = req.body || {};
-    const name = String(body.name || body.username || body.identifier || "").trim();
+    const identifier = String(body.name || body.username || body.identifier || "").trim();
     const password = String(body.password || "").trim();
 
-    if (!name || !password) {
+    if (!identifier || !password) {
       return res.status(400).json({ success: false, error: "Missing name or password" });
     }
 
-    const users = readUsersSafe();
-    const lower = name.toLowerCase();
+    // Small local helpers (keep this route self-contained)
+    const isBcryptHash = (v) => {
+      const s = String(v || "");
+      return s.startsWith("$2a$") || s.startsWith("$2b$") || s.startsWith("$2y$");
+    };
+    const isExpired = (iso) => {
+      if (!iso) return false;
+      const t = Date.parse(iso);
+      return Number.isFinite(t) && Date.now() > t;
+    };
 
-    // match by name OR username OR email (case-insensitive)
-    const user = users.find((u) => {
+    const users = readUsersSafe();
+    const lower = identifier.toLowerCase();
+
+    // ✅ Collect ALL matches (duplicate-safe)
+    const matches = users.filter((u) => {
       const n = String(u?.name || "").trim().toLowerCase();
       const un = String(u?.username || "").trim().toLowerCase();
       const em = String(u?.email || "").trim().toLowerCase();
       return n === lower || (un && un === lower) || (em && em === lower);
     });
 
-    if (!user) {
+    if (!matches.length) {
       return res.status(401).json({ success: false, error: "Invalid credentials" });
     }
 
-    // password check (plain-text for now, as your app currently uses)
-    if (String(user.password || "") !== password) {
+    // ✅ Validate password against every match to avoid “wrong duplicate” failures.
+    // Supports plaintext (current) and bcrypt hashes (if stored).
+    const validMatches = [];
+    for (const candidate of matches) {
+      const stored = String(candidate?.password || "");
+      let ok = false;
+
+      if (isBcryptHash(stored)) {
+        // If bcryptjs is available in this file, use it; otherwise, fail safely.
+        try {
+          if (typeof bcrypt?.compare === "function") {
+            ok = await bcrypt.compare(password, stored);
+          } else {
+            ok = false;
+          }
+        } catch {
+          ok = false;
+        }
+      } else {
+        ok = stored === password;
+      }
+
+      if (ok) validMatches.push(candidate);
+    }
+
+    if (!validMatches.length) {
       return res.status(401).json({ success: false, error: "Invalid credentials" });
     }
+
+    // If multiple valid matches, pick the most recently updated record.
+    const toTime = (v) => {
+      const t = Date.parse(v);
+      return Number.isFinite(t) ? t : 0;
+    };
+    const user =
+      validMatches.length === 1
+        ? validMatches[0]
+        : validMatches
+            .slice()
+            .sort((a, b) => {
+              const aScore = Math.max(
+                toTime(a.updatedAt),
+                toTime(a.passwordUpdatedAt),
+                toTime(a.lastLogin),
+                toTime(a.lastLoginAt),
+                toTime(a.lastOnline),
+                toTime(a.createdAt)
+              );
+              const bScore = Math.max(
+                toTime(b.updatedAt),
+                toTime(b.passwordUpdatedAt),
+                toTime(b.lastLogin),
+                toTime(b.lastLoginAt),
+                toTime(b.lastOnline),
+                toTime(b.createdAt)
+              );
+              return bScore - aScore;
+            })[0];
 
     // ✅ Enforce temp password expiry (if applicable)
     const isTemp =
@@ -373,23 +446,36 @@ app.post("/auth/login", (req, res) => {
       user.requiresPasswordReset === true ||
       user.forcePasswordChange === true;
 
-    if (isTemp && user.tempPasswordExpires) {
-      const exp = Date.parse(user.tempPasswordExpires);
-      const now = Date.now();
-      if (Number.isFinite(exp) && now > exp) {
-        return res.status(410).json({
-          success: false,
-          error: "Temporary password has expired",
-          code: "TEMP_PASSWORD_EXPIRED",
-          user: {
-            id: String(user.id),
-            name: user.name,
-          },
-        });
+    if (isTemp && isExpired(user.tempPasswordExpires)) {
+      return res.status(410).json({
+        success: false,
+        error: "Temporary password has expired",
+        code: "TEMP_PASSWORD_EXPIRED",
+        user: { id: String(user.id), name: user.name },
+      });
+    }
+
+    // ✅ Stamp timestamps on SUCCESSFUL AUTH (fixes your stale lastOnline/lastLoginAt issue)
+    const nowISO = new Date().toISOString();
+    user.lastLogin = nowISO;     // canonical
+    user.lastLoginAt = nowISO;   // legacy alias (your data already has this key)
+    user.lastOnline = nowISO;    // presence
+    user.updatedAt = nowISO;
+
+    // Persist updates back to users.json (mutate correct record by id)
+    const idx = users.findIndex((u) => String(u.id) === String(user.id));
+    if (idx !== -1) {
+      users[idx] = user;
+      try {
+        fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+      } catch (e) {
+        console.error("auth/login write users failed:", e);
+        // Non-fatal: still allow login to succeed (frontend contract)
       }
     }
 
     // ✅ Always return flags so frontend can force SetPasswordPage
+    // Also: do NOT leak password/reset fields back to client
     const safeUser = {
       ...user,
       id: String(user.id),
@@ -400,6 +486,9 @@ app.post("/auth/login", (req, res) => {
       tempPasswordExpires: user.tempPasswordExpires || null,
       passwordUpdatedAt: user.passwordUpdatedAt || null,
     };
+    delete safeUser.password;
+    delete safeUser.resetToken;
+    delete safeUser.resetExpires;
 
     return res.json({
       success: true,
