@@ -1,1 +1,432 @@
-[]
+[
+  {
+    "id": "1771308512403",
+    "title": "Interview",
+    "type": "News",
+    "category": "Interview",
+    "subtype": "",
+    "date": "2026-02-17T11:00",
+    "location": "State House",
+    "notes": [
+      {
+        "text": "Bring along a shirt mic",
+        "author": "Admin",
+        "timestamp": "2/17/2026, 10:08:32 AM"
+      }
+    ],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 2,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "10:30",
+    "filmingTime": "11:00",
+    "assignedCamOps": [
+      "Alexander Moumou"
+    ],
+    "assignedDriver": "Gael Guichard",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Patsy Edmond"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-17T06:08:32.403Z",
+    "assignedDriverFrom": "Gilmer Philoe",
+    "additionalDrivers": [],
+    "assignedBy": "Admin",
+    "isPublicHoliday": false,
+    "publicHolidayName": "",
+    "archived": true
+  },
+  {
+    "id": "1771308997162",
+    "title": "afe",
+    "type": "News",
+    "category": "Press Conference",
+    "subtype": "",
+    "date": "2026-02-17T10:10",
+    "location": "Town",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 3,
+    "onlyOneCamOp": false,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "10:10",
+    "filmingTime": "10:10",
+    "assignedCamOps": [
+      "Alexander Moumou",
+      "Darino Esther",
+      "Joshua Dodin"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Patsy Edmond"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "expectedCamOps": 3,
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-17T06:16:37.162Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin",
+    "isPublicHoliday": false,
+    "publicHolidayName": ""
+  },
+  {
+    "id": "1771327721993",
+    "title": "aefsz",
+    "type": "News",
+    "category": "Press Conference",
+    "subtype": "",
+    "date": "2026-02-17T15:30",
+    "location": "Providence",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "EFP",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "15:30",
+    "filmingTime": "15:30",
+    "assignedCamOps": [],
+    "assignedDriver": "",
+    "vehicle": "",
+    "assignmentStatus": "Unassigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": "Journalist: Melissa Hassan",
+    "crewAssignments": [
+      {
+        "role": "Director",
+        "assignees": [
+          "Gilmer Philoe"
+        ]
+      },
+      {
+        "role": "Technical Support",
+        "assignees": [
+          "Christopher Gabriel"
+        ]
+      },
+      {
+        "role": "A1",
+        "assignees": [
+          "Christopher Gabriel"
+        ]
+      },
+      {
+        "role": "A2",
+        "assignees": [
+          "Alexander Moumou"
+        ]
+      },
+      {
+        "role": "Graphic Artist",
+        "assignees": [
+          "Irene Jean-Baptiste"
+        ]
+      },
+      {
+        "role": "Producer",
+        "assignees": [
+          "Patsy Edmond"
+        ]
+      },
+      {
+        "role": "Drone Operator",
+        "assignees": [
+          "Aaron Jean"
+        ]
+      }
+    ],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-17T11:28:41.993Z"
+  },
+  {
+    "id": "1771355642292",
+    "title": "wsad",
+    "type": "News",
+    "category": "",
+    "subtype": "",
+    "date": "2026-02-17T22:45",
+    "location": "Studio",
+    "notes": [
+      {
+        "text": "test",
+        "author": "Admin",
+        "timestamp": "2/17/2026, 11:14:02 PM"
+      }
+    ],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "EFP",
+    "camCount": 4,
+    "onlyOneCamOp": false,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "22:45",
+    "filmingTime": "22:45",
+    "assignedCamOps": [
+      "Shereen Florentine",
+      "Julius Payet",
+      "Joshua Dodin"
+    ],
+    "assignedDriver": "",
+    "vehicle": "",
+    "assignmentStatus": "Unassigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": "Journalist: Naila D'acambra",
+    "crewAssignments": [
+      {
+        "role": "Director",
+        "assignees": [
+          "Gilmer Philoe"
+        ]
+      },
+      {
+        "role": "Technical Support",
+        "assignees": [
+          "Christopher Gabriel"
+        ]
+      },
+      {
+        "role": "A1",
+        "assignees": [
+          "Christopher Gabriel"
+        ]
+      },
+      {
+        "role": "A2",
+        "assignees": [
+          "Alexander Moumou"
+        ]
+      },
+      {
+        "role": "Graphic Artist",
+        "assignees": [
+          "Irene Jean-Baptiste"
+        ]
+      },
+      {
+        "role": "Producer",
+        "assignees": [
+          "Patsy Edmond"
+        ]
+      },
+      {
+        "role": "Drone Operator",
+        "assignees": [
+          "Aaron Jean"
+        ]
+      },
+      {
+        "role": "VT Op",
+        "assignees": [
+          "Ronny Marengo"
+        ]
+      }
+    ],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "expectedCamOps": 3,
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-17T19:14:02.293Z"
+  },
+  {
+    "id": "1771356239038",
+    "title": "afsz",
+    "type": "Production",
+    "category": "",
+    "subtype": "",
+    "date": "2026-02-17T23:15",
+    "location": "Studio",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "Live",
+    "camCount": 4,
+    "onlyOneCamOp": false,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "22:45",
+    "filmingTime": "23:15",
+    "assignedCamOps": [
+      "Shereen Florentine",
+      "Darino Esther",
+      "Julius Payet"
+    ],
+    "assignedDriver": "",
+    "vehicle": "",
+    "assignmentStatus": "Unassigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": "Journalist: Emma Laporte",
+    "crewAssignments": [
+      {
+        "role": "Director",
+        "assignees": [
+          "Gilmer Philoe"
+        ]
+      },
+      {
+        "role": "Technical Support",
+        "assignees": [
+          "Christopher Gabriel"
+        ]
+      },
+      {
+        "role": "A1",
+        "assignees": [
+          "Christopher Gabriel"
+        ]
+      },
+      {
+        "role": "A2",
+        "assignees": [
+          "Alexander Moumou"
+        ]
+      },
+      {
+        "role": "Graphic Artist",
+        "assignees": [
+          "Irene Jean-Baptiste"
+        ]
+      },
+      {
+        "role": "Producer",
+        "assignees": [
+          "Patsy Edmond"
+        ]
+      },
+      {
+        "role": "Drone Operator",
+        "assignees": [
+          "Aaron Jean"
+        ]
+      },
+      {
+        "role": "Vt",
+        "assignees": [
+          "Ronny Marengo"
+        ]
+      }
+    ],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "expectedCamOps": 3,
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-17T19:23:59.038Z"
+  },
+  {
+    "id": "1771356325011",
+    "title": "afsw",
+    "type": "News",
+    "category": "",
+    "subtype": "",
+    "date": "2026-02-17T23:25",
+    "location": "Astro Turf",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "EFP",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "23:25",
+    "filmingTime": "23:25",
+    "assignedCamOps": [],
+    "assignedDriver": "",
+    "vehicle": "",
+    "assignmentStatus": "Unassigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": "",
+    "crewAssignments": [
+      {
+        "role": "Director",
+        "assignees": [
+          "Admin"
+        ]
+      },
+      {
+        "role": "Technical Support",
+        "assignees": [
+          "Jana Mondon"
+        ]
+      },
+      {
+        "role": "A1",
+        "assignees": []
+      },
+      {
+        "role": "A2",
+        "assignees": []
+      },
+      {
+        "role": "Graphic Artist",
+        "assignees": []
+      },
+      {
+        "role": "Producer",
+        "assignees": [
+          "Patsy Edmond"
+        ]
+      },
+      {
+        "role": "Drone Operator",
+        "assignees": []
+      }
+    ],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-17T19:25:25.011Z"
+  }
+]

@@ -85,6 +85,136 @@ function formatDDMMYYYY_HHMM(isoLike) {
   }
 }
 
+// ✅ Prefer filmingTime (HH:MM). Fallback to time embedded in date ISO.
+const normalizeHHMM = (t) => (/^\d{2}:\d{2}$/.test(String(t || "")) ? String(t) : "");
+
+function getTicketFilmingLabel(ticket) {
+  try {
+    const iso = String(ticket?.date || "").trim();
+    if (!iso) return "-";
+
+    // Date part
+    const dayOnly = iso.slice(0, 10);
+    const dayDate = new Date(`${dayOnly}T00:00:00`);
+    const dayLabel = formatDDMMYYYY(dayDate) || formatDDMMYYYY(iso) || "";
+
+    // Time part
+    const ft = normalizeHHMM(ticket?.filmingTime);
+    if (ft) return dayLabel ? `${dayLabel}, ${ft}` : `${dayOnly}, ${ft}`;
+
+    // fallback to whatever time exists inside iso
+    const fallback = formatDDMMYYYY_HHMM(iso);
+    return fallback || iso || "-";
+  } catch {
+    return "-";
+  }
+}
+
+// ===========================
+// ✅ Live Crew helpers (Director / A1 / Graphics etc.)
+// ===========================
+
+// Picks the first non-empty value found across multiple possible field names.
+// Supports nested paths like "crewAssignments.director".
+// Returns either a string, or an array of strings (normalized).
+const pickFirst = (obj, keys = []) => {
+  const toStr = (v) => String(v ?? "").trim();
+
+  const getByPath = (root, path) => {
+    try {
+      if (!root || !path) return undefined;
+      if (!String(path).includes(".")) return root?.[path];
+
+      return String(path)
+        .split(".")
+        .reduce((acc, key) => (acc == null ? undefined : acc[key]), root);
+    } catch {
+      return undefined;
+    }
+  };
+
+  const normalizeValue = (v) => {
+    if (v == null) return null;
+
+    // Array: could be ["A", "B"] OR [{name:"A"}]
+    if (Array.isArray(v)) {
+      const list = v
+        .flatMap((item) => {
+          if (!item) return [];
+          if (typeof item === "string") {
+            // support comma-separated too
+            return item
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+          }
+          if (typeof item === "object") {
+            const nm = toStr(item.name || item.label || item.value);
+            return nm ? [nm] : [];
+          }
+          return [];
+        })
+        .map((s) => toStr(s))
+        .filter(Boolean);
+
+      return list.length ? Array.from(new Set(list)) : null;
+    }
+
+    // String: support comma-separated names
+    if (typeof v === "string") {
+      const s = v.trim();
+      if (!s) return null;
+      const parts = s
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
+      return parts.length > 1 ? Array.from(new Set(parts)) : s;
+    }
+
+    // Object: common shapes {name:"..."} etc
+    if (typeof v === "object") {
+      const nm = toStr(v.name || v.label || v.value);
+      return nm || null;
+    }
+
+    // number/bool fallback
+    const s = toStr(v);
+    return s || null;
+  };
+
+  for (const k of keys) {
+    const raw = getByPath(obj, k);
+    const val = normalizeValue(raw);
+    if (val == null) continue;
+
+    // If array but empty, skip
+    if (Array.isArray(val) && val.length === 0) continue;
+
+    return val;
+  }
+
+  return null;
+};
+
+// Renders a label/value pair safely (string or array)
+const renderField = (label, value) => {
+  const hasValue =
+    (Array.isArray(value) && value.length > 0) ||
+    (typeof value === "string" && value.trim());
+
+  if (!hasValue) return null;
+
+  const text = Array.isArray(value) ? value.join(", ") : value;
+
+  return (
+    <div className="flex gap-2">
+      <span className="font-semibold">{label}:</span>
+      <span className="break-words">{text}</span>
+    </div>
+  );
+};
+
+
 export default function TicketPage({ users, vehicles, loggedInUser }) {
   const [tickets, setTickets] = useState([]);
 
@@ -1308,25 +1438,46 @@ await sendTicketPageNotification({
                     </div>
 
                     {/* Departure */}
-                    <div>
-                      <div className="text-[11px] text-gray-500">Departure Time</div>
-                      {isEditing ? (
-                        <input
-                          type="time"
-                          step="300"
-                          value={editData?.departureTime || ""}
-                          onChange={(e) =>
-                            setEditData((d) => ({
-                              ...d,
-                              departureTime: e.target.value,
-                            }))
-                          }
-                          className="border px-2 py-1 rounded w-full"
-                        />
-                      ) : (
-                        <div className="font-medium">{ticket.departureTime || "-"}</div>
-                      )}
-                    </div>
+<div>
+  <div className="text-[11px] text-gray-500">Departure Time</div>
+  {isEditing ? (
+    <input
+      type="time"
+      step="300"
+      value={editData?.departureTime || ""}
+      onChange={(e) =>
+        setEditData((d) => ({
+          ...d,
+          departureTime: e.target.value,
+        }))
+      }
+      className="border px-2 py-1 rounded w-full"
+    />
+  ) : (
+    <div className="font-medium">{ticket.departureTime || "-"}</div>
+  )}
+</div>
+
+{/* Filming Time */}
+<div>
+  <div className="text-[11px] text-gray-500">Filming Time</div>
+  {isEditing ? (
+    <input
+      type="time"
+      step="300"
+      value={editData?.filmingTime || ""}
+      onChange={(e) =>
+        setEditData((d) => ({
+          ...d,
+          filmingTime: e.target.value,
+        }))
+      }
+      className="border px-2 py-1 rounded w-full"
+    />
+  ) : (
+    <div className="font-medium">{ticket.filmingTime || "-"}</div>
+  )}
+</div>
 
                     {/* Location */}
                     <div>
@@ -1542,11 +1693,11 @@ await sendTicketPageNotification({
                           <div className="font-bold">Drivers</div>
                           <div className="mt-1 space-y-1">
                             <div>
-                              <span className="font-bold">To (main):</span>{" "}
+                              <span className="font-bold">To (Destination):</span>{" "}
                               <span className="font-medium">{ticket.assignedDriver || "-"}</span>
                             </div>
                             <div>
-                              <span className="font-bold">From (return):</span>{" "}
+                              <span className="font-bold">From (Destination):</span>{" "}
                               <span className="font-medium">{ticket.assignedDriverFrom || "-"}</span>
                             </div>
                             <div>
@@ -1569,6 +1720,7 @@ await sendTicketPageNotification({
                         </span>
                       </div>
 
+                                          {/* 🎬 Live Crew (Director / A1 / Graphics etc.) */}
                       <div className="mt-2">
                         <div className="font-bold">Notes</div>
                         {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
@@ -2266,13 +2418,13 @@ await sendTicketPageNotification({
                                 <div className="font-bold">Drivers</div>
                                 <div className="mt-1 space-y-1">
                                   <div>
-                                    <span className="font-bold">To (main):</span>{" "}
+                                    <span className="font-bold">To (Destination):</span>{" "}
                                     <span className="font-medium">
                                       {ticket.assignedDriver || "-"}
                                     </span>
                                   </div>
                                   <div>
-                                    <span className="font-bold">From (return):</span>{" "}
+                                    <span className="font-bold">From (Destination):</span>{" "}
                                     <span className="font-medium">
                                       {ticket.assignedDriverFrom || "-"}
                                     </span>
@@ -2296,7 +2448,77 @@ await sendTicketPageNotification({
                                 {ticket.assignedBy || "Unknown"}
                               </span>
                             </div>
+                                                 {/* ===========================
+                         🎬 EFP / LIVE Crew (Extended View)
+                         - Source of truth: ticket.crewAssignments[]
+                         - Each item: { role: string, assignees: string[] }
+                         - Fallback: legacy fields (director/a1/graphics) if crewAssignments missing
+                         =========================== */}
+                      {(() => {
+                        const shoot = String(ticket?.shootType || "").trim();
 
+                        const crew = Array.isArray(ticket?.crewAssignments)
+                          ? ticket.crewAssignments
+                              .map((item) => ({
+                                role: String(item?.role || "").trim(),
+                                assignees: Array.isArray(item?.assignees)
+                                  ? item.assignees.map((n) => String(n || "").trim()).filter(Boolean)
+                                  : [],
+                              }))
+                              .filter((x) => x.role && x.assignees.length > 0)
+                          : [];
+
+                        // ✅ If we have proper crewAssignments, show them (EFP or Live or any ticket that has crew)
+                        if (crew.length > 0) {
+                          return (
+                            <div className="mt-3 space-y-2">
+                              <div className="font-bold text-gray-700">
+                                {shoot ? `${shoot} Crew` : "Crew"}
+                              </div>
+
+                              <div className="space-y-1">
+                                {crew.map((row, idx) => (
+                                  <div key={`${row.role}-${idx}`} className="flex flex-wrap gap-x-2">
+                                    <span className="font-bold">{row.role}:</span>
+                                    <span className="font-medium">
+                                      {row.assignees.join(", ")}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // ✅ Fallback to your old/legacy structure if crewAssignments isn't present
+                        const director = pickFirst(ticket, ["director", "directors", "assignedDirector"]);
+                        const a1 = pickFirst(ticket, ["a1", "A1", "audioA1", "assignedA1", "soundA1"]);
+                        const graphics = pickFirst(ticket, [
+                          "graphics",
+                          "graphicArtists",
+                          "graphicsArtists",
+                          "assignedGraphics",
+                          "gfx",
+                        ]);
+
+                        const hasAny =
+                          (Array.isArray(director) ? director.length : !!director) ||
+                          (Array.isArray(a1) ? a1.length : !!a1) ||
+                          (Array.isArray(graphics) ? graphics.length : !!graphics);
+
+                        if (!hasAny) return null;
+
+                        return (
+                          <div className="mt-3 space-y-1">
+                            <div className="font-bold text-gray-700">
+                              {shoot ? `${shoot} Crew` : "Crew"}
+                            </div>
+                            {renderField("Director", director)}
+                            {renderField("A1", a1)}
+                            {renderField("Graphics", graphics)}
+                          </div>
+                        );
+                      })()}
                             <div className="mt-2">
                               <div className="font-bold">Notes</div>
                               {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
@@ -2765,6 +2987,35 @@ await sendTicketPageNotification({
                             {ticket.assignedBy || "Unknown"}
                           </span>
                         </div>
+                        {/* 🎬 Live Crew (Director / A1 / Graphics etc.) */}
+{(() => {
+  // Try common field-name variants (safe even if some don’t exist)
+  const director = pickFirst(ticket, ["director", "directors", "assignedDirector"]);
+  const a1 = pickFirst(ticket, ["a1", "A1", "audioA1", "assignedA1", "soundA1"]);
+  const graphics = pickFirst(ticket, [
+    "graphics",
+    "graphicArtists",
+    "graphicsArtists",
+    "assignedGraphics",
+    "gfx",
+  ]);
+
+  const hasAny =
+    (Array.isArray(director) ? director.length : !!director) ||
+    (Array.isArray(a1) ? a1.length : !!a1) ||
+    (Array.isArray(graphics) ? graphics.length : !!graphics);
+
+  if (!hasAny) return null;
+
+  return (
+    <div className="mt-3 space-y-1">
+      <div className="font-bold text-gray-700">Live Crew</div>
+      {renderField("Director", director)}
+      {renderField("A1", a1)}
+      {renderField("Graphics", graphics)}
+    </div>
+  );
+})()}
 
                         <div className="mt-2">
                           <strong>Notes:</strong>
@@ -3361,11 +3612,11 @@ await sendTicketPageNotification({
                         <strong>Drivers:</strong>
                         <div className="mt-1 space-y-1">
                           <div>
-                            <span className="text-gray-600">To (main):</span>{" "}
+                            <span className="text-gray-600">To (Destination):</span>{" "}
                             <span className="font-medium">{ticket.assignedDriver || "-"}</span>
                           </div>
                           <div>
-                            <span className="text-gray-600">From (return):</span>{" "}
+                            <span className="text-gray-600">From (Destination):</span>{" "}
                             <span className="font-medium">{ticket.assignedDriverFrom || "-"}</span>
                           </div>
                           <div>
@@ -3385,6 +3636,35 @@ await sendTicketPageNotification({
                           {ticket.assignedBy || "Unknown"}
                         </span>
                       </div>
+                      {/* 🎬 Live Crew (Director / A1 / Graphics etc.) */}
+{(() => {
+  // Try common field-name variants (safe even if some don’t exist)
+  const director = pickFirst(ticket, ["director", "directors", "assignedDirector"]);
+  const a1 = pickFirst(ticket, ["a1", "A1", "audioA1", "assignedA1", "soundA1"]);
+  const graphics = pickFirst(ticket, [
+    "graphics",
+    "graphicArtists",
+    "graphicsArtists",
+    "assignedGraphics",
+    "gfx",
+  ]);
+
+  const hasAny =
+    (Array.isArray(director) ? director.length : !!director) ||
+    (Array.isArray(a1) ? a1.length : !!a1) ||
+    (Array.isArray(graphics) ? graphics.length : !!graphics);
+
+  if (!hasAny) return null;
+
+  return (
+    <div className="mt-3 space-y-1">
+      <div className="font-bold text-gray-700">Live Crew</div>
+      {renderField("Director", director)}
+      {renderField("A1", a1)}
+      {renderField("Graphics", graphics)}
+    </div>
+  );
+})()}
 
                       <div className="mt-2">
                         <strong>Notes:</strong>

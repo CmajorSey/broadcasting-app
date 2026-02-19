@@ -626,7 +626,7 @@ const userOptionsCrew = (effectiveUsers || [])
   .filter(Boolean)
   .map((name) => ({ label: name, value: name }));
 
-   {/* EFP Roles */}
+// EFP Roles
 const EFP_LIVE_TEMPLATES = [
   { role: "Director", assignees: [] },
   { role: "Technical Support", assignees: [] },
@@ -964,6 +964,7 @@ const handleSubmit = async (e) => {
   }
 
   console.log("🚀 handleSubmit triggered");
+console.log("POST payload crewAssignments:", newTicket.crewAssignments);
 
   try {
     const res = await fetch(`${API_BASE}/tickets`, {
@@ -980,8 +981,12 @@ const handleSubmit = async (e) => {
       ...savedTicket,   // keeps any backend-enriched fields (server timestamps etc.)
     };
 
-    const updatedTickets = [savedTicket, ...tickets];
-    setTickets(updatedTickets);
+    const ticketForUI = {
+  ...newTicket,   // keep ALL form fields (including crewAssignments)
+  ...savedTicket, // keep backend-enriched fields (timestamps etc)
+};
+
+    setTickets([ticketForUI, ...tickets]);
     setFormData(getInitialFormData(loggedInUser));
     console.log("✅ Ticket submitted to backend by:", name);
 

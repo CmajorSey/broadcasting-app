@@ -36,6 +36,11 @@ import newsroomRouter from "./routes/newsroom.js";
    =========================== */
 import sportsRouter from "./routes/sports.js";
 
+/* ===========================
+   📜 Changelog API
+   =========================== */
+import changelogRouter from "./routes/changelog.js";
+
 const require = createRequire(import.meta.url);
 
 
@@ -316,7 +321,13 @@ const corsOptions = {
     return cb(null, false);
   },
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+
+  /* ===========================
+     ✅ Allowed request headers
+     - Add x-lo-user so browser POSTs can pass your actor guard
+     =========================== */
+  allowedHeaders: ["Content-Type", "Authorization", "x-lo-user"],
+
   credentials: true,
 };
 
@@ -510,6 +521,52 @@ app.post("/auth/login", async (req, res) => {
 app.use("/auth", authRouter);
 app.use("/user-prefs", userPrefsRouter);
 app.use("/holidays", holidaysRouter);
+
+/* ===========================
+   📜 Changelog routes
+   - IMPORTANT:
+     Sometimes your SPA fallback/static can return index.html for unknown paths.
+     This hard GET ensures /changelog always returns JSON (never HTML).
+   =========================== */
+const CHANGELOG_FILE = path.join(DATA_DIR, "changelog.json");
+
+const ensureJsonFile = (filepath, fallbackValue) => {
+  try {
+    if (!fs.existsSync(filepath)) {
+      fs.writeFileSync(filepath, JSON.stringify(fallbackValue, null, 2));
+    } else {
+      const raw = fs.readFileSync(filepath, "utf-8");
+      // if file exists but is empty/invalid, reset safely
+      try {
+        JSON.parse(raw || "null");
+      } catch {
+        fs.writeFileSync(filepath, JSON.stringify(fallbackValue, null, 2));
+      }
+    }
+  } catch (e) {
+    console.error("ensureJsonFile failed:", filepath, e);
+  }
+};
+
+// Default structure (safe for UI)
+// You can store either an array OR an object — we normalize in the router,
+// but this guarantees something valid exists.
+ensureJsonFile(CHANGELOG_FILE, { entries: [] });
+
+// ✅ Hard endpoint: always JSON (prevents <!DOCTYPE ...> parsing crash)
+app.get("/changelog", (req, res) => {
+  try {
+    const raw = fs.readFileSync(CHANGELOG_FILE, "utf-8");
+    const parsed = raw ? JSON.parse(raw) : { entries: [] };
+    return res.json(parsed);
+  } catch (err) {
+    console.error("GET /changelog failed:", err);
+    return res.status(500).json({ error: "Failed to read changelog" });
+  }
+});
+
+// ✅ Keep router too (for POST/PATCH later if you already built it)
+app.use("/changelog", changelogRouter);
 
 // 👉 NEW (v0.7.1): settings + leave management
 // - /settings           GET, PATCH     (site rules + holiday source)
@@ -2246,15 +2303,22 @@ app.get("/tickets", (req, res) => {
 app.post("/tickets", async (req, res) => {
   const newTicket = req.body;
 
+  /* ===========================
+     🎟️ Ticket Create + Notify
+     - Preserves ALL ticket fields as received
+     - Fixes undefined `when` bug
+     - Supports assignedReporter as string OR array
+     =========================== */
+
   try {
     const raw = fs.readFileSync(TICKETS_FILE, "utf-8");
-    const all = JSON.parse(raw);
+    const all = JSON.parse(raw || "[]");
     all.push(newTicket);
     fs.writeFileSync(TICKETS_FILE, JSON.stringify(all, null, 2));
 
     // Load users
     const usersRaw = fs.readFileSync(USERS_FILE, "utf-8");
-    const allUsers = JSON.parse(usersRaw);
+    const allUsers = JSON.parse(usersRaw || "[]");
 
     const getUserByName = (name) =>
       allUsers.find((u) => u.name.toLowerCase() === name?.toLowerCase());
@@ -2270,11 +2334,39 @@ app.post("/tickets", async (req, res) => {
     const driver = getUserByName(newTicket.assignedDriver);
     if (driver) recipients.add(driver);
 
-    const reporterName = newTicket.assignedReporter?.split(": ")[1];
-    const reporter = getUserByName(reporterName);
-    if (reporter) recipients.add(reporter);
+    // ✅ Reporter can be:
+    // - "Journalist: Emma Laporte"
+    // - ["Emma Laporte"]
+    // - ["Journalist: Emma Laporte", "Producer: John"]
+    const reporterNames = (() => {
+      const v = newTicket.assignedReporter;
 
-      // Send push + write in-app notification (for live poll toasts)
+      // string: "Role: Name"
+      if (typeof v === "string" && v.trim()) {
+        const name = v.includes(":") ? v.split(":").slice(1).join(":").trim() : v.trim();
+        return name ? [name] : [];
+      }
+
+      // array: ["Role: Name", "Name"]
+      if (Array.isArray(v)) {
+        return v
+          .map((s) => {
+            const str = String(s || "").trim();
+            if (!str) return "";
+            return str.includes(":") ? str.split(":").slice(1).join(":").trim() : str;
+          })
+          .filter(Boolean);
+      }
+
+      return [];
+    })();
+
+    for (const rn of reporterNames) {
+      const reporter = getUserByName(rn);
+      if (reporter) recipients.add(reporter);
+    }
+
+    // Send push + write in-app notification (for live poll toasts)
     if (recipients.size > 0) {
       const urgent =
         newTicket?.priority === "Urgent" ||
@@ -2286,11 +2378,14 @@ app.post("/tickets", async (req, res) => {
         ? `/tickets?ticketId=${encodeURIComponent(ticketId)}`
         : "/tickets";
 
-         // ✅ Push title/body (FCM)
+      // ✅ Push title/body (FCM)
       const pushTitle = `🎥 New Request: ${newTicket.title}`;
 
-      const prettyDate = formatDMY(newTicket?.date) || String(newTicket?.date || "").trim();
-      const pushBody = `You have been assigned to a new request on ${prettyDate || "an upcoming date"}.`;
+      const prettyDate =
+        formatDMY(newTicket?.date) || String(newTicket?.date || "").trim();
+      const pushBody = `You have been assigned to a new request on ${
+        prettyDate || "an upcoming date"
+      }.`;
 
       await sendPushToUsers([...recipients], pushTitle, pushBody, {
         category: "ticket",
@@ -2313,15 +2408,17 @@ app.post("/tickets", async (req, res) => {
 
         const notifRecipients = Array.from(new Set([...recIds, ...recNames]));
 
-              const whenRaw = newTicket?.date;
+        const whenRaw = newTicket?.date;
         const whenPretty =
-          formatDMYDateTime(whenRaw) || formatDMY(whenRaw) || String(whenRaw || "").trim();
+          formatDMYDateTime(whenRaw) ||
+          formatDMY(whenRaw) ||
+          String(whenRaw || "").trim();
 
         const loc = String(newTicket?.location || "").trim();
 
         const notifTitle = "🆕 New Request Created";
         const notifMessage = `${newTicket?.title || "Untitled"}${
-          when ? ` • ${when}` : ""
+          whenPretty ? ` • ${whenPretty}` : ""
         }${loc ? ` • ${loc}` : ""}`;
 
         // Uses your existing safe helpers
@@ -2336,7 +2433,10 @@ app.post("/tickets", async (req, res) => {
         });
         writeNotifsSafe(allNotifs);
       } catch (e) {
-        console.warn("⚠️ In-app ticket notification write failed (non-fatal):", e?.message || e);
+        console.warn(
+          "⚠️ In-app ticket notification write failed (non-fatal):",
+          e?.message || e
+        );
       }
     }
 
@@ -2352,6 +2452,12 @@ app.post("/tickets", async (req, res) => {
 app.patch("/tickets/:id", async (req, res) => {
   const { id } = req.params;
   const updatedFields = req.body || {};
+
+  /* ===========================
+     🛠️ Ticket Update + Notify
+     - Fixes undefined `when` bug in notifMessage
+     - Keeps your reporter normalization
+     =========================== */
 
   // Helpers
   const stripRolePrefix = (s) =>
@@ -2437,8 +2543,13 @@ app.patch("/tickets/:id", async (req, res) => {
       const recipients = new Set();
 
       // 🔔 1. CamOps changed?
-      const oldOps = Array.isArray(oldTicket.assignedCamOps) ? oldTicket.assignedCamOps : normArr(oldTicket.assignedCamOps);
-      const newOps = Array.isArray(newTicket.assignedCamOps) ? newTicket.assignedCamOps : normArr(newTicket.assignedCamOps);
+      const oldOps = Array.isArray(oldTicket.assignedCamOps)
+        ? oldTicket.assignedCamOps
+        : normArr(oldTicket.assignedCamOps);
+      const newOps = Array.isArray(newTicket.assignedCamOps)
+        ? newTicket.assignedCamOps
+        : normArr(newTicket.assignedCamOps);
+
       if (!sameJSON(oldOps, newOps)) {
         for (const name of newOps) {
           const u = getUserByName(name);
@@ -2467,6 +2578,7 @@ app.patch("/tickets/:id", async (req, res) => {
           ...(newReporters || []),
           newTicket.assignedDriver,
         ].filter(Boolean);
+
         for (const name of everyone) {
           const u = getUserByName(name);
           if (u) recipients.add(u);
@@ -2474,7 +2586,16 @@ app.patch("/tickets/:id", async (req, res) => {
       }
 
       // 🔔 5. Important fields changed? (cover both `assignmentStatus` and legacy `status`)
-      const importantFields = ["location", "filmingTime", "departureTime", "assignmentStatus", "status", "notes", "date"];
+      const importantFields = [
+        "location",
+        "filmingTime",
+        "departureTime",
+        "assignmentStatus",
+        "status",
+        "notes",
+        "date",
+      ];
+
       const importantChanged = importantFields.some(
         (f) => JSON.stringify(oldTicket[f]) !== JSON.stringify(newTicket[f])
       );
@@ -2485,13 +2606,14 @@ app.patch("/tickets/:id", async (req, res) => {
           ...(newReporters || []),
           newTicket.assignedDriver,
         ].filter(Boolean);
+
         for (const name of everyone) {
           const u = getUserByName(name);
           if (u) recipients.add(u);
         }
       }
 
-            if (recipients.size > 0) {
+      if (recipients.size > 0) {
         const urgent =
           newTicket?.priority === "Urgent" ||
           newTicket?.priority === "High" ||
@@ -2503,8 +2625,7 @@ app.patch("/tickets/:id", async (req, res) => {
           : "/tickets";
 
         const pushTitle = `Request Updated: ${newTicket.title}`;
-        const pushBody =
-          `One or more updates were made. Check filming, location, or assignment changes.`;
+        const pushBody = `One or more updates were made. Check filming, location, or assignment changes.`;
 
         await sendPushToUsers([...recipients], pushTitle, pushBody, {
           category: "ticket",
@@ -2527,15 +2648,17 @@ app.patch("/tickets/:id", async (req, res) => {
 
           const notifRecipients = Array.from(new Set([...recIds, ...recNames]));
 
-                 const whenRaw = newTicket?.date;
+          const whenRaw = newTicket?.date;
           const whenPretty =
-            formatDMYDateTime(whenRaw) || formatDMY(whenRaw) || String(whenRaw || "").trim();
+            formatDMYDateTime(whenRaw) ||
+            formatDMY(whenRaw) ||
+            String(whenRaw || "").trim();
 
           const loc = String(newTicket?.location || "").trim();
 
           const notifTitle = "Request updated";
           const notifMessage = `${newTicket?.title || "Untitled"}${
-            when ? ` • ${when}` : ""
+            whenPretty ? ` • ${whenPretty}` : ""
           }${loc ? ` • ${loc}` : ""}`;
 
           const allNotifs = readNotifsSafe();
@@ -2549,7 +2672,10 @@ app.patch("/tickets/:id", async (req, res) => {
           });
           writeNotifsSafe(allNotifs);
         } catch (e) {
-          console.warn("⚠️ In-app ticket update notification write failed (non-fatal):", e?.message || e);
+          console.warn(
+            "⚠️ In-app ticket update notification write failed (non-fatal):",
+            e?.message || e
+          );
         }
       }
     } catch (notifyErr) {
@@ -2564,7 +2690,6 @@ app.patch("/tickets/:id", async (req, res) => {
     res.status(500).json({ error: "Failed to update ticket" });
   }
 });
-
 
 // ✅ Delete ticket
 app.delete("/tickets/:id", (req, res) => {

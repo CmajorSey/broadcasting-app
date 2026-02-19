@@ -4,8 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { getSectionPermissions } from "@/lib/permissions";
+
 
 /* ===========================
    🌐 Backend (replaces LS_KEY)
@@ -49,7 +52,12 @@ const toISO = (d) => {
   try {
     const x = new Date(d);
     if (isNaN(x.getTime())) return "";
-    return x.toISOString().slice(0, 10);
+
+    // ✅ IMPORTANT: build YYYY-MM-DD using LOCAL time (avoid UTC date drift)
+    const y = x.getFullYear();
+    const m = String(x.getMonth() + 1).padStart(2, "0");
+    const day = String(x.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
   } catch {
     return "";
   }
@@ -125,7 +133,8 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
   /* ===========================
      📦 Backend Store (week + recurring)
      =========================== */
-   const [weekData, setWeekData] = useState(() => makeEmptyWeek());
+  const [weekData, setWeekData] = useState(() => makeEmptyWeek()); // ✅ Presenter week data (roster + shows)
+  const [calendarWeekData, setCalendarWeekData] = useState(() => makeEmptyWeek()); // ✅ Calendar week data (one-offs shown per viewed week)
   const [recurring, setRecurring] = useState(() => []);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -146,17 +155,33 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
   const [customRecurrence, setCustomRecurrence] = useState("one-off"); // "one-off" | "weekly"
 
   /* ===========================
-     ✅ Week alias (fixes currentWeek is not defined)
-     - Existing code below uses currentWeek everywhere
-     - Keep logic intact by mapping currentWeek -> weekData
+     🗓️ Week states
+     - Calendar week can browse freely (Prev/Next)
+     - Presenter roster is ONLY current vs next (switch)
+     =========================== */
+  const [calendarWeekStartISO, setCalendarWeekStartISO] = useState(() => getMondayISO(new Date()));
+  const [presenterNextWeek, setPresenterNextWeek] = useState(false);
+
+  const presenterWeekStartISO = useMemo(() => {
+    const base = getMondayISO(new Date());
+    return presenterNextWeek ? addDaysISO(base, 7) : base;
+  }, [presenterNextWeek]);
+
+  /* ===========================
+     🧩 Compatibility alias
+     - Some JSX still references weekStartISO
+     - For presenter roster, weekStartISO should mean presenterWeekStartISO
+     =========================== */
+  const weekStartISO = presenterWeekStartISO;
+
+  /* ===========================
+     ✅ Week alias
+     - Existing code below uses currentWeek everywhere for roster/shows
      =========================== */
   const currentWeek = weekData;
 
   /* ===========================
-     👥 Presenter options (fixes presenterOptions is not defined)
-     - Newsroom presenters dropdown source
-     - Includes journalists + key ops name (Clive Camille)
-     - Deduped + sorted
+     👥 Presenter options
      =========================== */
   const presenterOptions = useMemo(() => {
     const base = Array.isArray(users) ? users : [];
@@ -188,12 +213,11 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
   }, [users]);
 
   /* ===========================
-     🗓️ Week navigation
-     =========================== */
-  const [weekStartISO, setWeekStartISO] = useState(() => getMondayISO(new Date()));
-
-  /* ===========================
-     📥 Load (week + recurring)
+     📥 Load
+     - Loads BOTH:
+       1) Presenter week (current/next only)
+       2) Calendar viewed week (Prev/Next browsing)
+     - Recurring is global
      =========================== */
   useEffect(() => {
     let cancelled = false;
@@ -201,29 +225,49 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
     const run = async () => {
       setIsLoading(true);
       try {
-        // ✅ Newsroom Hub API is mounted at /hub/newsroom
-        // Expected: { weekStart, data } OR direct week object
-        const weekRes = await fetchJSON(`${API_BASE}/hub/newsroom/${weekStartISO}`);
-        const wk =
-          (weekRes && (weekRes.week || weekRes.data)) ||
-          (weekRes && typeof weekRes === "object" ? weekRes : null);
-
-        // ✅ Recurring should also be under /hub/newsroom
+        // ✅ load recurring (global)
         const recRes = await fetchJSON(`${API_BASE}/hub/newsroom/recurring`);
         const rec =
           (recRes && (recRes.recurring || recRes.data)) ||
           (Array.isArray(recRes) ? recRes : []);
 
+        // ✅ load presenter week
+        const presenterRes = await fetchJSON(`${API_BASE}/hub/newsroom/${presenterWeekStartISO}`);
+        const presenterWeek =
+          (presenterRes && (presenterRes.week || presenterRes.data)) ||
+          (presenterRes && typeof presenterRes === "object" ? presenterRes : null);
+
+        // ✅ load calendar week (if different), else reuse presenter result
+        let calendarWeek = presenterWeek;
+        if (calendarWeekStartISO !== presenterWeekStartISO) {
+          const calRes = await fetchJSON(`${API_BASE}/hub/newsroom/${calendarWeekStartISO}`);
+          calendarWeek =
+            (calRes && (calRes.week || calRes.data)) ||
+            (calRes && typeof calRes === "object" ? calRes : null);
+        }
+
         if (cancelled) return;
 
-        setWeekData(
-          wk && typeof wk === "object" ? { ...makeEmptyWeek(), ...wk } : makeEmptyWeek()
-        );
         setRecurring(Array.isArray(rec) ? rec : []);
+
+        setWeekData(
+          presenterWeek && typeof presenterWeek === "object"
+            ? { ...makeEmptyWeek(), ...presenterWeek }
+            : makeEmptyWeek()
+        );
+
+        setCalendarWeekData(
+          calendarWeek && typeof calendarWeek === "object"
+            ? { ...makeEmptyWeek(), ...calendarWeek }
+            : makeEmptyWeek()
+        );
       } catch (err) {
         if (cancelled) return;
+
         setWeekData(makeEmptyWeek());
+        setCalendarWeekData(makeEmptyWeek());
         setRecurring([]);
+
         toast({
           title: "Load failed",
           description: err?.message || "Could not load newsroom data from the server.",
@@ -238,25 +282,31 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekStartISO]);
+  }, [calendarWeekStartISO, presenterWeekStartISO]);
 
   /* ===========================
      💾 Save week (server)
+     - Week is stored by weekStartISO
      =========================== */
-  const persistWeek = async (nextWeekObj) => {
-    // ✅ Newsroom Hub API is mounted at /hub/newsroom
-    // NOTE: Send the week object directly (router stores it under weeks[weekStart])
-    await fetchJSON(`${API_BASE}/hub/newsroom/${weekStartISO}`, {
+  const persistWeek = async (weekISO, nextWeekObj) => {
+    await fetchJSON(`${API_BASE}/hub/newsroom/${weekISO}`, {
       method: "PATCH",
       body: JSON.stringify(nextWeekObj),
     });
   };
 
+  /* ===========================
+     ✅ Presenter week setter
+     =========================== */
   const setWeek = (nextWeekObj) => {
     setWeekData(nextWeekObj);
 
-    // Save in background (still in this same user action)
-    persistWeek(nextWeekObj).catch((err) => {
+    // If calendar is currently viewing the same week, keep it in sync visually.
+    if (calendarWeekStartISO === presenterWeekStartISO) {
+      setCalendarWeekData(nextWeekObj);
+    }
+
+    persistWeek(presenterWeekStartISO, nextWeekObj).catch((err) => {
       toast({
         title: "Save failed",
         description: err?.message || "Could not save changes. Please try again.",
@@ -265,18 +315,41 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
   };
 
   /* ===========================
-     🔄 Week controls
+     ✅ Calendar week setter (one-offs live here)
+     =========================== */
+  const setCalendarWeek = (nextWeekObj) => {
+    setCalendarWeekData(nextWeekObj);
+
+    // If presenter week is the same week, keep it in sync visually.
+    if (calendarWeekStartISO === presenterWeekStartISO) {
+      setWeekData(nextWeekObj);
+    }
+
+    persistWeek(calendarWeekStartISO, nextWeekObj).catch((err) => {
+      toast({
+        title: "Save failed",
+        description: err?.message || "Could not save changes. Please try again.",
+      });
+    });
+  };
+
+  /* ===========================
+     🔄 Calendar Week controls (ONLY affects calendar view)
      =========================== */
   const goPrevWeek = () => {
-    const d = new Date(`${weekStartISO}T00:00:00`);
+    const d = new Date(`${calendarWeekStartISO}T00:00:00`);
     d.setDate(d.getDate() - 7);
-    setWeekStartISO(toISO(d));
+    setCalendarWeekStartISO(toISO(d));
   };
 
   const goNextWeek = () => {
-    const d = new Date(`${weekStartISO}T00:00:00`);
+    const d = new Date(`${calendarWeekStartISO}T00:00:00`);
     d.setDate(d.getDate() + 7);
-    setWeekStartISO(toISO(d));
+    setCalendarWeekStartISO(toISO(d));
+  };
+
+  const goThisWeek = () => {
+    setCalendarWeekStartISO(getMondayISO(new Date()));
   };
 
   /* ===========================
@@ -415,9 +488,9 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
       return;
     }
 
-    // Ensure date is inside this viewed week when adding one-offs (keeps UX predictable)
-    const weekStart = weekStartISO;
-    const weekEnd = addDaysISO(weekStartISO, 6);
+    // ✅ Ensure date is inside the CALENDAR viewed week
+    const weekStart = calendarWeekStartISO;
+    const weekEnd = addDaysISO(calendarWeekStartISO, 6);
     if (dateISO < weekStart || dateISO > weekEnd) {
       toast({
         title: "Date outside this week",
@@ -442,7 +515,7 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
         weekdayIndex,
         timeHHMM,
         presenter,
-        startWeekISO: weekStartISO,
+        startWeekISO: calendarWeekStartISO, // ✅ tie to the calendar week you’re viewing
         createdBy: loggedInUser?.name || "Unknown",
         createdAt: nowISO,
       };
@@ -450,7 +523,7 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
       // Optimistic
       setRecurring((prev) => [rec, ...(prev || [])]);
 
-          // Persist
+      // Persist
       fetchJSON(`${API_BASE}/hub/newsroom/recurring`, {
         method: "POST",
         body: JSON.stringify(rec),
@@ -478,10 +551,12 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
       };
 
       const nextWeek = {
-        ...currentWeek,
-        oneOff: [newItem, ...(currentWeek.oneOff || [])],
+        ...calendarWeekData,
+        oneOff: [newItem, ...(calendarWeekData.oneOff || [])],
       };
-      setWeek(nextWeek);
+
+      // ✅ Save into the CALENDAR week bucket
+      setCalendarWeek(nextWeek);
 
       toast({ title: "Saved", description: "One-off item added to this week." });
     }
@@ -492,10 +567,10 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
 
   const removeOneOff = (id) => {
     const nextWeek = {
-      ...currentWeek,
-      oneOff: (currentWeek.oneOff || []).filter((x) => x.id !== id),
+      ...calendarWeekData,
+      oneOff: (calendarWeekData.oneOff || []).filter((x) => x.id !== id),
     };
-    setWeek(nextWeek);
+    setCalendarWeek(nextWeek);
     toast({ title: "Removed", description: "One-off item removed." });
   };
 
@@ -520,9 +595,10 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
 
   /* ===========================
      📅 Calendar build (Mon–Sun)
+     - Uses calendarWeekStartISO + calendarWeekData
      =========================== */
   const calendarDays = useMemo(() => {
-    const weekStart = weekStartISO;
+    const weekStart = calendarWeekStartISO;
 
     // recurring visible if startWeekISO <= viewed week
     const recurringForWeek = (recurring || []).filter((r) => {
@@ -530,21 +606,21 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
       return startWeek && startWeek <= weekStart;
     });
 
-    const oneOff = Array.isArray(currentWeek.oneOff) ? currentWeek.oneOff : [];
-    const shows = Array.isArray(currentWeek.shows) ? currentWeek.shows : [];
+    const oneOff = Array.isArray(calendarWeekData.oneOff) ? calendarWeekData.oneOff : [];
+    const shows = Array.isArray(calendarWeekData.shows) ? calendarWeekData.shows : [];
 
     return DAY_LABELS.map((label, dayIndex) => {
-      const dateISO = addDaysISO(weekStartISO, dayIndex);
+      const dateISO = addDaysISO(calendarWeekStartISO, dayIndex);
 
       // Base daily bulletin (7pm)
-      const bulletinPresenter = String(currentWeek?.bulletin?.[dayIndex] || "").trim();
+      const bulletinPresenter = String(calendarWeekData?.bulletin?.[dayIndex] || "").trim();
 
       // Saturday & Sunday special slots
       const isSat = dayIndex === 5;
       const isSun = dayIndex === 6;
 
-      const saturdayPresenter = isSat ? String(currentWeek?.saturdayProgram || "").trim() : "";
-      const sundayPresenter = isSun ? String(currentWeek?.sundayRoundup || "").trim() : "";
+      const saturdayPresenter = isSat ? String(calendarWeekData?.saturdayProgram || "").trim() : "";
+      const sundayPresenter = isSun ? String(calendarWeekData?.sundayRoundup || "").trim() : "";
 
       // One-offs for this date
       const oneOffItems = oneOff
@@ -582,7 +658,7 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
         recurringItems,
       };
     });
-  }, [weekStartISO, currentWeek, recurring]);
+  }, [calendarWeekStartISO, calendarWeekData, recurring]);
 
   const weekCounts = useMemo(() => {
     const oneOffCount = (currentWeek.oneOff || []).length;
@@ -608,22 +684,26 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          {/* ===========================
-             🗓️ Week selector (stays near top)
+                 {/* ===========================
+             🗓️ Week selector
+             - Calendar: browse any week (Prev/Next/This week)
              =========================== */}
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" onClick={goPrevWeek}>
                 ← Prev week
               </Button>
               <Button variant="outline" onClick={goNextWeek}>
                 Next week →
               </Button>
+              <Button variant="secondary" onClick={goThisWeek}>
+                This week
+              </Button>
             </div>
 
             <div className="flex items-center gap-2">
-              <Badge variant="secondary">Week</Badge>
-              <div className="text-sm font-medium">{weekTitle(weekStartISO)}</div>
+              <Badge variant="secondary">Calendar week</Badge>
+              <div className="text-sm font-medium">{weekTitle(calendarWeekStartISO)}</div>
             </div>
           </div>
 
@@ -754,7 +834,17 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
 
             <div className="flex items-center justify-between gap-2">
               <div className="text-sm font-medium">Presenter Roster (Mon → Sun)</div>
-              
+
+              <div className="flex items-center gap-2">
+                <Label className="text-xs text-muted-foreground">Week</Label>
+                <span className="text-xs text-muted-foreground">Current</span>
+                <Switch
+                  checked={presenterNextWeek}
+                  onCheckedChange={(v) => setPresenterNextWeek(Boolean(v))}
+                  disabled={isLoading}
+                />
+                <span className="text-xs text-muted-foreground">Next</span>
+              </div>
             </div>
 
             <Card className="rounded-2xl">
@@ -771,20 +861,30 @@ export default function NewsroomPage({ loggedInUser, users = [] }) {
                           Show
                         </th>
 
-                        {DAY_LABELS.map((label, i) => (
-                          <th
-                            key={label}
-                            className="text-left text-xs font-semibold text-muted-foreground border-b p-2 min-w-[150px]"
-                            title={formatDDMMYYYY(addDaysISO(weekStartISO, i))}
-                          >
-                            <div className="flex flex-col">
-                              <span>{label}</span>
-                              <span className="text-[11px] text-muted-foreground">
-                                {formatDDMMYYYY(addDaysISO(weekStartISO, i))}
-                              </span>
-                            </div>
-                          </th>
-                        ))}
+                        {DAY_LABELS.map((label, i) => {
+                          // ✅ Presenter header follows presenter week
+                          const raw = String(weekStartISO || "").trim();
+                          const baseISO =
+                            /^\d{8}$/.test(raw)
+                              ? `${raw.slice(4, 8)}-${raw.slice(2, 4)}-${raw.slice(0, 2)}`
+                              : raw;
+
+                          const dayISO = addDaysISO(baseISO, i);
+                          const dayLabel = formatDDMMYYYY(dayISO);
+
+                          return (
+                            <th
+                              key={label}
+                              className="text-left text-xs font-semibold text-muted-foreground border-b p-2 min-w-[150px]"
+                              title={dayLabel}
+                            >
+                              <div className="flex flex-col">
+                                <span>{label}</span>
+                                <span className="text-[11px] text-muted-foreground">{dayLabel}</span>
+                              </div>
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
 

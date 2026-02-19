@@ -26,7 +26,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { useToast } from "@/hooks/use-toast";
 import MyProfile from "@/pages/MyProfile";
 import ChangelogDialog from "@/components/ChangelogDialog";
-import { APP_VERSION } from "@/version";
 import { requestPermission, onMessage } from "@/lib/firebase";
 import AdminGlobalToasts from "@/components/AdminGlobalToasts";
 import { playSoundFor, installSoundUnlockOnGesture } from "@/lib/soundRouter";
@@ -1164,24 +1163,105 @@ fireGlobalAlert,
      =========================== */
 
 
-  /* ===========================
+    /* ===========================
      📦 Changelog Dialog logic starts
-     - Shows once per APP_VERSION
-     - Only update src/version.js in future pushes
+     - ✅ Version is controlled by backend changelog.json (latestVersion)
+     - Shows once per user per latestVersion
+     - Uses effectiveUser so Admin "View As" behaves correctly
+     - Skips public routes (login/reset)
      =========================== */
-  const [showChangelog, setShowChangelog] = useState(() => {
-    const lastSeen = localStorage.getItem("lastSeenChangelogVersion");
-    return lastSeen !== APP_VERSION;
-  });
 
-  const handleCloseChangelog = () => {
-    localStorage.setItem("lastSeenChangelogVersion", APP_VERSION);
+  // ✅ Backend changelog doc (source of truth)
+  const [changelogDoc, setChangelogDoc] = useState(null);
+
+  // ✅ Visible “app version” is whatever backend says is latestVersion
+  const releaseVersion = String(changelogDoc?.latestVersion || "").trim();
+
+  // ✅ Helper: pick the latest item by version match (preferred) or fallback to first item
+  const latestChangelogItem = (() => {
+    const items = Array.isArray(changelogDoc?.items) ? changelogDoc.items : [];
+    if (!items.length) return null;
+
+    const exact = items.find((it) => String(it?.version || "").trim() === releaseVersion);
+    return exact || items[0] || null;
+  })();
+
+  // ✅ Fetch changelog doc once (and whenever base URL changes)
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadChangelog = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/changelog`);
+        if (!res.ok) throw new Error(`Failed to load changelog (${res.status})`);
+        const data = await res.json().catch(() => null);
+
+        if (cancelled) return;
+
+        const latestVersion = String(data?.latestVersion || "").trim();
+        const items = Array.isArray(data?.items) ? data.items : [];
+
+        setChangelogDoc({ latestVersion, items });
+      } catch (err) {
+        // Silent fallback: keep UI stable even if endpoint is down
+        if (!cancelled) setChangelogDoc(null);
+      }
+    };
+
+    loadChangelog();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const [showChangelog, setShowChangelog] = useState(false);
+
+  const changelogStorageKey = (() => {
+    try {
+      const u = effectiveUser;
+      const ident =
+        u?.id || u?.userId || u?.email || u?.name || loggedInUser?.name || "anon";
+      return `loBoard.lastSeenChangelogVersion::${String(ident).trim()}`;
+    } catch {
+      return "loBoard.lastSeenChangelogVersion::anon";
+    }
+  })();
+
+  useEffect(() => {
+    try {
+      // Never show on login/reset pages
+      if (hideLayout) return;
+
+      // Only evaluate once we actually have a user
+      if (!effectiveUser) return;
+
+      // Only evaluate once we have a backend version
+      if (!releaseVersion) return;
+
+      const lastSeen = localStorage.getItem(changelogStorageKey) || "";
+      if (String(lastSeen) !== String(releaseVersion)) {
+        setShowChangelog(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, [hideLayout, effectiveUser, changelogStorageKey, releaseVersion]);
+
+  const handleCloseChangelog = useCallback(() => {
+    try {
+      if (releaseVersion) {
+        localStorage.setItem(changelogStorageKey, String(releaseVersion));
+      }
+    } catch {
+      // ignore
+    }
     setShowChangelog(false);
-  };
+  }, [changelogStorageKey, releaseVersion]);
+
   /* ===========================
      📦 Changelog Dialog logic ends
      =========================== */
-
   return (
     <>
            {!hideLayout && (
@@ -1424,13 +1504,15 @@ fireGlobalAlert,
             }
           />
         </Routes>
-      </div>
-      {!hideLayout && <Footer />}
+           </div>
+      {!hideLayout && <Footer appVersion={changelogDoc?.latestVersion} />}
 
-      {loggedInUser && !hideLayout && (
+   {loggedInUser && !hideLayout && (
   <ChangelogDialog
     open={showChangelog}
     onClose={handleCloseChangelog}
+    version={changelogDoc?.latestVersion}
+    entry={latestChangelogItem}
   />
 )}
       <Toaster toastOptions={{ position: "top-center" }} />

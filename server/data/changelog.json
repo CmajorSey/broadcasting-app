@@ -1,0 +1,284 @@
+{
+  "latestVersion": "0.8.5",
+  "items": [
+    {
+      "version": "0.3.2",
+      "date": "2025-07-20",
+      "title": "Request Improvements & Fleet Updates",
+      "intro": {
+        "text": "This update improved request handling, fleet tools, and weekly views."
+      },
+      "sections": [
+        {
+          "title": "📝 Request Management",
+          "bullets": [
+            "Postponed requests now support selecting a new date or marking as postponed without a new date.",
+            "Filming time and departure time can now be edited directly from the request table.",
+            "Archived and deleted request actions (restore, delete) now work reliably with the backend."
+          ]
+        },
+        {
+          "title": "📆 Weekly View",
+          "bullets": [
+            "New 'My Requests' section added.",
+            "Weekly view now runs Monday to Sunday.",
+            "Week selector added to Home and Operations pages."
+          ]
+        },
+        {
+          "title": "🚗 Fleet System",
+          "bullets": [
+            "License plates can now be edited.",
+            "Bulk delete added for rental vehicles.",
+            "Vehicle assignments update correctly across the system."
+          ]
+        },
+        {
+          "title": "🎥 Duty Visibility",
+          "bullets": [
+            "Camera operator duty badges now display directly on the homepage carousel."
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.5.0",
+      "date": "2025-09-01",
+      "title": "Operational Stability Update",
+      "intro": {
+        "text": "This update focused on improving system reliability and preparing for larger upcoming features."
+      },
+      "sections": [
+        {
+          "title": "⚙️ Stability Improvements",
+          "bullets": [
+            "Improved request syncing with backend.",
+            "Improved handling of archived and recycled requests.",
+            "Better week navigation stability."
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.0",
+      "date": "2025-10-10",
+      "title": "System Sync & Assignment Enhancements",
+      "intro": {
+        "text": "Lo Board moved to a more stable server storage system and improved assignment tracking."
+      },
+      "sections": [
+        {
+          "title": "💾 Data Storage",
+          "bullets": [
+            "System moved to a more stable file-based storage system.",
+            "All users, requests, vehicles, and rosters now sync fully with the server."
+          ]
+        },
+        {
+          "title": "🧑‍💼 Request Assignments",
+          "bullets": [
+            "Assigned Journalist/Producer can now be selected when creating a request.",
+            "Assigned reporter now displays on Request Page and Home view.",
+            "Camera operator badges now clearly show expected vs assigned crew."
+          ]
+        },
+        {
+          "title": "🚨 Smart Warnings",
+          "bullets": [
+            "Vehicle and driver reminders appear if transport is missing.",
+            "Editing requests shows instant feedback when changes are saved."
+          ]
+        },
+        {
+          "title": "📅 Week Handling",
+          "bullets": [
+            "Week selector improved with reliable Monday start."
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.2",
+      "date": "2025-10-25",
+      "title": "Password Reset & Login Improvements",
+      "intro": {
+        "text": "Security and login processes have been improved."
+      },
+      "sections": [
+        {
+          "title": "🔐 Password Reset",
+          "bullets": [
+            "You can now reset your password using the 'Forgot Password' option.",
+            "Password reset links expire automatically for security."
+          ]
+        },
+        {
+          "title": "🛡️ Security Improvements",
+          "bullets": [
+            "New passwords are stored securely.",
+            "Login works smoothly for both older and newer accounts."
+          ]
+        },
+        {
+          "title": "🚪 Login Experience",
+          "bullets": [
+            "Improved login messages.",
+            "Success and error alerts are clearer."
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.3",
+      "date": "2025-11-05",
+      "title": "Login & Reliability Enhancements",
+      "intro": {
+        "text": "Further improvements to login and system stability."
+      },
+      "sections": [
+        {
+          "title": "🔑 Account Recovery",
+          "bullets": [
+            "Admins can assist with password resets.",
+            "Temporary passwords can be issued securely."
+          ]
+        },
+        {
+          "title": "🌐 System Reliability",
+          "bullets": [
+            "Improved connection stability whether on LAN or online.",
+            "General performance improvements."
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.6.4",
+      "date": "2025-11-20",
+      "title": "Admin Notifications & Quality Improvements",
+      "intro": {
+        "text": "Admins now have more control over notifications and system management."
+      },
+      "sections": [
+        {
+          "title": "📨 Notifications Panel",
+          "bullets": [
+            "Admins can send notifications directly from the Notifications Panel.",
+            "Notifications support user groups for faster targeting."
+          ]
+        },
+        {
+          "title": "🔐 Password & Admin Tools",
+          "bullets": [
+            "Password reset flow improved.",
+            "Admin Panel usability improvements."
+          ]
+        },
+        {
+          "title": "📜 Changelog",
+          "bullets": [
+            "Per-version changelog history introduced."
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.7.1",
+      "date": "2025-12-15",
+      "title": "Leave Management Launch",
+      "intro": {
+        "text": "Leave management is now fully available in Lo Board."
+      },
+      "sections": [
+        {
+          "title": "📅 Leave Requests",
+          "bullets": [
+            "You can apply for leave directly from My Profile.",
+            "Choose leave type and number of days in a few clicks."
+          ]
+        },
+        {
+          "title": "🛠️ Admin Review",
+          "bullets": [
+            "Admins can approve or deny leave requests.",
+            "Leave balances update automatically after approval."
+          ]
+        },
+        {
+          "title": "📊 Clearer Process",
+          "bullets": [
+            "Leave tracking is now faster and more transparent."
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.8.2",
+      "date": "2026-02-18",
+      "title": "Major Foundation Patch",
+      "intro": {
+        "text": "Lo Board is now fully connected and ready for daily use."
+      },
+      "sections": [
+        {
+          "title": "🎬 Requests & Assignments",
+          "bullets": [
+            "Requests now sync in real time.",
+            "You are notified automatically when assigned work or when details change."
+          ]
+        },
+        {
+          "title": "🔔 Notifications",
+          "bullets": [
+            "Enable notifications in My Profile to receive alerts.",
+            "You will be notified when requests change or leave is approved or denied."
+          ]
+        },
+        {
+          "title": "👤 My Profile",
+          "bullets": [
+            "Leave balances (Annual + Off Days).",
+            "Leave request form.",
+            "Notification settings.",
+            "Personal inbox.",
+            "Suggestion box."
+          ]
+        },
+        {
+          "title": "🚗 Fleet & Vehicles",
+          "bullets": [
+            "Vehicle assignments sync automatically and trigger alerts if changed."
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.8.5",
+      "date": "2026-02-18",
+      "title": "Production + Newsroom + Sports Planning",
+      "intro": {
+        "text": "Production, Newsroom, and Sports planning tools are now available in Lo Board."
+      },
+      "sections": [
+        {
+          "title": "✅ What’s New",
+          "bullets": [
+            "Production Calendar: Seasons setup is now available for planning the year.",
+            "Proposed Programs: Add program ideas with details to build your production pipeline.",
+            "Newsroom Planning: Presenter and schedule planning tools are now available.",
+            "Sports Planning: Sports scheduling tools help plan upcoming coverage.",
+            "Notifications alert you when you are assigned to a request or when key details change.",
+            "My Profile allows you to manage leave, notifications, and your inbox.",
+            "General stability improvements across the app."
+          ]
+        }
+      ],
+      "callout": {
+        "title": "Important:",
+        "body": "Please keep notifications enabled so you do not miss updates."
+      }
+    }
+  ],
+  "updatedAt": "2026-02-18T09:42:31.982Z",
+  "updatedBy": "Admin"
+}

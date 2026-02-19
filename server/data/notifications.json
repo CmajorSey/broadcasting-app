@@ -1014,5 +1014,98 @@
     "timestamp": "2026-02-11T11:13:14.723Z",
     "category": "admin",
     "urgent": false
+  },
+  {
+    "title": "🆕 New Request Created",
+    "message": "Interview • 2026-02-17 11:00 • State House • News • ENG",
+    "recipients": [
+      "Patsy Edmond",
+      "admin"
+    ],
+    "timestamp": "2026-02-17T06:08:32.886Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "🆕 New Request Created",
+    "message": "afe • 2026-02-17 10:10 • Town • News • ENG",
+    "recipients": [
+      "Patsy Edmond",
+      "admin"
+    ],
+    "timestamp": "2026-02-17T06:16:37.256Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "🆕 New Request Created",
+    "message": "aefsz • 2026-02-17 15:30 • Providence • News • EFP",
+    "recipients": [
+      "Melissa Hassan",
+      "Gilmer Philoe",
+      "Christopher Gabriel",
+      "Alexander Moumou",
+      "Irene Jean-Baptiste",
+      "Patsy Edmond",
+      "Aaron Jean",
+      "admin"
+    ],
+    "timestamp": "2026-02-17T11:28:42.029Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "🆕 New Request Created",
+    "message": "wsad • 2026-02-17 22:45 • Studio • News • EFP",
+    "recipients": [
+      "Shereen Florentine",
+      "Julius Payet",
+      "Joshua Dodin",
+      "Naila D'acambra",
+      "Gilmer Philoe",
+      "Christopher Gabriel",
+      "Alexander Moumou",
+      "Irene Jean-Baptiste",
+      "Patsy Edmond",
+      "Aaron Jean",
+      "Ronny Marengo",
+      "admin"
+    ],
+    "timestamp": "2026-02-17T19:14:02.735Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "🆕 New Request Created",
+    "message": "afsz • 2026-02-17 23:15 • Studio • Production • Live",
+    "recipients": [
+      "Shereen Florentine",
+      "Darino Esther",
+      "Julius Payet",
+      "Emma Laporte",
+      "Gilmer Philoe",
+      "Christopher Gabriel",
+      "Alexander Moumou",
+      "Irene Jean-Baptiste",
+      "Patsy Edmond",
+      "Aaron Jean",
+      "Ronny Marengo",
+      "admin"
+    ],
+    "timestamp": "2026-02-17T19:23:59.126Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "🆕 New Request Created",
+    "message": "afsw • 2026-02-17 23:25 • Astro Turf • News • EFP",
+    "recipients": [
+      "Admin",
+      "Jana Mondon",
+      "Patsy Edmond"
+    ],
+    "timestamp": "2026-02-17T19:25:25.103Z",
+    "category": "ticket",
+    "urgent": false
   }
 ]

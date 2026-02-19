@@ -15,6 +15,17 @@ import {
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 
+/* ===========================
+   📜 Changelog Dialog (shadcn)
+   =========================== */
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 // 🔔 FCM (web push)
 import { requestPermission } from "@/lib/firebase";
 
@@ -143,6 +154,155 @@ export default function MyProfile({
     return [4, 6, 8].includes(raw) ? raw : 6;
   });
 
+  /* ===========================
+     📜 Changelog state + dialog control
+     - latestVersion comes from backend changelog.json
+     - per-user dismiss is stored in localStorage
+     =========================== */
+  const [changelog, setChangelog] = useState({ latestVersion: "", items: [] });
+  const [changelogOpen, setChangelogOpen] = useState(false);
+  const [changelogSelectedVersion, setChangelogSelectedVersion] = useState("");
+
+  /* ===========================
+     📜 Changelog helpers
+     - open dialog directly from title click (titles-only list)
+     - keep dropdown logic OUTSIDE the dialog (in the "View Updates" area)
+     =========================== */
+  const openChangelogForVersion = (ver) => {
+    const clean = String(ver || "").trim();
+    const fallback =
+      String(changelog?.latestVersion || "").trim() ||
+      String(changelog?.items?.[0]?.version || "").trim() ||
+      "";
+
+    const next = clean || fallback;
+    setChangelogSelectedVersion(next);
+    setChangelogOpen(true);
+  };
+
+  const sortedChangelogItems = useMemo(() => {
+    const list = Array.isArray(changelog?.items) ? [...changelog.items] : [];
+
+    // Prefer date sort (YYYY-MM-DD), fall back to version string
+    list.sort((a, b) => {
+      const da = String(a?.date || "").trim();
+      const db = String(b?.date || "").trim();
+      if (da && db && da !== db) return db.localeCompare(da); // newest first
+      const va = String(a?.version || "").trim();
+      const vb = String(b?.version || "").trim();
+      return vb.localeCompare(va);
+    });
+
+    return list;
+  }, [changelog?.items]);
+
+  /* ===========================
+     🛡️ System Admin-only tools
+     - IMPORTANT: gate on REAL login user (not adminViewAs)
+     =========================== */
+  const systemAdminName = String(realLoggedInUser?.name || "").trim();
+  const isSystemAdmin =
+    systemAdminName === "Christopher Gabriel" || systemAdminName === "Admin";
+
+  /* ===========================
+     📝 System Admin: Release Notes editor (simple English)
+     - Creates ONE "What’s New" section with bullet lines
+     =========================== */
+  const [rnVersion, setRnVersion] = useState("");
+  const [rnTitle, setRnTitle] = useState("");
+  const [rnDate, setRnDate] = useState(() => new Date().toISOString().slice(0, 10)); // YYYY-MM-DD
+  const [rnIntro, setRnIntro] = useState("Here’s what’s new in this update.");
+  const [rnBulletsText, setRnBulletsText] = useState("");
+
+  const submitReleaseNotes = async () => {
+    if (!isSystemAdmin) return;
+
+    const cleanVersion = String(rnVersion || "").trim();
+    const cleanTitle = String(rnTitle || "").trim();
+    const cleanDate = String(rnDate || "").trim();
+
+    const bullets = String(rnBulletsText || "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    if (!cleanVersion || !cleanTitle || !cleanDate) {
+      toast({
+        title: "Missing fields",
+        description: "Please enter Version, Title, and Date.",
+      });
+      return;
+    }
+
+    if (!bullets.length) {
+      toast({
+        title: "Add at least one change",
+        description: "Write one change per line in the ‘What’s new’ box.",
+      });
+      return;
+    }
+
+    const entry = {
+      version: cleanVersion,
+      date: cleanDate,
+      title: cleanTitle,
+      intro: { text: String(rnIntro || "").trim() || "Here’s what’s new in this update." },
+      sections: [
+        {
+          title: "✅ What’s New",
+          body: "",
+          bullets,
+        },
+      ],
+      callout: {
+        title: "Important:",
+        body: "Please keep notifications enabled so you do not miss updates.",
+      },
+    };
+
+    try {
+      const res = await fetch(`${API_BASE}/changelog/items`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ actorName: systemAdminName, entry }),
+      });
+
+      if (!res.ok) {
+        const msg = await res.text().catch(() => "");
+        throw new Error(msg || "Failed to update changelog");
+      }
+
+      const nextDoc = await res.json().catch(() => null);
+      if (nextDoc) {
+        setChangelog(nextDoc);
+
+        // ✅ After saving, make it the selected one (so one click opens it)
+        openChangelogForVersion(cleanVersion);
+      }
+
+      toast({
+        title: "Release notes updated",
+        description: `Saved ${cleanVersion} to changelog.json`,
+      });
+
+      // Optional: clear form after submit
+      setRnBulletsText("");
+    } catch (err) {
+      toast({
+        title: "Could not save release notes",
+        description: err?.message || "Unknown error",
+        variant: "destructive",
+      });
+    }
+  };
+
+  /* ===========================
+     📜 Release Notes list control
+     - default shows last 3 entries
+     =========================== */
+  const [showAllReleaseNotes, setShowAllReleaseNotes] = useState(false);
   const [expandedRequestId, setExpandedRequestId] = useState(null);
 
   // ✅ Derived: requestedDays is used all over your Leave Request card
@@ -275,6 +435,75 @@ export default function MyProfile({
   // Notification preferences (masters only)
   // -----------------------------
   // NOTE: Per-category prefs removed for now (future update)
+
+  useEffect(() => {
+  const controller = new AbortController();
+
+  const fetchChangelog = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/changelog`, {
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        const preview = String(text || "").slice(0, 200);
+        throw new Error(
+          `Failed to fetch changelog (${res.status}). Preview: ${preview}`
+        );
+      }
+
+      const contentType = (res.headers.get("content-type") || "").toLowerCase();
+
+      // ✅ If backend accidentally returned HTML (SPA fallback / error page), log it clearly.
+      if (!contentType.includes("application/json")) {
+        const text = await res.text().catch(() => "");
+        const preview = String(text || "").slice(0, 200);
+        throw new Error(
+          `Changelog is not JSON (content-type: ${contentType || "unknown"}). Preview: ${preview}`
+        );
+      }
+
+      const data = await res.json();
+      setChangelog(data);
+    } catch (err) {
+      // Ignore abort noise
+      if (String(err?.name) === "AbortError") return;
+      console.warn("Failed to load changelog:", err);
+    }
+  };
+
+  fetchChangelog();
+
+  return () => controller.abort();
+}, [API_BASE]);
+
+/* ===========================
+   📜 Auto-open changelog on new version
+   - Shows once per user, per latestVersion
+   - Clicking Release Notes can re-open anytime
+   =========================== */
+useEffect(() => {
+  try {
+    const latest = String(changelog?.latestVersion || "").trim();
+    if (!latest) return;
+
+    // Keep a selected version ready (defaults to latest)
+    if (!changelogSelectedVersion) {
+      setChangelogSelectedVersion(latest);
+    }
+
+    const dismissed = localStorage.getItem("loBoard.dismissedChangelogVersion") || "";
+    if (String(dismissed) !== latest) {
+      setChangelogSelectedVersion(latest);
+      setChangelogOpen(true);
+    }
+  } catch {
+    // ignore
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [changelog?.latestVersion]);
 
   const getSection = (u = user) => {
     if (!u) return "N/A";
@@ -653,7 +882,356 @@ const handleSuggestionSubmit = async () => {
         </CardContent>
       </Card>
 
-        {/* Notification Settings (Collapsible) */}
+  {/* ===========================
+   📜 Release Notes
+   - Clicking an entry opens the Changelog dialog
+   =========================== */}
+<Card id="release-notes" className="mt-6">
+  <CardHeader>
+    <CardTitle>📜 Release Notes</CardTitle>
+  </CardHeader>
+
+ <CardContent>
+  <Collapsible defaultOpen={false}>
+    <CollapsibleTrigger className="flex items-center justify-between w-full text-left font-semibold">
+      <span>View Updates</span>
+    </CollapsibleTrigger>
+
+    <CollapsibleContent className="mt-4 space-y-4">
+      {/* ===========================
+         🛡️ System Admin: Release Notes Editor
+         - Visible ONLY to Christopher Gabriel + Admin (real login)
+         =========================== */}
+      {isSystemAdmin ? (
+        <div className="border rounded-xl p-4 bg-white space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold">Release Notes (System Admin)</p>
+              <p className="text-xs text-gray-500">
+                This updates changelog.json on the backend.
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                // quick helper: prefill version with current latest (optional)
+                const latest = String(changelog?.latestVersion || "").trim();
+                if (!rnVersion && latest) setRnVersion(latest);
+              }}
+              className="h-8"
+            >
+              Prefill
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-gray-600">Version</p>
+              <Input
+                value={rnVersion}
+                onChange={(e) => setRnVersion(e.target.value)}
+                placeholder="e.g. 0.9.0"
+              />
+            </div>
+
+            <div className="space-y-1 md:col-span-2">
+              <p className="text-xs font-semibold text-gray-600">Title</p>
+              <Input
+                value={rnTitle}
+                onChange={(e) => setRnTitle(e.target.value)}
+                placeholder="e.g. Production + Newsroom + Sports Update"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-gray-600">Date</p>
+              <Input
+                type="date"
+                value={rnDate}
+                onChange={(e) => setRnDate(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1 md:col-span-2">
+              <p className="text-xs font-semibold text-gray-600">
+                Intro (optional)
+              </p>
+              <Input
+                value={rnIntro}
+                onChange={(e) => setRnIntro(e.target.value)}
+                placeholder="Here’s what’s new in this update."
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-gray-600">
+              What’s new (one line per bullet)
+            </p>
+            <Textarea
+              value={rnBulletsText}
+              onChange={(e) => setRnBulletsText(e.target.value)}
+              placeholder={
+                "Production Calendar: seasons + proposed programs\nNewsroom: presenter planning tools\nSports: sports planning grid"
+              }
+              className="min-h-[120px]"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" onClick={submitReleaseNotes}>
+              Submit Release Notes
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setRnVersion("");
+                setRnTitle("");
+                setRnDate(new Date().toISOString().slice(0, 10));
+                setRnIntro("Here’s what’s new in this update.");
+                setRnBulletsText("");
+              }}
+            >
+              Clear
+            </Button>
+
+            <p className="text-xs text-gray-500">
+              Tip: keep bullets short and simple for users.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ===========================
+         📜 Release Notes List (Titles-only)
+         - Click title → opens dialog directly
+         - Version dropdown lives HERE (not inside the dialog)
+         =========================== */}
+      {sortedChangelogItems?.length ? (
+        (() => {
+          const items = Array.isArray(sortedChangelogItems)
+            ? sortedChangelogItems
+            : [];
+          const total = items.length;
+
+          const showAll = total <= 3 ? true : !!showAllReleaseNotes;
+          const visibleItems = showAll ? items : items.slice(0, 3);
+
+          const latest = String(changelog?.latestVersion || "").trim();
+          const selected = String(changelogSelectedVersion || latest || "").trim();
+          const showVersionPicker = total > 1;
+
+          return (
+            <>
+              {/* Optional version picker (history) */}
+              {showVersionPicker ? (
+                <div className="flex flex-wrap items-center gap-2 border rounded-xl p-3 bg-white">
+                  <Label className="text-xs text-muted-foreground">Jump to</Label>
+
+                  <select
+                    className="border rounded px-2 py-1 text-sm"
+                    value={selected || String(items[0]?.version || "")}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      // Select here, and open the dialog immediately (one action)
+                      openChangelogForVersion(v);
+                    }}
+                  >
+                    {items.map((it) => (
+                      <option key={it.version} value={it.version}>
+                        v{it.version} – {it.title || "Update"}
+                      </option>
+                    ))}
+                  </select>
+
+                  {latest && selected === latest ? (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">
+                      Latest
+                    </span>
+                  ) : null}
+
+                  <p className="text-xs text-gray-500">
+                    Tip: click any title below to open full release notes.
+                  </p>
+                </div>
+              ) : null}
+
+              {/* Titles-only list */}
+              {visibleItems.map((entry) => {
+                const isLatest =
+                  String(entry?.version || "").trim() === latest && !!latest;
+
+                return (
+                  <button
+                    key={entry.version}
+                    type="button"
+                    onClick={() => openChangelogForVersion(entry.version)}
+                    className="w-full text-left border rounded-xl p-4 bg-gray-50 hover:bg-gray-100 transition"
+                  >
+                    <div className="flex justify-between items-center">
+                      <div className="font-semibold flex items-center gap-2">
+                        <span>
+                          v{entry.version} – {entry.title}
+                        </span>
+
+                        {isLatest ? (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">
+                            Latest
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="text-xs text-gray-500">{entry.date}</div>
+                    </div>
+
+                    <div className="mt-2 text-xs text-gray-500">
+                      Click to open full release notes
+                    </div>
+                  </button>
+                );
+              })}
+
+              {total > 3 ? (
+                <div className="pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAllReleaseNotes((v) => !v)}
+                    className="h-8"
+                  >
+                    {showAll ? "Show less" : `Show more (${total - 3} more)`}
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          );
+        })()
+      ) : (
+        <p className="text-sm text-gray-500">No release notes available.</p>
+      )}
+    </CollapsibleContent>
+  </Collapsible>
+
+  {/* ===========================
+     📜 Changelog Dialog (history-aware)
+     - Opens directly from title click (no dropdown inside dialog)
+     - Dismiss stores latestVersion only (so old versions remain viewable)
+     =========================== */}
+  <Dialog
+    open={!!changelogOpen}
+    onOpenChange={(open) => {
+      setChangelogOpen(open);
+
+      // If user closes while viewing the latest version, treat as "dismissed"
+      // so it won't auto-pop again until latestVersion changes.
+      try {
+        const latest = String(changelog?.latestVersion || "").trim();
+        const selected = String(changelogSelectedVersion || "").trim();
+
+        if (!open && latest && selected === latest) {
+          localStorage.setItem("loBoard.dismissedChangelogVersion", latest);
+        }
+      } catch {
+        // ignore
+      }
+    }}
+  >
+    <DialogContent className="max-w-2xl">
+      {(() => {
+        const latest = String(changelog?.latestVersion || "").trim();
+        const selected = String(changelogSelectedVersion || latest || "").trim();
+
+        const items = Array.isArray(changelog?.items) ? changelog.items : [];
+        const entry =
+          items.find((it) => String(it?.version) === selected) ||
+          items.find((it) => String(it?.version) === latest) ||
+          items[0] ||
+          null;
+
+        const title = entry?.title || "Release Notes";
+        const date = entry?.date || "";
+        const version = entry?.version || selected || latest || "";
+
+        // Support both legacy "changes" and newer "sections"
+        const legacyChanges = Array.isArray(entry?.changes) ? entry.changes : [];
+        const sectionBullets = Array.isArray(entry?.sections)
+          ? entry.sections
+              .flatMap((s) => (Array.isArray(s?.bullets) ? s.bullets : []))
+              .filter(Boolean)
+          : [];
+
+        const detailsList = sectionBullets.length ? sectionBullets : legacyChanges;
+
+        return (
+          <>
+            <DialogHeader>
+              <DialogTitle>
+                {version ? `v${version} – ${title}` : title}
+              </DialogTitle>
+              <DialogDescription>
+                {date ? `Release date: ${date}` : "Changelog"}
+              </DialogDescription>
+            </DialogHeader>
+
+            {/* Changes list */}
+            {detailsList.length ? (
+              <div className="mt-2">
+                <ul className="list-disc ml-5 text-sm space-y-1">
+                  {detailsList.map((c, idx) => (
+                    <li key={idx}>{String(c)}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground mt-2">
+                No details available for this version.
+              </p>
+            )}
+
+            <DialogFooter className="mt-4">
+              <Button
+                variant="outline"
+                onClick={() => setChangelogOpen(false)}
+                type="button"
+              >
+                Close
+              </Button>
+
+              {/* Only show dismiss action when viewing latest */}
+              {latest && String(version) === String(latest) ? (
+                <Button
+                  onClick={() => {
+                    try {
+                      localStorage.setItem(
+                        "loBoard.dismissedChangelogVersion",
+                        latest
+                      );
+                    } catch {
+                      // ignore
+                    }
+                    setChangelogOpen(false);
+                  }}
+                  type="button"
+                >
+                  Dismiss
+                </Button>
+              ) : null}
+            </DialogFooter>
+          </>
+        );
+      })()}
+    </DialogContent>
+  </Dialog>
+</CardContent>
+</Card>
+
+      {/* Notification Settings (Collapsible) */}
       <Collapsible
         defaultOpen={false}
         onOpenChange={(open) => {
