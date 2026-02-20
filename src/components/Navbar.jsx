@@ -3,6 +3,8 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
   Home,
   Users,
+  User,
+  Bell,
   PanelLeft,
   PlusCircle,
   Truck,
@@ -14,6 +16,16 @@ import {
 import { Button } from "@/components/ui/button";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import API_BASE from "@/api";
+
+/* ===========================
+   🧩 Mobile side menu (Sheet)
+   =========================== */
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 const CLOCK_STORAGE_KEY = "navbar.clock.format"; // "12h" | "24h"
 
@@ -53,8 +65,18 @@ export default function Navbar({
   const navigate = useNavigate();
   const location = useLocation();
 
+  /* ===========================
+     📱 Mobile menu open state
+     =========================== */
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  /* ===========================
+     👤 Mobile profile dropdown open
+     - Opens My Profile + Logout menu in the left drawer
+     =========================== */
+  const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
+
   // ✅ Auto-clear unread badge when user opens My Profile
-  // This keeps Navbar synced even if MyProfile clears items or App.jsx updates the count.
   useEffect(() => {
     const path = location?.pathname || "";
 
@@ -76,10 +98,18 @@ export default function Navbar({
     }
   }, [location?.pathname]);
 
+  // Close mobile menu on route change (nice UX)
+  useEffect(() => {
+    setMobileOpen(false);
+    setMobileProfileOpen(false);
+  }, [location?.pathname]);
+
+  // Also close the profile dropdown if the sheet is closed manually
+  useEffect(() => {
+    if (!mobileOpen) setMobileProfileOpen(false);
+  }, [mobileOpen]);
+
   const handleLogout = () => {
-    localStorage.removeItem("loggedInUser");
-    localStorage.removeItem("rememberedUser");
-    localStorage.removeItem("adminViewAs");
 
     // 🔴 clear unread badge
     try {
@@ -264,86 +294,35 @@ export default function Navbar({
      =========================== */
   const canSeeAdminUI = isAdminUser(actingUser);
 
-  // Reusable pieces to keep JSX tidy
-  const LeftLinks = (
-    <div className="flex flex-wrap items-center gap-4 md:justify-start">
-      <Link to="/" className="font-semibold flex items-center gap-1 hover:underline">
-        <Home size={18} />
-        Home
-      </Link>
-
-      <Link to="/tickets" className="flex items-center gap-1 hover:underline">
-        <FileText size={18} />
-        Request Forms
-      </Link>
-
-      <Link to="/fleet" className="flex items-center gap-1 hover:underline">
-        <Truck size={18} />
-        Fleet
-      </Link>
-
-      <Link to="/operations" className="flex items-center gap-1 hover:underline">
-        <PanelLeft size={18} />
-        Operations
-      </Link>
-
-      {/* ===========================
-         🏢 Team Hubs (NEW)
-         =========================== */}
-
-      {/*
-        ===========================
-        🔓 Team Hubs visibility gate (OPEN)
-        - All logged-in users may see:
-          Newsroom / Sports / Production
-        - Still respects Admin "View As" via effectiveUser
-        ===========================
-      */}
-      {(() => {
-        const canAccessTeamHubs = !!loggedInUser;
-
-        return (
-          <>
-            {canAccessTeamHubs && (
-              <Link to="/newsroom" className="flex items-center gap-1 hover:underline">
-                <Newspaper size={18} />
-                Newsroom
-              </Link>
-            )}
-
-            {canAccessTeamHubs && (
-              <Link to="/sports" className="flex items-center gap-1 hover:underline">
-                <Trophy size={18} />
-                Sports
-              </Link>
-            )}
-
-            {canAccessTeamHubs && (
-              <Link to="/production" className="flex items-center gap-1 hover:underline">
-                <Clapperboard size={18} />
-                Production
-              </Link>
-            )}
-          </>
-        );
-      })()}
-
-      <Link to="/create" className="flex items-center gap-1 hover:underline">
-        <PlusCircle size={18} />
-        Create Request
-      </Link>
-
-      {/* ===========================
-         🔒 Admin link (View As aware)
-         =========================== */}
-      {canSeeAdminUI && (
-        <Link to="/admin" className="flex items-center gap-1 hover:underline">
-          <Users size={18} />
-          Admin
-        </Link>
-      )}
+  /* ===========================
+     🧭 Clock UI
+     =========================== */
+  const ClockBox = (
+    <div
+      className="font-mono text-sm bg-white/10 px-3 py-1 rounded-md tracking-widest select-none cursor-pointer hover:bg-white/20 transition"
+      title={`Click to toggle ${is12h ? "24h" : "12h"} mode`}
+      aria-label="Current Seychelles time"
+      onClick={toggleFormat}
+    >
+      {timeString}
     </div>
   );
+
+  /* ===========================
+     🧩 Nav Items (single source)
+     - Reused for Desktop row + Mobile sheet
+     =========================== */
+  const navItems = [
+    { to: "/", label: "Home", Icon: Home, show: true },
+    { to: "/tickets", label: "Request Forms", Icon: FileText, show: true },
+    { to: "/fleet", label: "Fleet", Icon: Truck, show: true },
+    { to: "/operations", label: "Operations", Icon: PanelLeft, show: true },
+    { to: "/newsroom", label: "Newsroom", Icon: Newspaper, show: !!loggedInUser },
+    { to: "/sports", label: "Sports", Icon: Trophy, show: !!loggedInUser },
+    { to: "/production", label: "Production", Icon: Clapperboard, show: !!loggedInUser },
+    { to: "/create", label: "Create Request", Icon: PlusCircle, show: true },
+    { to: "/admin", label: "Admin", Icon: Users, show: !!canSeeAdminUI },
+  ].filter((x) => x.show);
 
   const AdminDevPanel = isLocalAdminView && (
     <div className="flex flex-wrap items-center gap-1">
@@ -393,51 +372,179 @@ export default function Navbar({
     </div>
   );
 
-  const ClockBox = (
-    <div
-      className="font-mono text-sm bg-white/10 px-3 py-1 rounded-md tracking-widest select-none cursor-pointer hover:bg-white/20 transition"
-      title={`Click to toggle ${is12h ? "24h" : "12h"} mode`}
-      aria-label="Current Seychelles time"
-      onClick={toggleFormat}
-    >
-      {timeString}
+  /* ===========================
+     🖥️ Desktop menus (under clock)
+     =========================== */
+  const DesktopMenuRow = (
+    <div className="hidden md:block">
+      <div className="flex justify-center">
+        <div className="flex items-center gap-5 whitespace-nowrap overflow-x-auto px-2 py-2">
+          {navItems.map(({ to, label, Icon }) => (
+            <Link
+              key={to}
+              to={to}
+              className="flex items-center gap-2 hover:underline text-sm"
+              title={label}
+            >
+              <Icon size={18} />
+              <span>{label}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
     </div>
+  );
+
+  /* ===========================
+     📱 Mobile side menu content
+     - Profile at top (inside)
+     =========================== */
+  const MobileSheet = (
+    <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+      <SheetContent side="left" className="w-[280px] sm:w-[320px]">
+        <SheetHeader>
+          <SheetTitle className="flex items-center justify-between gap-2">
+            <span className="font-semibold">Menu</span>
+            {/* Keep clock visible inside the menu too */}
+            {ClockBox}
+          </SheetTitle>
+        </SheetHeader>
+
+        <div className="mt-4 space-y-4">
+          {/* ===========================
+             👤 Profile (top of menu)
+             =========================== */}
+                    {/* ===========================
+             👤 Profile (top of menu)
+             - Icon toggles ProfileDropdown (My Profile + Logout)
+             - Badge stays on icon
+             =========================== */}
+          <div className="space-y-1">
+            <button
+              type="button"
+              onClick={() => setMobileProfileOpen((v) => !v)}
+              className="w-full relative flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent transition"
+              title="Profile"
+              aria-label="Profile"
+            >
+              <div className="relative">
+                <User size={20} />
+
+                {unreadCount > 0 && (
+                  <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center leading-none">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+              </div>
+            </button>
+
+            {/* Dropdown panel inside the menu */}
+            {mobileProfileOpen && loggedInUser && (
+              <div className="ml-3 pl-3 border-l border-white/20">
+                <ProfileDropdown loggedInUser={loggedInUser} onLogout={handleLogout} />
+              </div>
+            )}
+          </div>
+
+          {/* ===========================
+             🔗 Nav links (mobile list)
+             =========================== */}
+          <div className="space-y-1">
+            {navItems.map(({ to, label, Icon }) => (
+              <Link
+                key={to}
+                to={to}
+                className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent transition"
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon size={18} />
+                <span className="text-sm">{label}</span>
+              </Link>
+            ))}
+          </div>
+
+          {/* ===========================
+             🧪 Local Admin View panel (mobile too)
+             =========================== */}
+          {AdminDevPanel && (
+            <div className="pt-3 border-t">
+              {AdminDevPanel}
+            </div>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 
   return (
     <nav className="bg-blue-800 text-white px-4 py-3 shadow-md">
-      {isLocalAdminView ? (
-        // 🧭 Local Admin View: old flex layout with clock on the right
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-          {/* Left cluster */}
-          {LeftLinks}
+      {/* ===========================
+         📱 Mobile header
+         - Left: hamburger
+         - Center: clock (kept visible)
+         - Right: (empty, because profile lives in menu)
+         =========================== */}
+      <div className="md:hidden flex items-center justify-between gap-3">
+        <button
+          type="button"
+          className="inline-flex items-center gap-2 px-2 py-2 rounded-md hover:bg-white/10 transition"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open menu"
+          title="Menu"
+        >
+          <PanelLeft size={20} />
+        </button>
 
-          {/* Right cluster: admin view-as, clock, profile */}
-          <div className="flex items-center gap-4 flex-wrap justify-start md:justify-end">
-            {AdminDevPanel}
-            {ClockBox}
-            {loggedInUser && (
-              <ProfileDropdown loggedInUser={loggedInUser} onLogout={handleLogout} />
-            )}
+        <div className="flex-1 flex justify-center">{ClockBox}</div>
+
+        {/* spacer to balance layout */}
+        <div className="w-[44px]" />
+      </div>
+
+      {/* Mobile Sheet */}
+      {MobileSheet}
+
+      {/* ===========================
+         🖥️ Desktop layout
+         - Row 1: clock centered, profile right
+         - Row 2: all menus under the clock in one line
+         - Local Admin View keeps the dev controls visible (still View-As aware)
+         =========================== */}
+      <div className="hidden md:block">
+        {isLocalAdminView ? (
+          <div className="space-y-2">
+            {/* Row 1 (dev): admin panel + clock + profile */}
+            <div className="grid grid-cols-3 items-center">
+              <div className="flex items-center">{AdminDevPanel}</div>
+              <div className="flex justify-center">{ClockBox}</div>
+              <div className="flex justify-end">
+                {loggedInUser && (
+                  <ProfileDropdown loggedInUser={loggedInUser} onLogout={handleLogout} />
+                )}
+              </div>
+            </div>
+
+            {/* Row 2: menus under clock */}
+            {DesktopMenuRow}
           </div>
-        </div>
-      ) : (
-        // 👥 Everyone else: 3-column grid with centered clock
-        <div className="grid grid-cols-1 md:grid-cols-3 md:items-center gap-2">
-          {/* Left links */}
-          {LeftLinks}
+        ) : (
+          <div className="space-y-2">
+            {/* Row 1: clock center, profile right */}
+            <div className="grid grid-cols-3 items-center">
+              <div />
+              <div className="flex justify-center">{ClockBox}</div>
+              <div className="flex justify-end">
+                {loggedInUser && (
+                  <ProfileDropdown loggedInUser={loggedInUser} onLogout={handleLogout} />
+                )}
+              </div>
+            </div>
 
-          {/* Centered clock */}
-          <div className="flex justify-center order-3 md:order-none">{ClockBox}</div>
-
-          {/* Right: just profile */}
-          <div className="flex items-center gap-4 flex-wrap justify-start md:justify-end">
-            {loggedInUser && (
-              <ProfileDropdown loggedInUser={loggedInUser} onLogout={handleLogout} />
-            )}
+            {/* Row 2: menus under clock */}
+            {DesktopMenuRow}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </nav>
   );
 }
