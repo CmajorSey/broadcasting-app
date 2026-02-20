@@ -217,11 +217,82 @@ async function pullFromNagerDate(countryCode = "SC") {
 
 const router = Router();
 
-// GET /holidays -> normalized list
+/* ===========================
+   📅 Holidays API filtering starts here
+   Supports:
+   - GET /holidays
+   - GET /holidays?year=2026
+   - GET /holidays?from=YYYY-MM-DD&to=YYYY-MM-DD
+   - GET /holidays/2026
+   =========================== */
+
+function isISODate(s) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
+}
+
+function normalizeAndSort(list) {
+  const arr = Array.isArray(list) ? list : [];
+  const cleaned = arr
+    .filter((h) => h && typeof h === "object")
+    .map((h) => ({
+      date: String(h.date || "").trim(),
+      name: String(h.name || "").trim(),
+    }))
+    .filter((h) => isISODate(h.date) && h.name);
+
+  cleaned.sort((a, b) => a.date.localeCompare(b.date));
+  return cleaned;
+}
+
+function filterByYear(list, year) {
+  const prefix = `${year}-`;
+  return list.filter((h) => h.date.startsWith(prefix));
+}
+
+function filterByRange(list, from, to) {
+  return list.filter((h) => {
+    if (from && h.date < from) return false;
+    if (to && h.date > to) return false;
+    return true;
+  });
+}
+
+// GET /holidays (with optional filtering)
 router.get("/", (req, res) => {
-  const list = readJson(HOLIDAYS_FILE, []);
-  res.json(Array.isArray(list) ? list : []);
+  const raw = readJson(HOLIDAYS_FILE, []);
+  const list = normalizeAndSort(raw);
+
+  const { year, from, to } = req.query;
+
+  let result = list;
+
+  if (year && /^\d{4}$/.test(year)) {
+    result = filterByYear(result, year);
+  } else if (from || to) {
+    result = filterByRange(result, from, to);
+  }
+
+  return res.json(result);
 });
+
+// GET /holidays/:year
+router.get("/:year", (req, res) => {
+  const year = req.params.year;
+
+  if (!/^\d{4}$/.test(year)) {
+    return res.status(400).json({ error: "Invalid year" });
+  }
+
+  const raw = readJson(HOLIDAYS_FILE, []);
+  const list = normalizeAndSort(raw);
+  const result = filterByYear(list, year);
+
+  return res.json(result);
+});
+
+/* ===========================
+   📅 Holidays API filtering ends here
+   =========================== */
 
 // POST /holidays/refresh -> pulls from source based on settings.json
 router.post("/refresh", async (req, res) => {

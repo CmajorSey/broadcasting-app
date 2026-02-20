@@ -2587,6 +2587,355 @@ closeModify();
   // =====================================
   // UI
   // =====================================
+
+  /* ===========================
+     🧾 Admin Apply Leave (for user) — state + helpers
+     - Mirrors MyProfile "Leave Request" logic: dates, half-days, allocations, order
+     - Creates a PENDING request so user still gets approve/deny/cancel notifications later
+     =========================== */
+  const [adminLeaveUserId, setAdminLeaveUserId] = useState("");
+  /* ===========================
+     🔽 Admin Apply Leave collapse
+     (hidden by default)
+     =========================== */
+  const [adminLeaveOpen, setAdminLeaveOpen] = useState(false);
+
+  const [adminStartDate, setAdminStartDate] = useState("");
+  const [adminEndDate, setAdminEndDate] = useState("");
+  const [adminHalfDayStart, setAdminHalfDayStart] = useState("none");
+  const [adminHalfDayEnd, setAdminHalfDayEnd] = useState("none");
+  const [adminLocalOrOverseas, setAdminLocalOrOverseas] = useState("local");
+  const [adminConsumptionOrder, setAdminConsumptionOrder] = useState("annual_first");
+  const [adminTermsAccepted, setAdminTermsAccepted] = useState(false);
+  const [adminAnnualAlloc, setAdminAnnualAlloc] = useState(0);
+  const [adminOffAlloc, setAdminOffAlloc] = useState(0);
+  const [adminReason, setAdminReason] = useState("");
+  const [adminSubmitting, setAdminSubmitting] = useState(false);
+
+  const adminSelectedUser = useMemo(() => {
+    if (!adminLeaveUserId) return null;
+    return users.find((u) => String(u?.id) === String(adminLeaveUserId)) || null;
+  }, [users, adminLeaveUserId]);
+
+  const adminBalAnnual = toHalf(adminSelectedUser?.annualLeave ?? adminSelectedUser?.balances?.annualLeave ?? 0, 0);
+  const adminBalOff = toHalf(adminSelectedUser?.offDays ?? adminSelectedUser?.balances?.offDays ?? 0, 0);
+
+  const adminOrderLabel = adminConsumptionOrder === "off_first" ? "Off Days first" : "Annual first";
+
+  const adminRangeWorkdays = useMemo(() => {
+    if (!adminStartDate || !adminEndDate) return 0;
+    if (adminEndDate < adminStartDate) return 0;
+    return toHalf(weekdaysBetween(adminStartDate, adminEndDate, publicHolidays), 0);
+  }, [adminStartDate, adminEndDate, publicHolidays]);
+
+  const adminRequestedDays = useMemo(() => {
+    if (!adminStartDate || !adminEndDate) return 0;
+    if (adminEndDate < adminStartDate) return 0;
+    let base = toHalf(adminRangeWorkdays, 0);
+
+    // Half-days reduce total by 0.5 each (simple + consistent with your UI)
+    if (adminHalfDayStart && adminHalfDayStart !== "none") base = toHalf(base - 0.5, 0);
+    if (adminHalfDayEnd && adminHalfDayEnd !== "none") base = toHalf(base - 0.5, 0);
+
+    return Math.max(0, toHalf(base, 0));
+  }, [adminStartDate, adminEndDate, adminRangeWorkdays, adminHalfDayStart, adminHalfDayEnd]);
+
+  const adminHolidaysInRange = useMemo(() => {
+    if (!adminStartDate || !adminEndDate) return [];
+    const s = iso(adminStartDate);
+    const e = iso(adminEndDate);
+    if (!s || !e || e < s) return [];
+    const list = (publicHolidays || []).map((x) => iso(x)).filter(Boolean);
+    // Only count holidays inside the selected range (display only)
+    return list.filter((d) => d >= s && d <= e);
+  }, [adminStartDate, adminEndDate, publicHolidays]);
+
+  const adminResumeOnISO = useMemo(() => {
+    const e = iso(adminEndDate);
+    if (!e) return "";
+    return nextWorkdayISO(e, publicHolidays) || "";
+  }, [adminEndDate, publicHolidays]);
+
+  const adminSumAlloc = useMemo(() => {
+    return toHalf(toHalf(adminAnnualAlloc, 0) + toHalf(adminOffAlloc, 0), 0);
+  }, [adminAnnualAlloc, adminOffAlloc]);
+
+  const adminResetForm = () => {
+    setAdminLeaveUserId("");
+    setAdminStartDate("");
+    setAdminEndDate("");
+    setAdminHalfDayStart("none");
+    setAdminHalfDayEnd("none");
+    setAdminLocalOrOverseas("local");
+    setAdminConsumptionOrder("annual_first");
+    setAdminTermsAccepted(false);
+    setAdminAnnualAlloc(0);
+    setAdminOffAlloc(0);
+    setAdminReason("");
+    setAdminSubmitting(false);
+  };
+
+  const adminAutoAllocate = () => {
+    const target = toHalf(adminRequestedDays, 0);
+    if (!(target > 0)) return;
+
+    if (adminConsumptionOrder === "off_first") {
+      const off = Math.min(adminBalOff, target);
+      const remaining = Math.max(0, toHalf(target - off, 0));
+      const annual = Math.min(adminBalAnnual, remaining);
+
+      setAdminOffAlloc(toHalf(off, 0));
+      setAdminAnnualAlloc(toHalf(annual, 0));
+    } else {
+      // annual_first
+      const annual = Math.min(adminBalAnnual, target);
+      const remaining = Math.max(0, toHalf(target - annual, 0));
+      const off = Math.min(adminBalOff, remaining);
+
+      setAdminAnnualAlloc(toHalf(annual, 0));
+      setAdminOffAlloc(toHalf(off, 0));
+    }
+  };
+
+  const submitAdminLeaveRequest = async () => {
+    if (!adminSelectedUser?.id) {
+      toast({
+        title: "Select a user",
+        description: "Choose a user before submitting a leave request.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const s = iso(adminStartDate);
+    const e = iso(adminEndDate);
+    if (!s || !e || e < s) {
+      toast({
+        title: "Invalid dates",
+        description: "Please select a valid Start Date and End Date.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!(adminRequestedDays > 0)) {
+      toast({
+        title: "No days requested",
+        description: "This range results in 0 working days (weekends/holidays excluded).",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!adminTermsAccepted) {
+      toast({
+        title: "Confirm order rule",
+        description: "Please tick the confirmation checkbox for the balance usage order.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (adminSumAlloc !== toHalf(adminRequestedDays, 0)) {
+      toast({
+        title: "Allocation mismatch",
+        description: `Annual + Off must equal ${adminRequestedDays} day(s).`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (toHalf(adminAnnualAlloc, 0) > adminBalAnnual || toHalf(adminOffAlloc, 0) > adminBalOff) {
+      toast({
+        title: "Not enough balance",
+        description: `Selected: Annual ${adminAnnualAlloc} / Off ${adminOffAlloc}. Available: Annual ${adminBalAnnual} / Off ${adminBalOff}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setAdminSubmitting(true);
+
+    try {
+           const payload = {
+        // Identity (common variants)
+        userId: String(adminSelectedUser.id),
+        userName: String(adminSelectedUser.name || "Unknown"),
+                // Section (REQUIRED by backend)
+        section:
+          String(
+            adminSelectedUser.section ||
+              adminSelectedUser.department ||
+              adminSelectedUser.group ||
+              adminSelectedUser.description ||
+              ""
+          ) || "Unknown",
+        userSection:
+          String(
+            adminSelectedUser.section ||
+              adminSelectedUser.department ||
+              adminSelectedUser.group ||
+              adminSelectedUser.description ||
+              ""
+          ) || "Unknown",
+        requestedBy: String(adminSelectedUser.name || "Unknown"), // some backends use this
+        requesterName: String(adminSelectedUser.name || "Unknown"),
+
+        // Dates (send aliases)
+        startDate: s,
+        endDate: e,
+        startISO: s,
+        endISO: e,
+        start: s,
+        end: e,
+        from: s,
+        to: e,
+
+        // Half-days (aliases)
+        halfDayStart: adminHalfDayStart,
+        halfDayEnd: adminHalfDayEnd,
+
+       // Type (backend requires: "annual" or "offDay")
+// Keep local/overseas as its own field(s)
+localOrOverseas: adminLocalOrOverseas,
+category: adminLocalOrOverseas,
+
+// ✅ required by backend validation
+type:
+  toHalf(adminOffAlloc, 0) > 0 && toHalf(adminAnnualAlloc, 0) <= 0
+    ? "offDay"
+    : "annual",
+
+// optional alias (safe)
+leaveType:
+  toHalf(adminOffAlloc, 0) > 0 && toHalf(adminAnnualAlloc, 0) <= 0
+    ? "offDay"
+    : "annual",
+
+        // Order (aliases)
+        consumptionOrder: adminConsumptionOrder,
+        allocOrder: adminConsumptionOrder,
+        allocationOrder: adminConsumptionOrder,
+
+        // Days (aliases)
+        totalWeekdays: toHalf(adminRequestedDays, 0),
+        totalDays: toHalf(adminRequestedDays, 0),
+        days: toHalf(adminRequestedDays, 0),
+        requestedDays: toHalf(adminRequestedDays, 0),
+        duration: toHalf(adminRequestedDays, 0),
+
+        // Allocations (aliases)
+        annualAlloc: toHalf(adminAnnualAlloc, 0),
+        offAlloc: toHalf(adminOffAlloc, 0),
+        appliedAnnual: 0, // keep 0 until approval (some backends require these keys)
+        appliedOff: 0,
+        allocations: {
+          annual: toHalf(adminAnnualAlloc, 0),
+          off: toHalf(adminOffAlloc, 0),
+        },
+        split: {
+          annual: toHalf(adminAnnualAlloc, 0),
+          off: toHalf(adminOffAlloc, 0),
+        },
+
+        // Optional: some APIs require a “reason” string
+        reason: String(adminReason || ""),
+        note: String(adminReason || ""),
+
+        // Status/meta
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        submittedAt: new Date().toISOString(),
+        createdById: currentAdmin?.id ? String(currentAdmin.id) : null,
+        createdByName: currentAdmin?.name || "Admin",
+      };
+
+      console.log("🧾 [AdminLeave] POST payload →", payload);
+
+      const res = await fetch(`${API_BASE}/leave-requests`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const raw = await res.text().catch(() => "");
+
+      if (!res.ok) {
+        console.warn("🧾 [AdminLeave] 400/ERR response →", raw);
+
+        // Try to extract a useful message
+        let msg = raw;
+        try {
+          const j = raw ? JSON.parse(raw) : null;
+          msg =
+            j?.error ||
+            j?.message ||
+            j?.details ||
+            j?.reason ||
+            (typeof j === "string" ? j : raw) ||
+            `HTTP ${res.status}`;
+        } catch {
+          msg = raw || `HTTP ${res.status}`;
+        }
+
+        throw new Error(msg);
+      }
+
+      // Server might already be JSON, but we already read text → parse safely
+      let saved = null;
+      try {
+        saved = raw ? JSON.parse(raw) : null;
+      } catch {
+        saved = null;
+      }
+
+      if (!saved) throw new Error("Server returned an empty response.");
+
+      // Update local list quickly
+      setRequests((prev) => [saved, ...(Array.isArray(prev) ? prev : [])]);
+
+      toast({
+        title: "Leave request submitted",
+        description: `Submitted for ${adminSelectedUser.name}. Status: Pending.`,
+      });
+
+      // 🔊 (non-blocking)
+      fireLeaveAdminSound({ urgent: false });
+
+      // ✅ Notify the user that a request was submitted for them (pending)
+      await notifyLeaveUser(saved, adminSelectedUser, {
+        title: "📝 Leave request submitted",
+        urgent: false,
+        message: [
+          `A leave request was submitted for you by ${currentAdmin?.name || "Admin"}.`,
+          `Dates: ${dmyDate(s)} → ${dmyDate(e)}`,
+          adminResumeOnISO ? `Resume on: ${dmyDate(adminResumeOnISO)}` : null,
+          `Requested: ${toHalf(adminRequestedDays, 0)} day(s)`,
+          `Split: Annual ${toHalf(adminAnnualAlloc, 0)} / Off ${toHalf(adminOffAlloc, 0)}`,
+          adminReason ? `Reason: ${adminReason}` : null,
+          `Status: Pending approval`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        action: { type: "open_profile_leave", id: String(saved?.id || ""), url: "/profile#leave" },
+      });
+
+      // Reset form after success
+      adminResetForm();
+
+      // Optional: refresh admin table to see it placed/sorted consistently
+      loadRequests();
+    } catch (e) {
+      toast({
+        title: "Submit failed",
+        description: e?.message || "Could not submit leave request.",
+        variant: "destructive",
+      });
+    } finally {
+      setAdminSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-10">
       {/* ===================== Leave Requests Admin ===================== */}
@@ -2757,6 +3106,406 @@ closeModify();
           </div>
         </section>
       )}
+
+    {/* ===================== Admin Apply Leave (NEW) ===================== */}
+<section className="border rounded overflow-hidden">
+  {/* ===========================
+     🔽 Collapsible header
+     NOTE: Must NOT be a <button> because Switch renders a <button>,
+     and <button> inside <button> causes validateDOMNesting warnings.
+     =========================== */}
+  <div
+    role="button"
+    tabIndex={0}
+    onClick={() => setAdminLeaveOpen((prev) => !prev)}
+    onKeyDown={(e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        setAdminLeaveOpen((prev) => !prev);
+      }
+    }}
+    className="w-full bg-gray-100 px-3 py-2 flex items-center justify-between gap-3 flex-wrap hover:bg-gray-200 transition cursor-pointer select-none"
+  >
+    <div className="flex flex-col items-start">
+      <h2 className="text-2xl font-bold">Apply Leave for User</h2>
+      <div className="text-xs text-gray-600">
+        Admin submission (creates a Pending request)
+      </div>
+    </div>
+
+    <div className="flex items-center gap-3 text-xs text-gray-600">
+      <span
+        className="inline-flex items-center gap-2"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <span>Toasts</span>
+        <Switch checked={toastEnabled} onCheckedChange={setToastEnabled} />
+      </span>
+
+      <span
+        className="inline-flex items-center gap-2"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <span>Sound</span>
+        <Switch checked={soundEnabled} onCheckedChange={setSoundEnabled} />
+      </span>
+
+      <span className="ml-2 text-gray-700 font-medium">
+        {adminLeaveOpen ? "▲ Hide" : "▼ Show"}
+      </span>
+    </div>
+  </div>
+
+  {/* ===========================
+     📦 Collapsible content
+     =========================== */}
+  {adminLeaveOpen && (
+    <div className="p-3 space-y-4">
+            {/* User selector */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="md:col-span-1">
+                <Label>Choose user</Label>
+                <select
+                  className="w-full border rounded px-3 py-2"
+                  value={adminLeaveUserId}
+                  onChange={(e) => {
+                    setAdminLeaveUserId(e.target.value);
+                    // reset allocations + terms when switching user
+                    setAdminAnnualAlloc(0);
+                    setAdminOffAlloc(0);
+                    setAdminTermsAccepted(false);
+                  }}
+                >
+                  <option value="">Select user…</option>
+                  {Object.entries(segments).map(([seg, segUsers]) => (
+                    <optgroup key={seg} label={seg}>
+                      {(segUsers || [])
+                        .filter((u) => (u?.name || "").toLowerCase() !== "admin")
+                        .map((u) => (
+                          <option key={u.id || u.name} value={String(u.id)}>
+                            {u.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ))}
+                </select>
+
+                {adminSelectedUser ? (
+                  <div className="mt-2 text-xs text-gray-600 space-y-1">
+                    <div>
+                      Balances — Annual:{" "}
+                      <span className="font-medium">{adminBalAnnual}</span> / Off:{" "}
+                      <span className="font-medium">{adminBalOff}</span>
+                    </div>
+                    <div className="text-gray-500">
+                      Order rule: <span className="font-medium">{adminOrderLabel}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-2 text-xs text-gray-500">Select a user to see balances.</div>
+                )}
+              </div>
+
+              {/* Dates + type */}
+              <div className="md:col-span-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <Label>Start Date</Label>
+                    <Input
+                      type="date"
+                      value={adminStartDate}
+                      onChange={(e) => {
+                        setAdminStartDate(e.target.value);
+                        if (!e.target.value) setAdminHalfDayStart("none");
+                        setAdminTermsAccepted(false);
+                      }}
+                    />
+                    {adminStartDate && (
+                      <div className="mt-2">
+                        <Label className="text-xs block mb-1">Start Day</Label>
+                        <select
+                          className="w-full border rounded px-2 py-1 text-sm"
+                          value={adminHalfDayStart}
+                          onChange={(e) => {
+                            setAdminHalfDayStart(e.target.value);
+                            setAdminTermsAccepted(false);
+                          }}
+                        >
+                          <option value="none">Full day</option>
+                          <option value="am">Half day (AM)</option>
+                          <option value="pm">Half day (PM)</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label>End Date</Label>
+                    <Input
+                      type="date"
+                      value={adminEndDate}
+                      min={adminStartDate || undefined}
+                      onChange={(e) => {
+                        setAdminEndDate(e.target.value);
+                        if (!e.target.value) setAdminHalfDayEnd("none");
+                        setAdminTermsAccepted(false);
+                      }}
+                    />
+                    {adminEndDate && (
+                      <div className="mt-2">
+                        <Label className="text-xs block mb-1">End Day</Label>
+                        <select
+                          className="w-full border rounded px-2 py-1 text-sm"
+                          value={adminHalfDayEnd}
+                          onChange={(e) => {
+                            setAdminHalfDayEnd(e.target.value);
+                            setAdminTermsAccepted(false);
+                          }}
+                        >
+                          <option value="none">Full day</option>
+                          <option value="am">Half day (AM)</option>
+                          <option value="pm">Half day (PM)</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label>Local / Overseas</Label>
+                    <select
+                      className="w-full border rounded px-3 py-2"
+                      value={adminLocalOrOverseas}
+                      onChange={(e) => setAdminLocalOrOverseas(e.target.value)}
+                    >
+                      <option value="local">Local</option>
+                      <option value="overseas">Overseas</option>
+                    </select>
+
+                    <div className="mt-2 text-xs text-gray-600">
+                      {adminResumeOnISO ? (
+                        <span>
+                          Returns:{" "}
+                          <span className="font-medium">{shortDate(adminResumeOnISO)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-gray-500">Returns: —</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Balance usage rule */}
+            <div className="rounded border p-3 text-sm space-y-2">
+              <div className="font-medium">Balance usage rule</div>
+              <p className="text-xs text-gray-600">
+                Whichever balance you choose first will be used first as leave progresses. This affects refunds if the leave is cancelled while in progress.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="flex items-start gap-2 rounded border p-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="adminConsumptionOrder"
+                    value="annual_first"
+                    checked={adminConsumptionOrder === "annual_first"}
+                    onChange={() => {
+                      setAdminConsumptionOrder("annual_first");
+                      setAdminTermsAccepted(false);
+                    }}
+                  />
+                  <div>
+                    <div className="text-sm font-medium">Annual first</div>
+                    <div className="text-xs text-gray-600">Annual days are consumed before Off Days.</div>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2 rounded border p-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="adminConsumptionOrder"
+                    value="off_first"
+                    checked={adminConsumptionOrder === "off_first"}
+                    onChange={() => {
+                      setAdminConsumptionOrder("off_first");
+                      setAdminTermsAccepted(false);
+                    }}
+                  />
+                  <div>
+                    <div className="text-sm font-medium">Off Days first</div>
+                    <div className="text-xs text-gray-600">Off Days are consumed before Annual.</div>
+                  </div>
+                </label>
+              </div>
+
+              <label className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  checked={!!adminTermsAccepted}
+                  onChange={(e) => setAdminTermsAccepted(e.target.checked)}
+                />
+                <span className="text-xs">
+                  I understand and agree — <span className="font-medium">{adminOrderLabel}</span>.
+                </span>
+              </label>
+            </div>
+
+            {/* Requested days summary */}
+            <div className="rounded border p-3 text-sm space-y-1">
+              <div>
+                <span className="font-medium">Number of days requested:</span>{" "}
+                {adminStartDate && adminEndDate ? (
+                  adminRequestedDays > 0 ? (
+                    <span>
+                      {adminRequestedDays} {adminRequestedDays === 1 ? "day" : "days"}
+                    </span>
+                  ) : (
+                    <span className="text-amber-600">— invalid / 0 workdays —</span>
+                  )
+                ) : (
+                  <span className="text-gray-500">Select dates…</span>
+                )}
+              </div>
+
+              {adminHolidaysInRange.length > 0 && (
+                <div className="text-xs text-gray-600">
+                  Public holidays in range: {adminHolidaysInRange.length} (excluded from workday count)
+                </div>
+              )}
+
+              {adminStartDate && adminEndDate && adminRequestedDays > 0 && adminSumAlloc !== adminRequestedDays && (
+                <div className="text-xs text-amber-600">
+                  Allocations must equal <span className="font-medium">{adminRequestedDays}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Auto allocate */}
+            <div className="flex flex-wrap gap-2 items-center">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={adminAutoAllocate}
+                disabled={adminSubmitting || !adminSelectedUser || !(adminRequestedDays > 0)}
+              >
+                Auto Allocate
+              </Button>
+              <p className="text-xs text-gray-600">
+                Fills <strong>{adminOrderLabel.split(" ")[0]}</strong> first, then{" "}
+                <strong>{adminConsumptionOrder === "off_first" ? "Annual" : "Off Days"}</strong>.
+              </p>
+            </div>
+
+            {/* Allocations */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label>
+                  Annual Leave to use{" "}
+                  <span className="text-gray-500">(available {adminBalAnnual})</span>
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  max={adminBalAnnual}
+                  value={adminAnnualAlloc}
+                  onChange={(e) => {
+                    let val = Number(e.target.value);
+                    if (!Number.isFinite(val) || val < 0) val = 0;
+                    val = toHalf(val, 0);
+                    setAdminAnnualAlloc(val);
+                    setAdminTermsAccepted(false);
+                  }}
+                  disabled={!adminSelectedUser}
+                />
+              </div>
+
+              <div>
+                <Label>
+                  Off Days to use{" "}
+                  <span className="text-gray-500">(available {adminBalOff})</span>
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  max={adminBalOff}
+                  value={adminOffAlloc}
+                  onChange={(e) => {
+                    let val = Number(e.target.value);
+                    if (!Number.isFinite(val) || val < 0) val = 0;
+                    val = toHalf(val, 0);
+                    setAdminOffAlloc(val);
+                    setAdminTermsAccepted(false);
+                  }}
+                  disabled={!adminSelectedUser}
+                />
+              </div>
+            </div>
+
+            {/* Provisional preview */}
+            <div className="rounded border p-3 text-sm grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div>
+                <span className="font-medium">Annual:</span>{" "}
+                <span>{adminBalAnnual}</span>
+                <span className="text-blue-600 ml-2">
+                  → {Math.max(0, toHalf(adminBalAnnual - toHalf(adminAnnualAlloc, 0), 0))}
+                </span>{" "}
+                <span className="text-gray-500">(provisional)</span>
+              </div>
+              <div>
+                <span className="font-medium">Off Days:</span>{" "}
+                <span>{adminBalOff}</span>
+                <span className="text-blue-600 ml-2">
+                  → {Math.max(0, toHalf(adminBalOff - toHalf(adminOffAlloc, 0), 0))}
+                </span>{" "}
+                <span className="text-gray-500">(provisional)</span>
+              </div>
+            </div>
+
+            {/* Reason */}
+            <div>
+              <Label>Reason (optional)</Label>
+              <Textarea
+                placeholder="Brief reason for this request…"
+                value={adminReason}
+                onChange={(e) => setAdminReason(e.target.value)}
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2">
+              <Button
+                onClick={submitAdminLeaveRequest}
+                disabled={
+                  adminSubmitting ||
+                  !adminSelectedUser ||
+                  !adminStartDate ||
+                  !adminEndDate ||
+                  adminRequestedDays <= 0 ||
+                  !adminTermsAccepted ||
+                  adminSumAlloc !== adminRequestedDays ||
+                  adminAnnualAlloc > adminBalAnnual ||
+                  adminOffAlloc > adminBalOff
+                }
+              >
+                {adminSubmitting ? "Submitting…" : "Submit Request"}
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={adminResetForm}
+                disabled={adminSubmitting}
+              >
+                Reset
+              </Button>
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* ===================== Balances (Existing) ===================== */}
       <section>

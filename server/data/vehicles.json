@@ -8,5 +8,10 @@
     "insuranceExpiry": "2026-10-15",
     "patentExpiry": "2026-09-16",
     "permanent": true
+  },
+  {
+    "name": "Test Vehicle",
+    "status": "Available",
+    "id": 1771565458345
   }
 ]

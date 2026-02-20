@@ -522,6 +522,7 @@ app.use("/auth", authRouter);
 app.use("/user-prefs", userPrefsRouter);
 app.use("/holidays", holidaysRouter);
 
+
 /* ===========================
    📜 Changelog routes
    - IMPORTANT:

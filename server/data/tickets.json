@@ -48,7 +48,8 @@
     "assignedBy": "Admin",
     "isPublicHoliday": false,
     "publicHolidayName": "",
-    "archived": true
+    "archived": false,
+    "deleted": true
   },
   {
     "id": "1771308997162",
@@ -95,7 +96,8 @@
     "additionalDrivers": [],
     "assignedBy": "Admin",
     "isPublicHoliday": false,
-    "publicHolidayName": ""
+    "publicHolidayName": "",
+    "deleted": true
   },
   {
     "id": "1771327721993",
@@ -124,7 +126,9 @@
     "assignmentStatus": "Unassigned",
     "isReady": false,
     "status": "Pending",
-    "assignedReporter": "Journalist: Melissa Hassan",
+    "assignedReporter": [
+      "Melissa Hassan"
+    ],
     "crewAssignments": [
       {
         "role": "Director",
@@ -173,7 +177,8 @@
     "assignedTechnicians": [],
     "vehicleStatus": "",
     "createdBy": "Admin",
-    "createdAt": "2026-02-17T11:28:41.993Z"
+    "createdAt": "2026-02-17T11:28:41.993Z",
+    "deleted": true
   },
   {
     "id": "1771355642292",
@@ -212,7 +217,9 @@
     "assignmentStatus": "Unassigned",
     "isReady": false,
     "status": "Pending",
-    "assignedReporter": "Journalist: Naila D'acambra",
+    "assignedReporter": [
+      "Naila D'acambra"
+    ],
     "crewAssignments": [
       {
         "role": "Director",
@@ -268,7 +275,8 @@
     "expectedCamOps": 3,
     "vehicleStatus": "",
     "createdBy": "Admin",
-    "createdAt": "2026-02-17T19:14:02.293Z"
+    "createdAt": "2026-02-17T19:14:02.293Z",
+    "deleted": true
   },
   {
     "id": "1771356239038",
@@ -301,7 +309,9 @@
     "assignmentStatus": "Unassigned",
     "isReady": false,
     "status": "Pending",
-    "assignedReporter": "Journalist: Emma Laporte",
+    "assignedReporter": [
+      "Emma Laporte"
+    ],
     "crewAssignments": [
       {
         "role": "Director",
@@ -357,7 +367,8 @@
     "expectedCamOps": 3,
     "vehicleStatus": "",
     "createdBy": "Admin",
-    "createdAt": "2026-02-17T19:23:59.038Z"
+    "createdAt": "2026-02-17T19:23:59.038Z",
+    "deleted": true
   },
   {
     "id": "1771356325011",
@@ -386,7 +397,7 @@
     "assignmentStatus": "Unassigned",
     "isReady": false,
     "status": "Pending",
-    "assignedReporter": "",
+    "assignedReporter": [],
     "crewAssignments": [
       {
         "role": "Director",
@@ -427,6 +438,567 @@
     "assignedTechnicians": [],
     "vehicleStatus": "",
     "createdBy": "Admin",
-    "createdAt": "2026-02-17T19:25:25.011Z"
+    "createdAt": "2026-02-17T19:25:25.011Z",
+    "deleted": true
+  },
+  {
+    "id": "1771496186035",
+    "title": "PH Test",
+    "type": "News",
+    "category": "Interview",
+    "subtype": "",
+    "date": "2026-02-01T14:15",
+    "location": "Studio",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "13:45",
+    "filmingTime": "14:15",
+    "assignedCamOps": [
+      "Joshua Dodin"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Clive Camille"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-19T10:16:26.035Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin",
+    "isPublicHoliday": true,
+    "publicHolidayName": "Abolition of Slavery Day",
+    "deleted": true
+  },
+  {
+    "id": "1771505275158",
+    "title": "News Test Assigned (1 cam only)",
+    "type": "News",
+    "category": "Interview",
+    "subtype": "",
+    "date": "2026-02-16T09:00",
+    "location": "Town",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "08:30",
+    "filmingTime": "09:00",
+    "assignedCamOps": [
+      "Julius Payet"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "Test Vehicle",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Patsy Edmond"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-19T12:47:55.158Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin",
+    "isPublicHoliday": false,
+    "publicHolidayName": "",
+    "additionalVehicles": [
+      "Kia Niro (S32533)"
+    ]
+  },
+  {
+    "id": "1771505514717",
+    "title": "News Test 1 cam assigned morning",
+    "type": "News",
+    "category": "Press Conference",
+    "subtype": "",
+    "date": "2026-02-17T10:00",
+    "location": "Town",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "09:30",
+    "filmingTime": "10:00",
+    "assignedCamOps": [
+      "Julius Payet"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "Kia Niro (S32533)",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Naila D'acambra"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-19T12:51:54.717Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin",
+    "isPublicHoliday": false,
+    "publicHolidayName": ""
+  },
+  {
+    "id": "1771508362018",
+    "title": "News test in afternoon",
+    "type": "News",
+    "category": "Test",
+    "subtype": "",
+    "date": "2026-02-18T13:10",
+    "location": "Providence",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "12:40",
+    "filmingTime": "13:10",
+    "assignedCamOps": [
+      "Julius Payet"
+    ],
+    "assignedDriver": "Julius Payet",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Emma Laporte"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-19T13:39:22.018Z",
+    "assignedDriverFrom": "Julius Payet",
+    "additionalDrivers": [],
+    "assignedBy": "Admin",
+    "isPublicHoliday": false,
+    "publicHolidayName": ""
+  },
+  {
+    "id": "1771508545874",
+    "title": "Prod Test",
+    "type": "Production",
+    "category": "",
+    "subtype": "",
+    "date": "2026-02-21T15:00",
+    "location": "Unity House",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "Production",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "14:30",
+    "filmingTime": "15:00",
+    "assignedCamOps": [
+      "Ronny Marengo"
+    ],
+    "assignedDriver": "Ronny Marengo",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Ronny Marengo"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-19T13:42:25.874Z",
+    "assignedDriverFrom": "Ronny Marengo",
+    "additionalDrivers": [],
+    "assignedBy": "Admin",
+    "isPublicHoliday": false,
+    "publicHolidayName": ""
+  },
+  {
+    "id": "1771508636655",
+    "title": "Sports Test",
+    "type": "Sports",
+    "category": "",
+    "subtype": "Basketball",
+    "date": "2026-02-19T17:45",
+    "location": "Ministry of Fisheries & Blue Economy",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "17:45",
+    "filmingTime": "17:45",
+    "assignedCamOps": [
+      "Alexander Moumou"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Andy Henriette"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-19T13:43:56.655Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin",
+    "isPublicHoliday": false,
+    "publicHolidayName": ""
+  },
+  {
+    "id": "1771508787729",
+    "title": "Sports Morning",
+    "type": "Sports",
+    "category": "",
+    "subtype": "Training",
+    "date": "2026-02-20T08:05",
+    "location": "Stad Linite",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "07:35",
+    "filmingTime": "08:05",
+    "assignedCamOps": [
+      "Darino Esther"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Juiad Boniface"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-19T13:46:27.729Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin",
+    "isPublicHoliday": false,
+    "publicHolidayName": ""
+  },
+  {
+    "id": "1771508983904",
+    "type": "Technical",
+    "title": "Technical Test",
+    "date": "2026-02-22T08:05",
+    "location": "State House",
+    "scopeOfWork": "Setup",
+    "assignedTechnicians": [
+      "Christopher Gabriel"
+    ],
+    "departureTime": "07:35",
+    "filmingTime": null,
+    "status": "Pending",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "vehicle": "Kia Niro",
+    "vehicleStatus": "",
+    "notes": [],
+    "assignedReporter": [],
+    "crewAssignments": [],
+    "createdBy": "Admin",
+    "createdAt": "2026-02-19T13:49:43.904Z",
+    "assignedCamOps": [],
+    "assignedDriver": "Nelson Joseph",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "priority": "Normal",
+    "assignedBy": "Admin",
+    "isPublicHoliday": false,
+    "publicHolidayName": ""
+  },
+  {
+    "id": "1771560960021",
+    "title": "norm",
+    "type": "News",
+    "category": "Press Conference",
+    "subtype": "",
+    "date": "2026-02-20T08:30",
+    "location": "Unity House",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "ENG",
+    "camCount": 1,
+    "onlyOneCamOp": true,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "08:00",
+    "filmingTime": "08:30",
+    "assignedCamOps": [
+      "Alexander Moumou"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Melissa Hassan"
+    ],
+    "crewAssignments": [],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-20T04:16:00.021Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin",
+    "isPublicHoliday": false,
+    "publicHolidayName": ""
+  },
+  {
+    "id": "1771569406191",
+    "title": "efp test",
+    "type": "News",
+    "category": "",
+    "subtype": "",
+    "date": "2026-02-20T09:35",
+    "location": "State House",
+    "notes": [],
+    "priority": "Normal",
+    "camOp": true,
+    "shootType": "EFP",
+    "camCount": 3,
+    "onlyOneCamOp": false,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "09:35",
+    "filmingTime": "09:35",
+    "assignedCamOps": [
+      "Darino Esther",
+      "Alexander Moumou",
+      "Julius Payet"
+    ],
+    "assignedDriver": "",
+    "vehicle": "Test Vehicle",
+    "assignmentStatus": "Unassigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": "Journalist: Joshua Sofola",
+    "crewAssignments": [
+      {
+        "role": "Director",
+        "assignees": [
+          "Gilmer Philoe"
+        ]
+      },
+      {
+        "role": "Technical Support",
+        "assignees": [
+          "Patsy Edmond"
+        ]
+      },
+      {
+        "role": "A1",
+        "assignees": [
+          "George Francois"
+        ]
+      },
+      {
+        "role": "A2",
+        "assignees": [
+          "Julius Payet"
+        ]
+      },
+      {
+        "role": "Graphic Artist",
+        "assignees": [
+          "Christopher Gabriel"
+        ]
+      },
+      {
+        "role": "Producer",
+        "assignees": [
+          "Shereen Florentine"
+        ]
+      },
+      {
+        "role": "Drone Operator",
+        "assignees": [
+          "Nelson Joseph"
+        ]
+      }
+    ],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "expectedCamOps": 3,
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-20T06:36:46.191Z"
+  },
+  {
+    "id": "1771569577622",
+    "title": "live test",
+    "type": "News",
+    "category": "",
+    "subtype": "",
+    "date": "2026-02-21T10:40",
+    "location": "State House",
+    "notes": [],
+    "priority": "Urgent",
+    "camOp": true,
+    "shootType": "Live",
+    "camCount": 4,
+    "onlyOneCamOp": false,
+    "camAssignments": {
+      "cam1": "",
+      "cam2": "",
+      "cam3": ""
+    },
+    "departureTime": "10:10",
+    "filmingTime": "10:40",
+    "assignedCamOps": [
+      "Shereen Florentine",
+      "Julius Payet",
+      "Joshua Dodin"
+    ],
+    "assignedDriver": "Nelson Joseph",
+    "vehicle": "Kia Niro (S32533)",
+    "assignmentStatus": "Assigned",
+    "isReady": false,
+    "status": "Pending",
+    "assignedReporter": [
+      "Jana Mondon"
+    ],
+    "crewAssignments": [
+      {
+        "role": "Director",
+        "assignees": [
+          "Patsy Edmond"
+        ]
+      },
+      {
+        "role": "Technical Support",
+        "assignees": [
+          "Melissa Hassan"
+        ]
+      },
+      {
+        "role": "A1",
+        "assignees": [
+          "Joshua Sofola"
+        ]
+      },
+      {
+        "role": "A2",
+        "assignees": [
+          "Emma Laporte"
+        ]
+      },
+      {
+        "role": "Graphic Artist",
+        "assignees": [
+          "Gael Guichard"
+        ]
+      },
+      {
+        "role": "Producer",
+        "assignees": [
+          "George Francois"
+        ]
+      },
+      {
+        "role": "Drone Operator",
+        "assignees": [
+          "Jennifer Arnephy"
+        ]
+      }
+    ],
+    "scopeOfWork": "",
+    "assignedTechnicians": [],
+    "expectedCamOps": 3,
+    "vehicleStatus": "",
+    "createdBy": "Admin",
+    "createdAt": "2026-02-20T06:39:37.622Z",
+    "assignedDriverFrom": "Nelson Joseph",
+    "additionalDrivers": [],
+    "assignedBy": "Admin",
+    "isPublicHoliday": false,
+    "publicHolidayName": ""
   }
 ]

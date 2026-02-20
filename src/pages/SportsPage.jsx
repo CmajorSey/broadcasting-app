@@ -42,18 +42,48 @@ const fetchJSON = async (url, opts = {}) => {
 
 /* ===========================
    🗓️ Date helpers (Monday week)
+   - Local-safe (prevents UTC drift)
    =========================== */
-const toISO = (d) => {
+const pad2 = (n) => String(n).padStart(2, "0");
+
+const formatLocalISODate = (d) => {
   try {
-    const x = new Date(d);
-    if (isNaN(x.getTime())) return "";
-    return x.toISOString().slice(0, 10);
+    const y = d.getFullYear();
+    const m = pad2(d.getMonth() + 1);
+    const day = pad2(d.getDate());
+    return `${y}-${m}-${day}`;
   } catch {
     return "";
   }
 };
 
-const pad2 = (n) => String(n).padStart(2, "0");
+const parseISOToLocalDate = (iso, hour = 12) => {
+  try {
+    const s = String(iso || "").trim();
+    const [y, m, d] = s.split("-").map((x) => Number(x));
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+    // Midday anchor avoids any edge-case rollovers
+    return new Date(y, m - 1, d, hour, 0, 0, 0);
+  } catch {
+    return null;
+  }
+};
+
+const toISO = (d) => {
+  try {
+    // If already ISO date, keep it stable
+    if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d.trim())) return d.trim();
+
+    const x = d instanceof Date ? new Date(d.getTime()) : new Date(d);
+    if (isNaN(x.getTime())) return "";
+
+    // Anchor at midday before formatting to avoid UTC drift
+    x.setHours(12, 0, 0, 0);
+    return formatLocalISODate(x);
+  } catch {
+    return "";
+  }
+};
 
 const formatDDMMYYYY = (iso) => {
   if (!iso) return "—";
@@ -63,18 +93,25 @@ const formatDDMMYYYY = (iso) => {
 };
 
 const addDaysISO = (weekStartISO, offset) => {
-  const d = new Date(`${weekStartISO}T00:00:00`);
+  const base = parseISOToLocalDate(weekStartISO, 12);
+  if (!base) return "";
+  const d = new Date(base.getTime());
   d.setDate(d.getDate() + offset);
-  return toISO(d);
+  return formatLocalISODate(d);
 };
 
 const getMondayISO = (base = new Date()) => {
-  const d = new Date(base);
-  d.setHours(0, 0, 0, 0);
+  const d = base instanceof Date ? new Date(base.getTime()) : new Date(base);
+  if (isNaN(d.getTime())) return "";
+
+  // Midday anchor prevents “yesterday/tomorrow” drift from timezone conversions
+  d.setHours(12, 0, 0, 0);
+
   const day = d.getDay(); // 0 Sun .. 6 Sat
   const diffToMonday = (day + 6) % 7; // Mon -> 0, Sun -> 6
   d.setDate(d.getDate() - diffToMonday);
-  return toISO(d);
+
+  return formatLocalISODate(d);
 };
 
 const weekTitle = (weekStartISO) => {
@@ -198,15 +235,17 @@ export default function SportsPage({ loggedInUser, users = [] }) {
   };
 
   const goPrevWeek = () => {
-    const d = new Date(`${weekStartISO}T00:00:00`);
+    const base = parseISOToLocalDate(weekStartISO, 12);
+    const d = base ? new Date(base.getTime()) : new Date();
     d.setDate(d.getDate() - 7);
-    setWeekStartISO(toISO(d));
+    setWeekStartISO(formatLocalISODate(d));
   };
 
   const goNextWeek = () => {
-    const d = new Date(`${weekStartISO}T00:00:00`);
+    const base = parseISOToLocalDate(weekStartISO, 12);
+    const d = base ? new Date(base.getTime()) : new Date();
     d.setDate(d.getDate() + 7);
-    setWeekStartISO(toISO(d));
+    setWeekStartISO(formatLocalISODate(d));
   };
 
   const goPrevMonth = () => {
@@ -619,14 +658,14 @@ export default function SportsPage({ loggedInUser, users = [] }) {
   }, [weekStartISO, currentWeek, recurring]);
 
   const monthCells = useMemo(() => {
-    const firstOfMonth = new Date(`${monthStartISO}T00:00:00`);
-    if (isNaN(firstOfMonth.getTime())) return [];
+    const firstOfMonth = parseMonthStartLocal(monthStartISO) || null;
+    if (!firstOfMonth || isNaN(firstOfMonth.getTime())) return [];
 
     const year = firstOfMonth.getFullYear();
     const month = firstOfMonth.getMonth();
 
-    const first = new Date(year, month, 1);
-    const last = new Date(year, month + 1, 0);
+    const first = new Date(year, month, 1, 12, 0, 0, 0);
+    const last = new Date(year, month + 1, 0, 12, 0, 0, 0);
 
     const gridStartISO = getMondayISO(first);
 
@@ -634,14 +673,15 @@ export default function SportsPage({ loggedInUser, users = [] }) {
     const lastMonIndex = (lastJs + 6) % 7; // 0 Mon..6 Sun
     const gridEndISO = addDaysISO(toISO(last), 6 - lastMonIndex);
 
-    const start = new Date(`${gridStartISO}T00:00:00`);
-    const end = new Date(`${gridEndISO}T00:00:00`);
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) return [];
+    const start = parseISOToLocalDate(gridStartISO, 12);
+    const end = parseISOToLocalDate(gridEndISO, 12);
+    if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime())) return [];
 
     const days = [];
     const cursor = new Date(start.getTime());
+
     while (toISO(cursor) <= toISO(end) && days.length < 60) {
-      const dateISO = toISO(cursor);
+      const dateISO = formatLocalISODate(cursor);
       const js = cursor.getDay(); // 0 Sun..6 Sat
       const dayIndex = (js + 6) % 7; // 0 Mon..6 Sun
       const inMonth = cursor.getMonth() === month;
@@ -660,7 +700,7 @@ export default function SportsPage({ loggedInUser, users = [] }) {
 
       const recurringForDate = (recurring || []).filter((r) => {
         const startWeek = String(r?.startWeekISO || "");
-        return startWeek && startWeek <= getMondayISO(new Date(`${dateISO}T00:00:00`));
+        return startWeek && startWeek <= getMondayISO(parseISOToLocalDate(dateISO, 12));
       });
 
       const recurringItems = recurringForDate
@@ -681,7 +721,7 @@ export default function SportsPage({ loggedInUser, users = [] }) {
         dateISO,
         inMonth,
         dayIndex,
-        dayNumber: new Date(`${dateISO}T00:00:00`).getDate(),
+        dayNumber: cursor.getDate(),
         sportsPlusPresenter,
         showItems,
         recurringItems,
@@ -689,6 +729,7 @@ export default function SportsPage({ loggedInUser, users = [] }) {
       });
 
       cursor.setDate(cursor.getDate() + 1);
+      cursor.setHours(12, 0, 0, 0);
     }
 
     return days;

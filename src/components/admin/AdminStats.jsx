@@ -23,9 +23,18 @@ import API_BASE from "@/api";
 const safeStr = (v) => (typeof v === "string" ? v.trim() : "");
 const toISODate = (d) => {
   try {
-    const x = new Date(d);
+    if (d == null) return null;
+
+    // ✅ IMPORTANT:
+    // Do NOT use toISOString() here (it converts to UTC and can shift the day in Seychelles GMT+4),
+    // which breaks: public holidays detection, Monday-week grouping, and day-type breakdown.
+    const x = d instanceof Date ? d : new Date(d);
     if (isNaN(x)) return null;
-    return x.toISOString().slice(0, 10); // YYYY-MM-DD
+
+    const y = x.getFullYear();
+    const m = String(x.getMonth() + 1).padStart(2, "0");
+    const day = String(x.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`; // YYYY-MM-DD (LOCAL)
   } catch {
     return null;
   }
@@ -72,6 +81,54 @@ const normalizeStatus = (raw) => {
 };
 
 const statusKeyFromLabel = (label) => normalizeStatus(label).key;
+
+/* ===========================
+   📤 Export helpers (CSV/JSON)
+   =========================== */
+const downloadBlob = (blob, filename) => {
+  try {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2500);
+  } catch (e) {
+    console.error("Download failed", e);
+  }
+};
+
+const downloadJSON = (obj, filename) => {
+  const text = JSON.stringify(obj, null, 2);
+  downloadBlob(new Blob([text], { type: "application/json;charset=utf-8" }), filename);
+};
+
+const escapeCSVCell = (v) => {
+  const s = v == null ? "" : String(v);
+  // Quote if contains comma, quote, or newline
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+};
+
+const toCSV = (rows, columns) => {
+  const cols = Array.isArray(columns) && columns.length > 0
+    ? columns
+    : (rows && rows[0] ? Object.keys(rows[0]) : []);
+
+  const header = cols.map(escapeCSVCell).join(",");
+  const body = (rows || [])
+    .map((r) => cols.map((c) => escapeCSVCell(r?.[c])).join(","))
+    .join("\n");
+
+  return `${header}\n${body}\n`;
+};
+
+const downloadCSV = (rows, filename, columns) => {
+  const csv = toCSV(rows, columns);
+  downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), filename);
+};
 
 
 // --- Seychelles Day-Type helpers (weekend + backend holidays; safe fallback) ---
@@ -140,18 +197,61 @@ function isSeychellesPublicHolidayFallback(d) {
 
 const isHolidayFromSet = (dateLike, holidayISOSet) => {
   if (!holidayISOSet || typeof holidayISOSet.has !== "function") return false;
-  const iso = toISODate(dateLike);
+
+  // ✅ Tickets store datetime like "2026-02-01T14:15"
+  // Holidays are stored as "YYYY-MM-DD"
+  // Normalize everything to "YYYY-MM-DD" before checking the set.
+  const raw = String(dateLike ?? "").trim();
+  let iso = null;
+
+  // Fast path: ISO date or ISO datetime
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) {
+    iso = m[1];
+  } else {
+    // Fallback to existing helper (Date objects, other formats, etc.)
+    iso = typeof toISODate === "function" ? toISODate(dateLike) : null;
+    if (iso) {
+      const m2 = String(iso).trim().match(/^(\d{4}-\d{2}-\d{2})/);
+      iso = m2 ? m2[1] : null;
+    }
+  }
+
   if (!iso) return false;
   return holidayISOSet.has(iso);
 };
 
-const dayTypeOfDate = (dateLike, holidayISOSet) => {
+/* ===========================
+   📅 Day-type flags (Holiday + Weekend can both be true)
+   =========================== */
+const dayFlagsOfDate = (dateLike, holidayISOSet) => {
   const d = new Date(dateLike);
-  if (isNaN(d)) return "Unknown";
-  // Prefer backend-provided holiday set; fallback to minimal built-in logic
-  if (isHolidayFromSet(d, holidayISOSet) || isSeychellesPublicHolidayFallback(d))
-    return "Public Holiday";
-  if (isWeekend(d)) return "Weekend";
+  if (isNaN(d)) {
+    return { isHoliday: false, isWeekend: false, isWeekday: false, valid: false };
+  }
+
+  // ✅ Holiday (backend set preferred, fallback allowed)
+  const isHoliday =
+    isHolidayFromSet(dateLike, holidayISOSet) ||
+    isSeychellesPublicHolidayFallback(d);
+
+  // ✅ Weekend (Saturday/Sunday)
+  const isWeekendFlag = isWeekend(d);
+
+  // ✅ Weekday means: not weekend AND not holiday
+  const isWeekday = !isWeekendFlag && !isHoliday;
+
+  return { isHoliday, isWeekend: isWeekendFlag, isWeekday, valid: true };
+};
+
+// Keep a label helper for any UI that still wants a single “kind” string.
+// NOTE: A holiday on a weekend returns "Public Holiday" here, but counts still
+// treat it as BOTH in the breakdown charts via dayFlagsOfDate().
+const dayTypeOfDate = (dateLike, holidayISOSet) => {
+  const flags = dayFlagsOfDate(dateLike, holidayISOSet);
+  if (!flags.valid) return "Unknown";
+  if (flags.isHoliday) return "Public Holiday";
+  if (flags.isWeekend) return "Weekend";
   return "Weekday";
 };
 
@@ -276,31 +376,124 @@ export default function AdminStats() {
       return Array.from(ys.values()).sort((a, b) => a - b);
     };
 
+        /* ===========================
+       🎌 Holidays parse helper
+       =========================== */
     const parseHolidayDates = (raw) => {
-      // Accept: ["2026-01-01", ...] OR { dates: [...] } OR { holidays:[{date}], ... }
+      // Accept:
+      //  - ["2026-01-01", ...]
+      //  - ["18/02/2026", ...] (DD/MM/YYYY)
+      //  - ["18-02-2026", ...] (DD-MM-YYYY)
+      //  - [{ date: "2026-01-01", name: "..." }, ...]
+      //  - { dates: [...] }
+      //  - { holidays:[{date}], ... }
+      //  - { data: [...] }
       const out = [];
 
+      const normalizeHolidayISO = (v) => {
+        if (!v) return null;
+
+        // Date object
+        if (v instanceof Date && !isNaN(v)) {
+          const y = v.getFullYear();
+          const m = String(v.getMonth() + 1).padStart(2, "0");
+          const d = String(v.getDate()).padStart(2, "0");
+          return `${y}-${m}-${d}`;
+        }
+
+        // ✅ If object, try common date fields
+        if (v && typeof v === "object") {
+          const candidate =
+            v.date ??
+            v.iso ??
+            v.day ??
+            v.start ??
+            v.startDate ??
+            v.holidayDate ??
+            v.observed ??
+            v.observedDate ??
+            null;
+
+          if (candidate) return normalizeHolidayISO(candidate);
+          return null;
+        }
+
+        const s = String(v).trim();
+        if (!s) return null;
+
+        // Already ISO date
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+        // DD/MM/YYYY
+        const slash = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+        if (slash) {
+          const dd = slash[1];
+          const mm = slash[2];
+          const yyyy = slash[3];
+          return `${yyyy}-${mm}-${dd}`;
+        }
+
+        // DD-MM-YYYY
+        const dash = s.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+        if (dash) {
+          const dd = dash[1];
+          const mm = dash[2];
+          const yyyy = dash[3];
+          return `${yyyy}-${mm}-${dd}`;
+        }
+
+        // ISO datetime or anything Date can parse
+        const dt = new Date(s);
+        if (!isNaN(dt)) {
+          const y = dt.getFullYear();
+          const m = String(dt.getMonth() + 1).padStart(2, "0");
+          const d = String(dt.getDate()).padStart(2, "0");
+          return `${y}-${m}-${d}`;
+        }
+
+        return null;
+      };
+
       const pushDate = (v) => {
-        const iso = toISODate(v);
+        const iso =
+          normalizeHolidayISO(v) ||
+          (typeof toISODate === "function" ? toISODate(v) : null);
+
         if (iso) out.push(iso);
       };
 
+      // ✅ If backend returned an array, it can be strings OR objects
       if (Array.isArray(raw)) {
-        raw.forEach(pushDate);
+        raw.forEach((item) => {
+          if (item && typeof item === "object") {
+            pushDate(item); // normalizeHolidayISO will extract item.date / item.iso / etc
+          } else {
+            pushDate(item);
+          }
+        });
         return out;
       }
 
       if (raw && typeof raw === "object") {
         if (Array.isArray(raw.dates)) raw.dates.forEach(pushDate);
+
         if (Array.isArray(raw.holidays)) {
-          raw.holidays.forEach((h) => pushDate(h?.date || h?.iso || h));
+          raw.holidays.forEach((h) => pushDate(h));
         }
+
         if (Array.isArray(raw.data)) raw.data.forEach(pushDate);
+
+        // ✅ extra common keys
+        if (Array.isArray(raw.items)) raw.items.forEach(pushDate);
+        if (Array.isArray(raw.results)) raw.results.forEach(pushDate);
       }
 
       return out;
     };
 
+    /* ===========================
+       🎌 Holidays fetchYear
+       =========================== */
     const fetchYear = async (year) => {
       // Try common patterns without breaking if your route differs
       const candidates = [
@@ -311,6 +504,7 @@ export default function AdminStats() {
       ];
 
       let lastErr = null;
+
       for (const url of candidates) {
         try {
           const res = await fetch(url);
@@ -318,12 +512,15 @@ export default function AdminStats() {
             lastErr = new Error(`${res.status} ${res.statusText}`);
             continue;
           }
+
           const json = await res.json().catch(() => null);
-          return parseHolidayDates(json);
+          const parsed = parseHolidayDates(json);
+          return parsed;
         } catch (e) {
           lastErr = e;
         }
       }
+
       throw lastErr || new Error("Holiday fetch failed");
     };
 
@@ -345,7 +542,17 @@ export default function AdminStats() {
         );
 
         const all = new Set();
-        results.flat().forEach((iso) => all.add(iso));
+        results.flat().forEach((iso) => {
+          const s = String(iso || "").trim();
+          if (s) all.add(s);
+        });
+
+        // ✅ Proof log (temporary)
+        console.log("✅ Holiday ISO Set built:", {
+          years,
+          size: all.size,
+          sample: Array.from(all).slice(0, 25),
+        });
 
         if (!cancelled) {
           setHolidayISOSet(all);
@@ -465,15 +672,23 @@ export default function AdminStats() {
   }, [tickets, rangeMode, startDate, endDate, includeArchived]);
 
   // Apply Day-Type filter (#5)
-   const activeTickets = useMemo(() => {
+  const activeTickets = useMemo(() => {
     const src = Array.isArray(baseTickets) ? baseTickets : [];
     if (dayType === "all") return src;
+
     return src.filter((t) => {
       const d = t?.date || t?.createdAt;
-      const kind = dayTypeOfDate(d, holidayISOSet);
-      if (dayType === "weekday") return kind === "Weekday";
-      if (dayType === "weekend") return kind === "Weekend";
-      if (dayType === "holiday") return kind === "Public Holiday";
+
+      // ✅ Dual-flag logic:
+      // - weekend filter includes weekend holidays too
+      // - holiday filter includes holidays even if weekend
+      // - weekday excludes holidays + weekends
+      const flags = dayFlagsOfDate(d, holidayISOSet);
+
+      if (dayType === "weekday") return flags.isWeekday;
+      if (dayType === "weekend") return flags.isWeekend;
+      if (dayType === "holiday") return flags.isHoliday;
+
       return true;
     });
   }, [baseTickets, dayType, holidayISOSet]);
@@ -693,14 +908,20 @@ export default function AdminStats() {
     }
     const statusByTypeRows = rows; // keys = Array.from(statusKeySet)
 
-    // ---- Day-Type breakdown (#5) on the *range-filtered* base set (ignores the Day-Type and user filters to show full mix)
-       const dayCounts = { Weekday: 0, Weekend: 0, "Public Holiday": 0 };
+    // ---- Day-Type breakdown (#5) on the *range-filtered* base set
+    // ✅ Important: If a Public Holiday falls on a Weekend, it counts in BOTH buckets.
+    const dayCounts = { Weekday: 0, Weekend: 0, "Public Holiday": 0 };
+
     for (const t of baseTickets) {
-      const kind = dayTypeOfDate(t?.date || t?.createdAt, holidayISOSet);
-      if (kind === "Weekday") dayCounts["Weekday"] += 1;
-      else if (kind === "Weekend") dayCounts["Weekend"] += 1;
-      else if (kind === "Public Holiday") dayCounts["Public Holiday"] += 1;
+      const d = t?.date || t?.createdAt;
+      const flags = dayFlagsOfDate(d, holidayISOSet);
+
+      // Count BOTH where applicable
+      if (flags.isWeekend) dayCounts["Weekend"] += 1;
+      if (flags.isHoliday) dayCounts["Public Holiday"] += 1;
+      if (flags.isWeekday) dayCounts["Weekday"] += 1;
     }
+
     const dayTypeRows = [
       { kind: "Weekday", count: dayCounts["Weekday"] },
       { kind: "Weekend", count: dayCounts["Weekend"] },
@@ -878,44 +1099,181 @@ export default function AdminStats() {
       .toLowerCase();
 
   const extractNames = (list) => {
-    const toArray = (v) => (Array.isArray(v) ? v : v ? [v] : []);
-    const arr = toArray(list);
-    const names = [];
-    for (const item of arr) {
-      if (!item) continue;
-      if (typeof item === "string") {
-        item
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .forEach((n) => names.push(n));
-      } else if (typeof item === "object" && item.name) {
-        names.push(String(item.name).trim());
-      }
-    }
-    return Array.from(new Set(names.filter(Boolean)));
+  const toArray = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+  const arr = toArray(list);
+  const names = [];
+
+  const pushName = (n) => {
+    const s = String(n || "").trim();
+    if (!s) return;
+
+    // Allow comma-separated strings
+    s.split(",")
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .forEach((x) => names.push(x));
   };
+
+  for (const item of arr) {
+    if (!item) continue;
+
+    if (typeof item === "string") {
+      pushName(item);
+      continue;
+    }
+
+    if (typeof item === "object") {
+      // ✅ Support MultiSelectCombobox / Command items
+      // Common shapes: { label, value }, { name }, { displayName }, etc.
+      const candidate =
+        item.name ??
+        item.label ??
+        item.value ??
+        item.displayName ??
+        item.user ??
+        null;
+
+      if (candidate) pushName(candidate);
+      continue;
+    }
+  }
+
+  return Array.from(new Set(names.filter(Boolean)));
+};
 
   const fetchRosterForWeek = async (weekStartISO) => {
-    if (!weekStartISO) return [];
-    if (rosterCache.current[weekStartISO]) return rosterCache.current[weekStartISO];
-    try {
-      const res = await fetch(`${API_BASE}/rosters/${weekStartISO}`);
-      if (!res.ok) throw new Error("Roster not found");
-      const data = await res.json();
-      rosterCache.current[weekStartISO] = Array.isArray(data) ? data : [];
-      return rosterCache.current[weekStartISO];
-    } catch (err) {
-      console.warn("No roster for week:", weekStartISO, err?.message || err);
-      rosterCache.current[weekStartISO] = [];
-      return [];
-    }
+  if (!weekStartISO) return [];
+  if (rosterCache.current[weekStartISO]) return rosterCache.current[weekStartISO];
+
+  /* ===========================
+     📅 Roster fetch (robust)
+     - Tries multiple endpoints
+     - If week array is empty, tries nearby weekStart keys
+     =========================== */
+
+  const addDaysISO = (iso, n) => {
+    const d = new Date(String(iso || ""));
+    if (isNaN(d)) return null;
+    d.setDate(d.getDate() + n);
+    d.setHours(0, 0, 0, 0);
+    return toISODate(d);
   };
 
+  const fetchWeekFromServer = async (weekISO) => {
+    // ✅ Try multiple backend shapes (because your local/prod may differ)
+    const candidates = [
+      `${API_BASE}/rosters/${weekISO}`,
+      `${API_BASE}/rosters?weekStart=${encodeURIComponent(weekISO)}`,
+      `${API_BASE}/rosters?weekStartISO=${encodeURIComponent(weekISO)}`,
+      `${API_BASE}/rosters/week/${weekISO}`,
+      `${API_BASE}/rosters`,
+    ];
+
+    let lastErr = null;
+
+    for (const url of candidates) {
+      try {
+        const res = await fetch(url);
+
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          lastErr = new Error(
+            `${res.status} ${res.statusText} @ ${url} :: ${txt.slice(0, 200)}`
+          );
+          continue;
+        }
+
+        const data = await res.json().catch(() => null);
+
+        // ✅ Allow endpoint that returns all rosters (object keyed by weekStart)
+        // If so, pull the requested week out.
+        const maybeFromAll =
+          data && typeof data === "object" && !Array.isArray(data)
+            ? (data[weekISO] ??
+                data?.weeks?.[weekISO] ??
+                data?.rosters?.[weekISO] ??
+                null)
+            : null;
+
+        const src = maybeFromAll ?? data;
+
+        // ✅ Normalize common roster response shapes into a "week array"
+        const weekArr =
+          Array.isArray(src)
+            ? src
+            : Array.isArray(src?.roster)
+            ? src.roster
+            : Array.isArray(src?.days)
+            ? src.days
+            : Array.isArray(src?.roster?.days)
+            ? src.roster.days
+            : Array.isArray(src?.data)
+            ? src.data
+            : [];
+
+        return { weekArr, urlUsed: url, err: null };
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+
+    return { weekArr: [], urlUsed: null, err: lastErr };
+  };
+
+  // 1) Try the requested weekStart
+  const primary = await fetchWeekFromServer(weekStartISO);
+
+  if (Array.isArray(primary.weekArr) && primary.weekArr.length > 0) {
+    rosterCache.current[weekStartISO] = primary.weekArr;
+    return primary.weekArr;
+  }
+
+  // 2) If empty, try nearby keys (common when weekStart was saved as Tue/Wed by drift)
+  const offsets = [1, -1, 2, -2, 3, -3];
+  for (const off of offsets) {
+    const altISO = addDaysISO(weekStartISO, off);
+    if (!altISO) continue;
+
+    // Avoid refetch if cached
+    if (rosterCache.current[altISO] && rosterCache.current[altISO].length > 0) {
+      rosterCache.current[weekStartISO] = rosterCache.current[altISO];
+      return rosterCache.current[altISO];
+    }
+
+    const alt = await fetchWeekFromServer(altISO);
+    if (Array.isArray(alt.weekArr) && alt.weekArr.length > 0) {
+      rosterCache.current[altISO] = alt.weekArr;
+
+      // Cache under requested week too so the rest of code can keep using the Monday key
+      rosterCache.current[weekStartISO] = alt.weekArr;
+      return alt.weekArr;
+    }
+  }
+
+  // 3) Still empty — cache empty so we don't spam
+  rosterCache.current[weekStartISO] = [];
+  return [];
+};
+
   const getGroupsForDate = (weekArr, dateOnlyISO) => {
-  const day = (weekArr || []).find(
-    (d) => d?.date?.slice(0, 10) === String(dateOnlyISO).slice(0, 10)
-  );
+  const target = String(dateOnlyISO || "").slice(0, 10);
+
+  const day = (weekArr || []).find((d) => {
+    // ✅ Support multiple date key shapes per day
+    const candidate =
+      d?.date ??
+      d?.dateISO ??
+      d?.isoDate ??
+      d?.day ??
+      d?.dayISO ??
+      d?.dayDate ??
+      d?.meta?.date ??
+      null;
+
+    const iso = String(candidate || "").slice(0, 10);
+    return iso === target;
+  });
+
   if (!day) return { off: [], afternoonShift: [], onDuty: [] };
 
   // Support multiple shapes: day.camOps, day.operations.camOps, or fields directly on day
@@ -959,7 +1317,8 @@ export default function AdminStats() {
   );
   const amShift = extractNames(camOpsRoot?.amShift ?? day.amShift);
 
-  // Anyone in any on-duty group (non-Off) is considered "matched"
+    // ✅ On Duty = roster groups that represent "working" EXCLUDING afternoon shift.
+  // Afternoon is its own category and must NOT be counted as On Duty.
   const onDuty = Array.from(
     new Set([
       ...primary,
@@ -967,20 +1326,22 @@ export default function AdminStats() {
       ...backup,
       ...otherOnDuty,
       ...amShift,
-      ...afternoonShift, // still tracked separately for chart, but considered matched
+      // ❌ DO NOT include afternoonShift here
     ])
   );
 
   return { off, afternoonShift, onDuty };
 };
 
+
 useEffect(() => {
   // Build roster-aware counts whenever the *scoped* tickets change
   let cancelled = false;
+
   (async () => {
     setRosterBusy(true);
+
     try {
-      // Collect unique week starts we need
       const dates = Array.from(
         new Set(
           scopedTickets
@@ -988,12 +1349,19 @@ useEffect(() => {
             .filter(Boolean)
         )
       );
-      const weekKeys = Array.from(new Set(dates.map(getWeekStartISO)));
+
+      const weekKeys = Array.from(new Set(dates.map(getWeekStartISO))).filter(Boolean);
+
+      // ✅ If nothing to compute, hard reset stats so UI is honest
+      if (weekKeys.length === 0) {
+        if (!cancelled) setRosterStats({ offDuty: 0, afternoon: 0, primary: 0 });
+        return;
+      }
 
       // Preload all needed weeks
       await Promise.all(weekKeys.map(fetchRosterForWeek));
 
-          // Compute counts (no "Unmatched" category)
+      // Compute counts (no "Unmatched" category)
       let offDuty = 0;
       let afternoon = 0;
       let primary = 0;
@@ -1001,49 +1369,59 @@ useEffect(() => {
       for (const t of scopedTickets) {
         const dateOnly = toISODate(t?.date || t?.createdAt);
         if (!dateOnly) continue;
+
         const weekKey = getWeekStartISO(dateOnly);
         const week = rosterCache.current[weekKey] || [];
         const groups = getGroupsForDate(week, dateOnly);
 
-        // (Time-of-day currently not used for bucket choice; keep if needed later)
-        let hour = 0;
-        try {
-          const iso = new Date(t?.date);
-          if (!isNaN(iso)) hour = iso.getHours();
-          if (t?.filmingTime && /^\d{2}:\d{2}/.test(t.filmingTime)) {
-            const h = parseInt(t.filmingTime.split(":")[0], 10);
-            if (Number.isFinite(h)) hour = h;
-          }
-        } catch {}
-
         // Normalize once; use sets for fast membership checks
         const OFF = new Set((groups.off || []).map(normalizeName));
         const AFT = new Set((groups.afternoonShift || []).map(normalizeName));
-        const ON  = new Set((groups.onDuty || []).map(normalizeName));
+        const ON = new Set((groups.onDuty || []).map(normalizeName));
 
-           const assigned = Array.isArray(t?.assignedCamOps) ? t.assignedCamOps : [];
+        // ✅ Tickets may store cam ops in different shapes depending on older/newer forms
+        const assigned = extractNames(
+          t?.assignedCamOps ??
+            t?.assignedCameraOperators ??
+            t?.camOpsAssigned ??
+            t?.camOps ??
+            t?.assignedCamOp ??
+            []
+        );
+
         for (const rawName of assigned) {
           const n = normalizeName(rawName);
           if (!n) continue;
 
-          if (OFF.has(n)) {
-            // Working while marked Off
+          const isOff = OFF.has(n);
+          const isAft = AFT.has(n);
+          const isOn = ON.has(n);
+
+          if (isOff) {
             offDuty += 1;
-          } else if (AFT.has(n)) {
-            // Explicit afternoon shift
-            afternoon += 1;
-          } else if (ON.has(n)) {
-            // Any other on-duty roster group (Primary/Directing, News Director, Backup, Other on Duty, AM, etc.)
-            primary += 1;
-          } else {
-            // Not counted (Unmatched category removed)
+            continue;
           }
+
+          if (isAft) {
+            afternoon += 1;
+            continue;
+          }
+
+          if (isOn) {
+            primary += 1;
+            continue;
+          }
+
+          // else: ignore (not on roster for that day)
         }
       }
 
       if (!cancelled) {
         setRosterStats({ offDuty, afternoon, primary });
       }
+    } catch (e) {
+      // Keep UI stable; avoid noisy debug logs
+      if (!cancelled) setRosterStats({ offDuty: 0, afternoon: 0, primary: 0 });
     } finally {
       if (!cancelled) setRosterBusy(false);
     }
@@ -1054,6 +1432,195 @@ useEffect(() => {
   };
 }, [scopedTickets]); // eslint-disable-line react-hooks/exhaustive-deps
 
+/* ===========================
+   📤 Export builders (uses active filters)
+   =========================== */
+const exportMeta = useMemo(() => {
+  const fmt = (d) => (d instanceof Date && !isNaN(d) ? toISODate(d) : null);
+  return {
+    exportedAt: new Date().toISOString(),
+    filters: {
+      rangeMode,
+      customStart: customStart || null,
+      customEnd: customEnd || null,
+      startDateISO: fmt(startDate),
+      endDateISO: fmt(endDate),
+      dayType,
+      includeArchived,
+      selectedUsers: (selectedUsers || []).slice(),
+      lineStatus,
+    },
+    totals: {
+      totalRangeCount,
+      totalSelectedCount,
+    },
+  };
+}, [
+  rangeMode,
+  customStart,
+  customEnd,
+  startDate,
+  endDate,
+  dayType,
+  includeArchived,
+  selectedUsers,
+  lineStatus,
+  totalRangeCount,
+  totalSelectedCount,
+]);
+
+const buildTicketsExportRows = (arr) => {
+  const src = Array.isArray(arr) ? arr : [];
+
+  const asArray = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+  const joinArr = (v) => asArray(v).map((x) => String(x || "").trim()).filter(Boolean).join(", ");
+
+  return src.map((t) => {
+    const status = normalizeStatus(t?.assignmentStatus ?? t?.status).label;
+
+    // Prefer ticket.date (datetime) but keep date-only too
+    const rawDate = t?.date || t?.createdAt || "";
+    const dateISO = toISODate(rawDate);
+
+    const drv =
+      typeof t?.assignedDriver === "string"
+        ? safeStr(t.assignedDriver)
+        : safeStr(t?.assignedDriver?.name || t?.assignedDriver?.displayName);
+
+    return {
+      id: String(t?.id ?? ""),
+      title: safeStr(t?.title),
+      requestType: safeStr(t?.type),
+      status,
+      dateISO: dateISO || "",
+      dateTimeRaw: safeStr(rawDate),
+      location: safeStr(t?.location),
+      filmingTime: safeStr(t?.filmingTime),
+      departureTime: safeStr(t?.departureTime),
+      camCount: t?.camCount ?? "",
+      camOpsNeeded: t?.camOpsNeeded ?? "",
+      assignedCamOps: joinArr(t?.assignedCamOps),
+      assignedDriver: drv,
+      assignedReporter: joinArr(t?.assignedReporter),
+      vehicle: safeStr(t?.vehicle),
+      priority: safeStr(t?.priority),
+      archived: !!t?.archived,
+      deleted: !!t?.deleted,
+      createdBy: safeStr(t?.createdBy),
+      createdAt: safeStr(t?.createdAt),
+      updatedAt: safeStr(t?.updatedAt),
+    };
+  });
+};
+
+const handleExportJSON = () => {
+  try {
+    const snapshot = {
+      ...exportMeta,
+      datasets: {
+        // The exact filtered set the charts use
+        scopedTickets: scopedTickets,
+        // Cleaned ticket-rows form (good for debugging)
+        scopedTicketRows: buildTicketsExportRows(scopedTickets),
+
+        // Chart datasets / computed stats
+        sectionPie,
+        lineSeries,
+        statusByTypeRows,
+        dayTypeRows,
+        rosterImpact: {
+          onDuty: rosterStats.primary,
+          afternoonShift: rosterStats.afternoon,
+          offDuty: rosterStats.offDuty,
+        },
+        topAssigned: {
+          camOps: topCamOps,
+          drivers: topDrivers,
+          newsroom: topNewsroom,
+          sports: topSports,
+          production: topProduction,
+        },
+        userSummaryRows,
+        dataQuality: dq,
+      },
+    };
+
+    const fname = `admin-stats_export_${toISODate(new Date()) || "export"}.json`;
+    downloadJSON(snapshot, fname);
+  } catch (e) {
+    console.error("Export JSON failed", e);
+  }
+};
+
+const handleExportTicketsCSV = () => {
+  try {
+    const rows = buildTicketsExportRows(scopedTickets);
+    const fname = `tickets_filtered_${toISODate(new Date()) || "export"}.csv`;
+    downloadCSV(rows, fname);
+  } catch (e) {
+    console.error("Export CSV failed", e);
+  }
+};
+
+const handleExportStatsCSV = () => {
+  try {
+    // 1) Summary (one row)
+    const summaryRows = [
+      {
+        ...exportMeta.filters,
+        exportedAt: exportMeta.exportedAt,
+        totalRangeCount,
+        totalSelectedCount,
+        rosterOnDuty: rosterStats.primary,
+        rosterAfternoon: rosterStats.afternoon,
+        rosterOffDuty: rosterStats.offDuty,
+      },
+    ];
+
+    // 2) Line series
+    const lineRows = (lineSeries || []).map((r) => ({ ...r }));
+
+    // 3) Status by type (stacked)
+    const statusRows = (statusByTypeRows || []).map((r) => ({ ...r }));
+
+    // 4) Day-type breakdown
+    const dayRows = (dayTypeRows || []).map((r) => ({ ...r }));
+
+    // 5) User summary (if any)
+    const userRows = (userSummaryRows || []).map((r) => ({ ...r }));
+
+    // ✅ Single CSV with section headers (makes it easy to paste into Sheets)
+    const section = (title) => [{ __section__: title }];
+
+    const csvParts = [];
+    csvParts.push(toCSV(section("SUMMARY"), ["__section__"]));
+    csvParts.push(toCSV(summaryRows));
+
+    csvParts.push("\n");
+    csvParts.push(toCSV(section("LINE_SERIES"), ["__section__"]));
+    csvParts.push(toCSV(lineRows));
+
+    csvParts.push("\n");
+    csvParts.push(toCSV(section("STATUS_BY_TYPE"), ["__section__"]));
+    csvParts.push(toCSV(statusRows));
+
+    csvParts.push("\n");
+    csvParts.push(toCSV(section("DAY_TYPE_BREAKDOWN"), ["__section__"]));
+    csvParts.push(toCSV(dayRows));
+
+    if (Array.isArray(userRows) && userRows.length > 0) {
+      csvParts.push("\n");
+      csvParts.push(toCSV(section("USER_SUMMARY"), ["__section__"]));
+      csvParts.push(toCSV(userRows));
+    }
+
+    const csv = csvParts.join("");
+    const fname = `admin-stats_summary_${toISODate(new Date()) || "export"}.csv`;
+    downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), fname);
+  } catch (e) {
+    console.error("Export Stats CSV failed", e);
+  }
+};
 
   return (
     <div className="p-4 space-y-4">
@@ -1095,8 +1662,37 @@ useEffect(() => {
 
              {/* Filters */}
       <Card>
-        <CardHeader className="flex items-center justify-between gap-4">
-          <CardTitle>Filters</CardTitle>
+        <CardHeader className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Filters</CardTitle>
+
+            {/* ===========================
+               📤 Export buttons
+               =========================== */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleExportTicketsCSV}
+                className="border rounded-md px-3 py-2 text-xs"
+                title="Exports the filtered (scoped) tickets as CSV"
+              >
+                Export Requests (CSV)
+              </button>
+              <button
+                onClick={handleExportStatsCSV}
+                className="border rounded-md px-3 py-2 text-xs"
+                title="Exports the current charts/summary into a single CSV"
+              >
+                Export Stats (CSV)
+              </button>
+              <button
+                onClick={handleExportJSON}
+                className="border rounded-md px-3 py-2 text-xs"
+                title="Exports everything (filters + datasets + DQ) as JSON"
+              >
+                Export as text file (JSON)
+              </button>
+            </div>
+          </div>
 
           {/* Live totals */}
           <div className="flex flex-wrap gap-2 text-xs">

@@ -658,5 +658,121 @@
       "afternoonShift": [],
       "off": []
     }
+  ],
+  "2026-02-15": [
+    {
+      "date": "2026-02-16",
+      "primary": [
+        "Darino Esther"
+      ],
+      "backup": [
+        "Joshua Dodin"
+      ],
+      "otherOnDuty": [
+        "Julius Payet",
+        "Alexander Moumou",
+        "Nelson Joseph"
+      ],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2026-02-17",
+      "primary": [
+        "Joshua Dodin"
+      ],
+      "backup": [
+        "Alexander Moumou"
+      ],
+      "otherOnDuty": [
+        "Darino Esther",
+        "Nelson Joseph"
+      ],
+      "afternoonShift": [
+        "Joshua Dodin"
+      ],
+      "off": [
+        "Julius Payet"
+      ]
+    },
+    {
+      "date": "2026-02-18",
+      "primary": [
+        "Julius Payet"
+      ],
+      "backup": [
+        "Darino Esther"
+      ],
+      "otherOnDuty": [
+        "Joshua Dodin"
+      ],
+      "afternoonShift": [
+        "Julius Payet"
+      ],
+      "off": [
+        "Alexander Moumou",
+        "Nelson Joseph"
+      ]
+    },
+    {
+      "date": "2026-02-19",
+      "primary": [
+        "Alexander Moumou"
+      ],
+      "backup": [
+        "Joshua Dodin"
+      ],
+      "otherOnDuty": [
+        "Julius Payet",
+        "Nelson Joseph"
+      ],
+      "afternoonShift": [
+        "Alexander Moumou"
+      ],
+      "off": [
+        "Darino Esther"
+      ]
+    },
+    {
+      "date": "2026-02-20",
+      "primary": [
+        "Darino Esther"
+      ],
+      "backup": [
+        "Julius Payet"
+      ],
+      "otherOnDuty": [
+        "Alexander Moumou",
+        "Nelson Joseph"
+      ],
+      "afternoonShift": [
+        "Darino Esther"
+      ],
+      "off": [
+        "Joshua Dodin"
+      ]
+    },
+    {
+      "date": "2026-02-21",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [
+        "Nelson Joseph",
+        "Alexander Moumou"
+      ],
+      "afternoonShift": [],
+      "off": []
+    },
+    {
+      "date": "2026-02-15",
+      "primary": [],
+      "backup": [],
+      "otherOnDuty": [
+        "Darino Esther",
+        "Julius Payet"
+      ],
+      "afternoonShift": [],
+      "off": []
+    }
   ]
 }
