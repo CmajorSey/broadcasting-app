@@ -476,8 +476,23 @@ export default function Navbar({
     </Sheet>
   );
 
+   /* ===========================
+     🍎 iOS PWA Safe Area Insets
+     - When installed to Home Screen, iPhone adds a top “status/notch” area.
+     - Without safe-area padding, the navbar can sit under it and become hard to tap.
+     - env(..., 0px) keeps it safe on non-iOS browsers.
+     =========================== */
+  const navSafeAreaStyle = {
+    paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)",
+    paddingLeft: "calc(env(safe-area-inset-left, 0px) + 1rem)",
+    paddingRight: "calc(env(safe-area-inset-right, 0px) + 1rem)",
+  };
+
   return (
-    <nav className="bg-blue-800 text-white px-4 py-3 shadow-md">
+    <nav
+      className="bg-blue-800 text-white px-4 py-3 shadow-md"
+      style={navSafeAreaStyle}
+    >
       {/* ===========================
          📱 Mobile header
          - Left: hamburger
