@@ -734,7 +734,7 @@
       "Darino Esther"
     ],
     "assignedDriver": "Nelson Joseph",
-    "vehicle": "",
+    "vehicle": "102",
     "assignmentStatus": "Assigned",
     "isReady": false,
     "status": "Pending",
@@ -809,7 +809,7 @@
       "Alexander Moumou"
     ],
     "assignedDriver": "Nelson Joseph",
-    "vehicle": "",
+    "vehicle": "102",
     "assignmentStatus": "Assigned",
     "isReady": false,
     "status": "Pending",

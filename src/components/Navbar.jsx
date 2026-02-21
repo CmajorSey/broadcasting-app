@@ -314,13 +314,13 @@ export default function Navbar({
      =========================== */
   const navItems = [
     { to: "/", label: "Home", Icon: Home, show: true },
+    { to: "/create", label: "Create Request", Icon: PlusCircle, show: true },
     { to: "/tickets", label: "Request Forms", Icon: FileText, show: true },
     { to: "/fleet", label: "Fleet", Icon: Truck, show: true },
     { to: "/operations", label: "Operations", Icon: PanelLeft, show: true },
     { to: "/newsroom", label: "Newsroom", Icon: Newspaper, show: !!loggedInUser },
     { to: "/sports", label: "Sports", Icon: Trophy, show: !!loggedInUser },
     { to: "/production", label: "Production", Icon: Clapperboard, show: !!loggedInUser },
-    { to: "/create", label: "Create Request", Icon: PlusCircle, show: true },
     { to: "/admin", label: "Admin", Icon: Users, show: !!canSeeAdminUI },
   ].filter((x) => x.show);
 

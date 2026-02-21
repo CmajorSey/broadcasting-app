@@ -1,3 +1,6 @@
+/* ===========================
+   🚀 Server bootstrap imports
+   =========================== */
 console.log("🚨 First checkpoint reached");
 // @ts-nocheck
 import "dotenv/config";
@@ -11,6 +14,15 @@ console.log("🔍 Looking for service account at:", path.resolve("firebase-servi
 // Using Node 18+ global fetch (no node-fetch needed)
 import { GoogleAuth } from "google-auth-library";
 import { createRequire } from "module";
+import webpushRouter from "./routes/webpush.js";
+
+/* ===========================
+   🍏 Web Push (Safari/iOS installed web app)
+   - This is NOT Firebase Messaging
+   - Requires VAPID keys + PushSubscription storage
+   =========================== */
+import webpush from "web-push";
+
 import authRouter from "./routes/auth.js";
 import userPrefsRouter from "./routes/user-prefs.js";
 import holidaysRouter from "./routes/holidays.js";
@@ -332,12 +344,140 @@ const corsOptions = {
 };
 
 // ✅ CORS must be registered BEFORE any routes
+/* ===========================
+   🌐 CORS + body parsing
+   =========================== */
 app.use(cors(corsOptions));
 
 // ✅ Preflight for all routes (Express 5)
 app.options(new RegExp(".*"), cors(corsOptions));
 
 app.use(express.json());
+
+/* ===========================
+   🍏 Safari Web Push (Background Notifications)
+   - Safari installed web apps do NOT receive FCM web push reliably.
+   - They need standard Web Push:
+       1) client creates PushSubscription (endpoint + keys)
+       2) backend stores subscription on the user record
+       3) backend sends via VAPID using web-push
+   - Non-fatal if keys are missing (feature simply won’t send).
+   =========================== */
+const WEBPUSH_PUBLIC_KEY = String(process.env.WEBPUSH_PUBLIC_KEY || "").trim();
+const WEBPUSH_PRIVATE_KEY = String(process.env.WEBPUSH_PRIVATE_KEY || "").trim();
+const WEBPUSH_SUBJECT = String(process.env.WEBPUSH_SUBJECT || "mailto:admin@loboard.app").trim();
+
+let WEBPUSH_READY = false;
+
+try {
+  if (WEBPUSH_PUBLIC_KEY && WEBPUSH_PRIVATE_KEY) {
+    webpush.setVapidDetails(WEBPUSH_SUBJECT, WEBPUSH_PUBLIC_KEY, WEBPUSH_PRIVATE_KEY);
+    WEBPUSH_READY = true;
+    console.log("✅ Web Push (VAPID) configured.");
+  } else {
+    console.log("ℹ️ Web Push not configured (missing WEBPUSH_PUBLIC_KEY/WEBPUSH_PRIVATE_KEY).");
+  }
+} catch (e) {
+  console.warn("⚠️ Web Push init failed (non-fatal):", e?.message || e);
+  WEBPUSH_READY = false;
+}
+
+/* ===========================
+   🍏 Web Push subscribe endpoint
+   POST /webpush/subscribe
+   body: { userId: string, subscription: PushSubscription }
+   =========================== */
+app.post("/webpush/subscribe", (req, res) => {
+  try {
+    const userId = String(req.body?.userId || "").trim();
+    const sub = req.body?.subscription;
+
+    if (!userId || !sub || typeof sub !== "object") {
+      return res.status(400).json({ error: "Missing userId or subscription" });
+    }
+
+    // USERS_FILE is declared later in the file — but in JS runtime this handler
+    // runs after initialization, so USERS_FILE will be defined by then.
+    const usersRaw = fs.readFileSync(USERS_FILE, "utf-8");
+    const users = JSON.parse(usersRaw || "[]");
+
+    const idx = users.findIndex((u) => String(u?.id) === userId);
+    if (idx === -1) return res.status(404).json({ error: "User not found" });
+
+    const endpoint = String(sub?.endpoint || "").trim();
+    if (!endpoint) return res.status(400).json({ error: "Subscription missing endpoint" });
+
+    const u = users[idx];
+
+    // Store on: user.webPushSubscriptions[]
+    const existing = Array.isArray(u?.webPushSubscriptions) ? u.webPushSubscriptions : [];
+    const next = existing.filter((s) => String(s?.endpoint || "").trim() && String(s?.endpoint || "").trim() !== endpoint);
+    next.push(sub);
+
+    users[idx] = { ...u, webPushSubscriptions: next };
+
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+    return res.status(200).json({ ok: true, subscriptions: next.length });
+  } catch (err) {
+    console.error("WebPush subscribe failed:", err);
+    return res.status(500).json({ error: "WebPush subscribe failed" });
+  }
+});
+
+/* ===========================
+   🍏 Web Push send helper (used by /notifications/send hook)
+   - Reads user.webPushSubscriptions[]
+   - Sends a standard Web Push payload (works for Safari installed web apps)
+   =========================== */
+async function sendWebPushToUsers(users, title, message, opts = {}) {
+  if (!WEBPUSH_READY) {
+    // silent/non-fatal — keeps existing app behavior
+    console.log("ℹ️ WebPush skipped (VAPID not configured).");
+    return;
+  }
+
+  const safeStr = (v) => (v === null || v === undefined ? "" : String(v));
+  const url = safeStr(opts.url || "/tickets").trim() || "/tickets";
+
+  const payload = JSON.stringify({
+    title: safeStr(title),
+    body: safeStr(message),
+    url,
+    category: safeStr(opts.category || "admin"),
+    urgent: opts.urgent === true,
+    kind: safeStr(opts.kind || ""),
+    timestamp: safeStr(opts.timestamp || new Date().toISOString()),
+  });
+
+  const subs = [];
+  (Array.isArray(users) ? users : []).forEach((u) => {
+    const arr = Array.isArray(u?.webPushSubscriptions) ? u.webPushSubscriptions : [];
+    for (const s of arr) {
+      if (s && typeof s === "object" && String(s?.endpoint || "").trim()) subs.push(s);
+    }
+  });
+
+  if (subs.length === 0) {
+    console.log("ℹ️ No Web Push subscriptions found for recipients.");
+    return;
+  }
+
+  let ok = 0;
+  let failed = 0;
+
+  for (const sub of subs) {
+    try {
+      await webpush.sendNotification(sub, payload);
+      ok += 1;
+    } catch (e) {
+      failed += 1;
+      // Non-fatal: subscriptions can expire; you can prune later.
+      console.warn("❌ WebPush send error (non-fatal):", e?.message || e);
+    }
+  }
+
+  console.log("✅ WebPush send summary:", { subs: subs.length, ok, failed, url });
+}
 
 /* ===========================
    🔐 Auth + forced password change starts here
@@ -588,6 +728,14 @@ app.use("/hub/newsroom", newsroomRouter);
    🏈 Sports Hub routes
    =========================== */
 app.use("/hub/sports", sportsRouter);
+
+/* ===========================
+   🍏 Web Push routes (Safari PWA)
+   - POST /webpush/subscribe
+   - Uses VAPID keys from Render env:
+     WEBPUSH_PUBLIC_KEY, WEBPUSH_PRIVATE_KEY, WEBPUSH_SUBJECT
+   =========================== */
+app.use("/webpush", webpushRouter);
 
 const TICKETS_FILE = path.join(DATA_DIR, "tickets.json");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
@@ -1357,6 +1505,7 @@ app.post("/notifications", (req, res) => {
   }
 });
 
+// REPLACE WITH (full block) — adds Safari Web Push hook (non-fatal) alongside FCM
 /* ===========================
    📩 Notifications send alias starts here
    - LeaveManager currently calls:
@@ -1364,7 +1513,8 @@ app.post("/notifications", (req, res) => {
    - Backend already supports:
        POST /notifications
    - This alias keeps old clients working.
-   - ✅ Now ALSO attempts FCM push (non-fatal) if push sender exists.
+   - ✅ Attempts FCM push (non-fatal) if push sender exists.
+   - ✅ Attempts Safari Web Push (non-fatal) if webpush sender exists.
    =========================== */
 app.post("/notifications/send", async (req, res) => {
   try {
@@ -1400,30 +1550,61 @@ app.post("/notifications/send", async (req, res) => {
 
     const ok = writeNotifsSafe(all);
 
-    // ✅ FCM PUSH (non-fatal)
-    // This will only run if your server already has a push sender in scope.
-    // We intentionally do NOT crash if push isn't configured.
-    try {
-     if (typeof sendPushToUsers === "function") {
-  // recipients[] contains ids/names; we must resolve to user objects
-  const allUsers = readUsersSafe();
-  const targets = allUsers.filter((u) =>
-    recipients.includes(String(u.id)) || recipients.includes(String(u.name || ""))
-  );
+    // ✅ PUSH (non-fatal): FCM (Chrome/Android/etc) + Web Push (Safari installed web app)
+    // We intentionally do NOT crash if either push channel isn't configured.
+    const actionUrl =
+      (body?.action?.url && String(body.action.url)) ||
+      "/profile";
 
-  if (targets.length > 0) {
-    await sendPushToUsers(targets, title, message, {
-      category,
-      urgent: !!urgent,
-      url: (body?.action?.url && String(body.action.url)) || "/profile",
-      kind: body?.kind || body?.category || "admin",
-    });
-  } else {
-    console.log("ℹ️ /notifications/send: No matching users for push (in-app notification still saved).");
-  }
-}
+    try {
+      // Resolve recipients[] (ids/names) -> user objects
+      const allUsers = typeof readUsersSafe === "function" ? readUsersSafe() : [];
+      const targets = (Array.isArray(allUsers) ? allUsers : []).filter((u) => {
+        const id = String(u?.id ?? "").trim();
+        const name = String(u?.name ?? "").trim();
+        return recipients.includes(id) || recipients.includes(name);
+      });
+
+      if (targets.length > 0) {
+        // 1) FCM (if available)
+        if (typeof sendPushToUsers === "function") {
+          await sendPushToUsers(targets, title, message, {
+            category,
+            urgent: !!urgent,
+            url: actionUrl,
+            kind: body?.kind || body?.category || "admin",
+          });
+        }
+
+        // 2) Safari Web Push (if available)
+        // This requires you to implement sendWebPushToUsers() using standard Web Push subscriptions.
+        if (typeof sendWebPushToUsers === "function") {
+          await sendWebPushToUsers(targets, title, message, {
+            category,
+            urgent: !!urgent,
+            url: actionUrl,
+            kind: body?.kind || body?.category || "admin",
+          });
+        }
+
+        if (
+          typeof sendPushToUsers !== "function" &&
+          typeof sendWebPushToUsers !== "function"
+        ) {
+          console.log(
+            "ℹ️ /notifications/send: push not configured (in-app notification still saved)."
+          );
+        }
+      } else {
+        console.log(
+          "ℹ️ /notifications/send: No matching users for push (in-app notification still saved)."
+        );
+      }
     } catch (pushErr) {
-      console.warn("Push skipped/failed for /notifications/send (non-fatal):", pushErr?.message || pushErr);
+      console.warn(
+        "Push skipped/failed for /notifications/send (non-fatal):",
+        pushErr?.message || pushErr
+      );
     }
 
     // Preserve exact response behavior

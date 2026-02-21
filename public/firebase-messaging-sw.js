@@ -1,3 +1,4 @@
+// REPLACE WITH (full block) — public/firebase-messaging-sw.js
 /* public/firebase-messaging-sw.js */
 
 /* ===========================
@@ -11,38 +12,41 @@
  * - Use compat scripts inside service worker (simplest + stable on Netlify)
  * - Your React app is responsible for requesting permission + saving FCM token
  * - This SW is ONLY for background messages and notification clicks
+ *
+ * NOTE (Safari/iOS):
+ * - This file ONLY helps browsers that support Firebase Messaging on web (Chrome/Edge/Firefox).
+ * - iOS Safari installed web apps do NOT receive background push via Firebase Messaging.
+ * - For iOS Safari background push, you need a separate standard Web Push SW (e.g. /webpush-sw.js).
  */
 
 // ✅ Firebase compat libs (SW-friendly)
 importScripts("https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js");
-importScripts("https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js");
+importScripts(
+  "https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"
+);
 
 // ✅ Your Firebase config (MUST match your frontend config)
 firebase.initializeApp({
-  apiKey: "REPLACE_ME",
-  authDomain: "REPLACE_ME",
-  projectId: "REPLACE_ME",
-  storageBucket: "REPLACE_ME",
-  messagingSenderId: "REPLACE_ME",
-  appId: "REPLACE_ME",
+  apiKey: "AIzaSyDB2mejIIrbi8cDXGanMiSogE9VmG4MsG8",
+  authDomain: "loboard-notifications.firebaseapp.com",
+  projectId: "loboard-notifications",
+  storageBucket: "loboard-notifications.firebasestorage.app",
+  messagingSenderId: "302425553477",
+  appId: "1:302425553477:web:32e35c1c2e22c96793012c",
 });
 
 // ✅ Messaging instance
 const messaging = firebase.messaging();
 
 /* ===========================
-   📩 Background message handler
+   📩 Background message handler (FCM-supported browsers)
    =========================== */
 messaging.onBackgroundMessage(function (payload) {
-  // payload.notification is typical when sent via FCM notification fields
   const title = payload?.notification?.title || "Lo Board";
   const body = payload?.notification?.body || "";
 
   // Optional: attach a route so click can open correct page
-  const url =
-    payload?.data?.url ||
-    payload?.fcmOptions?.link ||
-    "/tickets";
+  const url = payload?.data?.url || payload?.fcmOptions?.link || "/tickets";
 
   const options = {
     body,
@@ -72,7 +76,10 @@ self.addEventListener("notificationclick", function (event) {
       // If a tab is already open, focus it
       for (const client of allClients) {
         if ("focus" in client) {
-          client.focus();
+          try {
+            await client.focus();
+          } catch {}
+
           // Optional: navigate open tab
           if ("navigate" in client) {
             try {

@@ -1863,5 +1863,409 @@
     "timestamp": "2026-02-20T08:57:23.972Z",
     "category": "leave",
     "urgent": true
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Test Vehicle status changed: Available → In Garage",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:15:49.562Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Test Vehicle status changed: Available → In Garage",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:15:49.588Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Test Vehicle status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:16:17.642Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Test Vehicle status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:16:17.681Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → Not To Be Used",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:16:20.709Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → Not To Be Used",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:16:20.727Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Request updated",
+    "message": "norm • 20/02/2026 08:30 • Unity House",
+    "recipients": [
+      "1752900071157",
+      "1752896585613",
+      "1752900107023",
+      "Alexander Moumou",
+      "Melissa Hassan",
+      "Nelson Joseph"
+    ],
+    "timestamp": "2026-02-20T10:20:04.906Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "Request updated",
+    "message": "Sports Morning • 20/02/2026 08:05 • Stad Linite",
+    "recipients": [
+      "1752900071162",
+      "1752899657893",
+      "1752900107023",
+      "Darino Esther",
+      "Juiad Boniface",
+      "Nelson Joseph"
+    ],
+    "timestamp": "2026-02-20T10:20:09.690Z",
+    "category": "ticket",
+    "urgent": false
+  },
+  {
+    "title": "New vehicle added",
+    "message": "test was added to Fleet (35qq).",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:22:56.710Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "New vehicle added",
+    "message": "test was added to Fleet (35qq).",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:22:56.732Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "test rentStartISO changed: 2026-02-23 → 2026-02-16",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:23:19.710Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "test rentStartISO changed: 2026-02-23 → 2026-02-16",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:23:19.729Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "test rentEndISO changed: 2026-02-27 → 2026-02-20",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:23:24.711Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "test rentEndISO changed: 2026-02-27 → 2026-02-20",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:23:24.730Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "test rentEndISO changed: 2026-02-20 → 2026-02-21",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:23:45.100Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "test rentEndISO changed: 2026-02-20 → 2026-02-21",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:23:45.121Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "test rentEndISO changed: 2026-02-21 → 2026-02-20",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:23:58.683Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "test rentEndISO changed: 2026-02-21 → 2026-02-20",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:23:58.704Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "test rentEndISO changed: 2026-02-20 → 2026-02-21",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:24:03.360Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "test rentEndISO changed: 2026-02-20 → 2026-02-21",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:24:03.387Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "test rentEndISO changed: 2026-02-21 → 2026-02-20",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:24:08.916Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet date updated",
+    "message": "test rentEndISO changed: 2026-02-21 → 2026-02-20",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:24:08.939Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Vehicle removed",
+    "message": "test was deleted from Fleet.",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:24:10.581Z",
+    "category": "fleet",
+    "urgent": true
+  },
+  {
+    "title": "Vehicle removed",
+    "message": "test was deleted from Fleet.",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-20T10:24:10.597Z",
+    "category": "fleet",
+    "urgent": true
   }
 ]

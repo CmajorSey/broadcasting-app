@@ -1303,181 +1303,231 @@ const handleSuggestionSubmit = async () => {
                   <Label>Play a sound when a new notification arrives</Label>
                 </div>
 
-                {/* ===========================
-                    🔔 Push notifications toggle starts here
-                    - Requests permission ONLY when user toggles ON
-                    - Saves fcmToken to backend user record
-                   =========================== */}
-                                <div className="flex items-center space-x-3">
-                  <Switch
-                    checked={pushEnabled}
-                    onCheckedChange={async (checked) => {
-                      setPushEnabled(checked);
-                      localStorage.setItem(
-                        "notificationPushEnabled",
-                        checked ? "true" : "false"
-                      );
+               {/* ===========================
+    🔔 Push notifications toggle starts here
+    - Requests permission ONLY when user toggles ON
+    - Chrome/Android/Desktop: FCM token flow (existing)
+    - iOS Safari (installed): Web Push subscribe flow (NEW)
+   =========================== */}
+<div className="flex items-center space-x-3">
+  <Switch
+    checked={pushEnabled}
+    onCheckedChange={async (checked) => {
+      setPushEnabled(checked);
+      localStorage.setItem(
+        "notificationPushEnabled",
+        checked ? "true" : "false"
+      );
 
-                      // Must have a real user to attach token to
-                      if (!user?.id || !user?.name) {
-                        toast({
-                          title: "Not logged in",
-                          description: "User not found.",
-                          variant: "destructive",
-                        });
-                        setPushEnabled(false);
-                        localStorage.setItem("notificationPushEnabled", "false");
-                        return;
-                      }
+      // Must have a real user to attach token/subscription to
+      if (!user?.id || !user?.name) {
+        toast({
+          title: "Not logged in",
+          description: "User not found.",
+          variant: "destructive",
+        });
+        setPushEnabled(false);
+        localStorage.setItem("notificationPushEnabled", "false");
+        return;
+      }
 
-                      // Turning OFF: clear token on backend (best-effort)
-                      if (!checked) {
-                        try {
-                          await fetch(
-                            `${API_BASE}/users/${encodeURIComponent(user.id)}`,
-                            {
-                              method: "PATCH",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ fcmToken: "" }),
-                            }
-                          );
-                        } catch {
-                          // ignore
-                        }
+      // Turning OFF: clear token on backend (best-effort)
+      // (Safari Web Push unsubscribe is backend-dependent; we only clear local markers here.)
+      if (!checked) {
+        try {
+          await fetch(`${API_BASE}/users/${encodeURIComponent(user.id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fcmToken: "" }),
+          });
+        } catch {
+          // ignore
+        }
 
-                        try {
-                          localStorage.removeItem("loBoard.fcmToken");
-                        } catch {
-                          // ignore
-                        }
+        try {
+          localStorage.removeItem("loBoard.fcmToken");
+          localStorage.removeItem("loBoard.webpushSubscribed");
+        } catch {
+          // ignore
+        }
 
-                        toast({
-                          title: "Push notifications disabled",
-                          description: "This device will no longer receive alerts.",
-                        });
-                        return;
-                      }
+        toast({
+          title: "Push notifications disabled",
+          description: "This device will no longer receive alerts.",
+        });
+        return;
+      }
 
-                      /* ===========================
-                         🍎 iOS quick checks (UI-level)
-                         - iOS Chrome cannot do web push like Android/desktop
-                         - iOS Safari requires Add to Home Screen (standalone)
-                         =========================== */
-                      const ua =
-                        typeof navigator !== "undefined"
-                          ? navigator.userAgent || ""
-                          : "";
-                      const isIOS = /iPad|iPhone|iPod/.test(ua);
-                      const isIOSChrome = isIOS && /CriOS/.test(ua);
-                      const isStandalone =
-                        (typeof window !== "undefined" &&
-                          window.matchMedia &&
-                          window.matchMedia("(display-mode: standalone)").matches) ||
-                        (typeof navigator !== "undefined" &&
-                          navigator.standalone === true);
+      /* ===========================
+         🍎 iOS quick checks (UI-level)
+         - iOS Chrome cannot do web push like Android/desktop
+         - iOS Safari requires Add to Home Screen (standalone)
+         =========================== */
+      const ua =
+        typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
+      const isIOS = /iPad|iPhone|iPod/.test(ua);
+      const isIOSChrome = isIOS && /CriOS/.test(ua);
+      const isStandalone =
+        (typeof window !== "undefined" &&
+          window.matchMedia &&
+          window.matchMedia("(display-mode: standalone)").matches) ||
+        (typeof navigator !== "undefined" && navigator.standalone === true);
 
-                      // iOS Chrome: guide user, do NOT treat as an error
-                      if (isIOSChrome) {
-                        toast({
-                          title: "iPhone setup required",
-                          description:
-                            "Push notifications won't work in iPhone Chrome. Open Lo Board in Safari → Share → Add to Home Screen, then enable notifications from the installed app.",
-                        });
-                        setPushEnabled(false);
-                        localStorage.setItem("notificationPushEnabled", "false");
-                        return;
-                      }
+      // iOS Chrome: guide user, do NOT treat as an error
+      if (isIOSChrome) {
+        toast({
+          title: "iPhone setup required",
+          description:
+            "Push notifications won't work in iPhone Chrome. Open Lo Board in Safari → Share → Add to Home Screen, then enable notifications from the installed app.",
+        });
+        setPushEnabled(false);
+        localStorage.setItem("notificationPushEnabled", "false");
+        return;
+      }
 
-                      // iOS Safari but not installed: guide user
-                      if (isIOS && !isStandalone) {
-                        toast({
-                          title: "Install Lo Board first",
-                          description:
-                            "On iPhone, push notifications require installing the app: Safari → Share → Add to Home Screen. Then open from the Home Screen and enable notifications.",
-                        });
-                        setPushEnabled(false);
-                        localStorage.setItem("notificationPushEnabled", "false");
-                        return;
-                      }
+      // iOS Safari but not installed: guide user
+      if (isIOS && !isStandalone) {
+        toast({
+          title: "Install Lo Board first",
+          description:
+            "On iPhone, push notifications require installing the app: Safari → Share → Add to Home Screen. Then open from the Home Screen and enable notifications.",
+        });
+        setPushEnabled(false);
+        localStorage.setItem("notificationPushEnabled", "false");
+        return;
+      }
 
-                      // Turning ON: permission + token
-                      try {
-                        const token = await requestPermission({ prompt: true });
+      /* ===========================
+         🍏 iOS Safari (installed): Web Push subscribe (NEW)
+         - Uses /webpush-sw.js + pushManager.subscribe()
+         - POSTs subscription to POST /webpush/subscribe
+         =========================== */
+      if (isIOS && isStandalone) {
+        try {
+          // Lazy import so builds don’t break if you’re mid-merge
+          const mod = await import("@/lib/fcmClient");
+          const subscribeSafariWebPush =
+            mod?.subscribeSafariWebPush || null;
 
-                        // Token is null:
-                        // - could be user denied
-                        // - could be unsupported browser
-                        // We only show destructive when it looks like a true denial.
-                        if (!token) {
-                          const perm =
-                            typeof Notification !== "undefined"
-                              ? Notification.permission
-                              : "default";
+          if (typeof subscribeSafariWebPush !== "function") {
+            throw new Error(
+              "Safari Web Push not wired yet (subscribeSafariWebPush missing)."
+            );
+          }
 
-                          if (perm === "denied") {
-                            toast({
-                              title: "Notifications blocked",
-                              description:
-                                "Please allow notifications in your browser/site settings, then try again.",
-                              variant: "destructive",
-                            });
-                          } else {
-                            toast({
-                              title: "Push not enabled",
-                              description:
-                                "This device/browser did not enable push notifications. If you're on iPhone, use Safari and install Lo Board to your Home Screen first.",
-                            });
-                          }
+          await subscribeSafariWebPush({
+            apiBase: API_BASE,
+            userId: String(user.id),
+            userName: String(user.name),
+          });
 
-                          setPushEnabled(false);
-                          localStorage.setItem("notificationPushEnabled", "false");
-                          return;
-                        }
+          try {
+            localStorage.setItem("loBoard.webpushSubscribed", "true");
+          } catch {
+            // ignore
+          }
 
-                        // Save token (local + backend)
-                        try {
-                          localStorage.setItem("loBoard.fcmToken", token);
-                        } catch {
-                          // ignore
-                        }
+          toast({
+            title: "✅ Push enabled (Safari)",
+            description:
+              "This iPhone can now receive background notifications from the installed app.",
+          });
 
-                        const res = await fetch(
-                          `${API_BASE}/users/${encodeURIComponent(user.id)}`,
-                          {
-                            method: "PATCH",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ fcmToken: token }),
-                          }
-                        );
+          return; // ✅ Stop here; do NOT run FCM flow on iOS Safari
+        } catch (err) {
+          console.error("Safari Web Push enable failed:", err);
+          toast({
+            title: "Push setup failed (Safari)",
+            description:
+              err?.message ||
+              "Could not enable Safari background push on this device.",
+            variant: "destructive",
+          });
+          setPushEnabled(false);
+          localStorage.setItem("notificationPushEnabled", "false");
+          return;
+        }
+      }
 
-                        if (!res.ok) {
-                          throw new Error("Failed to save token to server");
-                        }
+      /* ===========================
+         ✅ Non-iOS: existing FCM flow (unchanged)
+         =========================== */
+      try {
+        const token = await requestPermission({ prompt: true });
 
-                        toast({
-                          title: "✅ Push enabled",
-                          description: "This device can now receive notifications.",
-                        });
-                      } catch (err) {
-                        console.error("Push enable failed:", err);
-                        toast({
-                          title: "Push setup failed",
-                          description:
-                            err?.message ||
-                            "Could not enable push notifications on this device.",
-                          variant: "destructive",
-                        });
-                        setPushEnabled(false);
-                        localStorage.setItem("notificationPushEnabled", "false");
-                      }
-                    }}
-                  />
-                  <Label>Enable device notifications (browser)</Label>
-                </div>
-                {/* ===========================
-                    🔔 Push notifications toggle ends here
-                   =========================== */}
+        // Token is null:
+        // - could be user denied
+        // - could be unsupported browser
+        // We only show destructive when it looks like a true denial.
+        if (!token) {
+          const perm =
+            typeof Notification !== "undefined"
+              ? Notification.permission
+              : "default";
 
+          if (perm === "denied") {
+            toast({
+              title: "Notifications blocked",
+              description:
+                "Please allow notifications in your browser/site settings, then try again.",
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Push not enabled",
+              description:
+                "This device/browser did not enable push notifications. If you're on iPhone, use Safari and install Lo Board to your Home Screen first.",
+            });
+          }
+
+          setPushEnabled(false);
+          localStorage.setItem("notificationPushEnabled", "false");
+          return;
+        }
+
+        // Save token (local + backend)
+        try {
+          localStorage.setItem("loBoard.fcmToken", token);
+        } catch {
+          // ignore
+        }
+
+        const res = await fetch(
+          `${API_BASE}/users/${encodeURIComponent(user.id)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fcmToken: token }),
+          }
+        );
+
+        if (!res.ok) {
+          throw new Error("Failed to save token to server");
+        }
+
+        toast({
+          title: "✅ Push enabled",
+          description: "This device can now receive notifications.",
+        });
+      } catch (err) {
+        console.error("Push enable failed:", err);
+        toast({
+          title: "Push setup failed",
+          description:
+            err?.message ||
+            "Could not enable push notifications on this device.",
+          variant: "destructive",
+        });
+        setPushEnabled(false);
+        localStorage.setItem("notificationPushEnabled", "false");
+      }
+    }}
+  />
+  <Label>Enable device notifications (browser)</Label>
+</div>
+{/* ===========================
+    🔔 Push notifications toggle ends here
+   =========================== */}
 
                 <p className="text-xs text-muted-foreground pt-2">
                   More detailed notification controls will return in a future
