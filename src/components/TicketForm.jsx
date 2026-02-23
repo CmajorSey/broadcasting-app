@@ -1107,723 +1107,937 @@ console.log("POST payload crewAssignments:", newTicket.crewAssignments);
       });
   }, [formData.date]);
 
-  return (
+   return (
     <div className="space-y-8">
-      {/* FORM */}
-      {loggedInUser?.roles?.some(r =>
-        ["admin", "journalist", "producer", "sports_journalist"].includes(r.toLowerCase())
-      ) && (
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white shadow-lg rounded-xl p-8 w-full max-w-3xl space-y-4"
-        >
-          <input
-            type="text"
-            name="title"
-            placeholder="Title"
-            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
-            value={formData.title}
-            onChange={handleChange}
-          />
+      {/* ===========================
+         🧾 Create Request layout (centered card)
+         - Centers the form on the page
+         - Opens up spacing + improves readability
+         - Uses grids to reduce scrolling
+         =========================== */}
 
-          {/* Job Type */}
-<div className="space-y-2">
-  <label className="block font-semibold mb-1">Request Type</label>
-  <div className="flex items-center gap-2">
-    <select
-      name="type"
-      value={formData.type}
-      onChange={(e) => {
-        const newType = e.target.value;
-        const userRoles = loggedInUser?.roles?.map((r) => r.toLowerCase()) || [];
-        let detectedRole = "journalist";
-
-        if (userRoles.includes("producer")) detectedRole = "producer";
-        else if (userRoles.includes("admin")) detectedRole = "admin";
-        else if ((loggedInUser?.description || "").toLowerCase().includes("sport")) detectedRole = "sports_journalist";
-        else if (userRoles.includes("journalist")) detectedRole = "journalist";
-
-        const newShootType = getDefaultShootType(detectedRole, newType);
-        const existingDate = formData.date || new Date().toISOString().slice(0, 16);
-
-        if (newType === "Technical") {
-          // Clear non-tech + also clear crewAssignments
-          setFormData({
-            ...formData,
-            type: newType,
-            shootType: "",
-            category: "",
-            subtype: "",
-            priority: "",
-            assignedCamOps: [],
-            camCount: 1,
-            onlyOneCamOp: true,
-            camAssignments: { cam1: "", cam2: "", cam3: "" },
-            crewAssignments: [], // 🔄 reset crew when going Technical
-            scopeOfWork: "",
-            assignedTechnicians: [],
-            date: existingDate,
-          });
-        } else {
-          // Non-technical
-          setFormData({
-            ...formData,
-            type: newType,
-            shootType: newShootType,
-            category: "",
-            subtype: "",
-            priority: formData.priority || "Normal",
-            date: existingDate,
-          });
-        }
-      }}
-      className="input flex-1"
-    >
-      <option value="">Select Type</option>
-      {jobTypes.map((type) => (
-        <option key={type} value={type}>
-          {type}
-        </option>
-      ))}
-    </select>
-    <button
-      type="button"
-      onClick={() => {
-        const newItem = prompt("Enter new type:");
-        if (newItem && !jobTypes.includes(newItem)) {
-          setJobTypes([...jobTypes, newItem]);
-        }
-      }}
-      className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-    >
-      + Add
-    </button>
-  </div>
-</div>
-
-          {/* Assigned Reporter (hidden in Technical) */}
-{formData.type !== "Technical" && (
-  <div className="space-y-2">
-    <label className="block font-semibold mb-1">Assigned Journalist/Producer</label>
-    <select
-      name="assignedReporter"
-      value={formData.assignedReporter}
-      onChange={(e) => setFormData({ ...formData, assignedReporter: e.target.value })}
-      className="input"
-    >
-      <option value="">-- Select Reporter --</option>
-
-      {/* Logged-in user shown first if relevant */}
-      {(() => {
-        const isJournalist = loggedInUser?.roles?.some((r) => r.toLowerCase() === "journalist");
-        const isSports = (loggedInUser?.description || "").toLowerCase().includes("sport") ||
-                         loggedInUser?.roles?.some((r) => r.toLowerCase() === "sports_journalist");
-        const isProducer = loggedInUser?.roles?.some((r) => r.toLowerCase() === "producer");
-
-        if (isJournalist)
-          return (
-            <option value={`Journalist: ${loggedInUser.name}`}>
-              Journalist: {loggedInUser.name} (You)
-            </option>
-          );
-        if (isSports)
-          return (
-            <option value={`Sports Journalist: ${loggedInUser.name}`}>
-              Sports Journalist: {loggedInUser.name} (You)
-            </option>
-          );
-        if (isProducer)
-          return (
-            <option value={`Producer: ${loggedInUser.name}`}>
-              Producer: {loggedInUser.name} (You)
-            </option>
-          );
-
-        return null;
-      })()}
-
-      <optgroup label="Journalists">
-        {(effectiveUsers || [])
-          .filter((u) => {
-            const roles = (u.roles || []).map((r) => String(r).toLowerCase());
-            const desc = (u.description || "").toLowerCase();
-            return roles.includes("journalist") && !desc.includes("sports") && u.name !== loggedInUser?.name;
-          })
-          .map((u) => (
-            <option key={`journalist-${u.name}`} value={`Journalist: ${u.name}`}>
-              Journalist: {u.name}
-            </option>
-          ))}
-      </optgroup>
-
-      <optgroup label="Sports Journalists">
-        {(effectiveUsers || [])
-          .filter(
-            (u) =>
-              (u.description || "").toLowerCase().includes("sport") ||
-              (u.roles || []).some((r) => String(r).toLowerCase() === "sports_journalist")
-          )
-          .filter((u) => u.name !== loggedInUser?.name)
-          .map((u) => (
-            <option key={`sports-${u.name}`} value={`Sports Journalist: ${u.name}`}>
-              Sports Journalist: {u.name}
-            </option>
-          ))}
-      </optgroup>
-
-      <optgroup label="Producers">
-        {(effectiveUsers || [])
-          .filter((u) => (u.roles || []).some((r) => String(r).toLowerCase() === "producer"))
-          .filter((u) => u.name !== loggedInUser?.name)
-          .map((u) => (
-            <option key={`producer-${u.name}`} value={`Producer: ${u.name}`}>
-              Producer: {u.name}
-            </option>
-          ))}
-      </optgroup>
-    </select>
-  </div>
-)}
-
-{/* Technical-only fields */}
-{formData.type === "Technical" && (
-  <div className="space-y-4">
-    {/* Scope of Work */}
-    <div className="space-y-2">
-      <label className="block font-semibold mb-1">Scope of Work</label>
-      <div className="flex items-center gap-2">
-        <select
-          className="input flex-1"
-          value={formData.scopeOfWork || ""}
-          onChange={(e) => setFormData({ ...formData, scopeOfWork: e.target.value })}
-        >
-          <option value="">Select scope</option>
-          <option value="Recce">Recce</option>
-          <option value="Setup">Setup</option>
-          <option value="Signal Test">Signal Test</option>
-          <option value="Tech Rehearsal">Tech Rehearsal</option>
-        </select>
-        <button
-          type="button"
-          onClick={() => {
-            const val = prompt("Enter a custom scope of work:");
-            if (val && val.trim()) {
-              setFormData({ ...formData, scopeOfWork: val.trim() });
-            }
-          }}
-          className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-        >
-          + Add
-        </button>
-      </div>
-    </div>
-
-    {/* Assigned Technicians */}
-    <div className="space-y-2">
-      <label className="block font-semibold">Assigned Technician(s)</label>
-      {(() => {
-        const techTop = ["Christopher Gabriel", "Gilmer Philoe", "Darino Esther"];
-        const allNames = (effectiveUsers || []).map((u) => u?.name).filter(Boolean);
-        const rest = Array.from(new Set(allNames.filter((n) => !techTop.includes(n)))).sort();
-        const ordered = [...techTop.filter((n) => allNames.includes(n)), ...rest];
-        const techOptions = ordered.map((name) => ({ label: name, value: name }));
-
-        return (
-          <MultiSelectCombobox
-            options={techOptions}
-            selected={formData.assignedTechnicians}
-            onChange={(next) => {
-              const values = (next || []).map((v) => (typeof v === "string" ? v : v?.value)).filter(Boolean);
-              setFormData({ ...formData, assignedTechnicians: values });
-            }}
-          />
-        );
-      })()}
-    </div>
-  </div>
-)}
-
-{/* News Dropdown */}
-{formData.type === "News" && (
-  <div className="space-y-1 relative z-10">
-    <label className="block font-semibold mb-1">News Category</label>
-    <div className="relative inline-block w-full">
-      <div
-        className="input cursor-pointer"
-        onClick={() => setShowNewsDropdown((prev) => !prev)}
-      >{formData.category || "Select News Category"}</div>
-
-      {showNewsDropdown && (
-        <div className="absolute mt-1 w-full bg-white border rounded shadow-md max-h-60 overflow-y-auto z-10">
-          {newsCategories.map((item) => (
-            <div
-              key={item}
-              className="flex justify-between items-center px-4 py-2 hover:bg-gray-100 cursor-pointer group"
-              onClick={() => {
-                setFormData({ ...formData, category: item });
-                setShowNewsDropdown(false);
-              }}
+      <div className="w-full flex justify-center">
+        <div className="w-full max-w-5xl">
+          {/* FORM */}
+          {loggedInUser?.roles?.some((r) =>
+            ["admin", "journalist", "producer", "sports_journalist"].includes(
+              r.toLowerCase()
+            )
+          ) && (
+            <form
+              onSubmit={handleSubmit}
+              className="w-full bg-white shadow-xl rounded-2xl border p-6 md:p-8 space-y-6"
             >
-              <span>{item}</span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeFromList(item, setNewsCategories);
-                }}
-                className="text-red-500 text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-              >❌</button>
-            </div>
-          ))}
-          <div
-            className="px-4 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer font-medium"
-            onClick={() => {
-              const newItem = prompt("Enter new news category:");
-              if (newItem && !newsCategories.includes(newItem)) {
-                setNewsCategories([...newsCategories, newItem]);
-                setFormData({ ...formData, category: newItem });
-                setShowNewsDropdown(false);
-              }
-            }}
-          >➕ Add new category</div>
-        </div>
-      )}
-    </div>
-  </div>
-)}
-
-{/* Sports Dropdown */}
-{formData.type === "Sports" && (
-  <div className="space-y-1 relative z-10">
-    <label className="block font-semibold mb-1">Sport Subtype</label>
-    <div className="relative inline-block w-full">
-      <div
-        className="input cursor-pointer"
-        onClick={() => setShowSportsDropdown((prev) => !prev)}
-      >{formData.subtype || "Select Sport Subtype"}</div>
-
-      {showSportsDropdown && (
-        <div className="absolute mt-1 w-full bg-white border rounded shadow-md max-h-60 overflow-y-auto z-10">
-          {sportsCategories.map((item) => (
-            <div
-              key={item}
-              className="flex justify-between items-center px-4 py-2 hover:bg-gray-100 cursor-pointer group"
-              onClick={() => {
-                setFormData({ ...formData, subtype: item });
-                setShowSportsDropdown(false);
-              }}
-            >
-              <span>{item}</span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeFromList(item, setSportsCategories);
-                }}
-                className="text-red-500 text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-              >❌</button>
-            </div>
-          ))}
-          <div
-            className="px-4 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer font-medium"
-            onClick={() => {
-              const newItem = prompt("Enter new sport subtype:");
-              if (newItem && !sportsCategories.includes(newItem)) {
-                setSportsCategories([...sportsCategories, newItem]);
-                setFormData({ ...formData, subtype: newItem });
-                setShowSportsDropdown(false);
-              }
-            }}
-          >➕ Add new subtype</div>
-        </div>
-      )}
-    </div>
-  </div>
-)}
-
-          <DatePicker
-            selected={selectedDate}
-            onChange={(date) => {
-              setSelectedDate(date);
-
-              const pad = (n) => String(n).padStart(2, "0");
-              const filmingISO = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-
-              const departureDate = new Date(date.getTime() - 30 * 60000);
-              departureDate.setSeconds(0);
-              departureDate.setMilliseconds(0);
-              const roundedMinutes = Math.floor(departureDate.getMinutes() / 5) * 5;
-              departureDate.setMinutes(roundedMinutes);
-              const departureStr = departureDate.toTimeString().slice(0, 5); // HH:mm
-
-              setFormData({
-                ...formData,
-                date: filmingISO, // filming datetime in local time
-                filmingTime: filmingISO.split("T")[1], // HH:mm for legacy
-                departureTime: departureStr,
-              });
-            }}
-            showTimeSelect
-            timeIntervals={5}
-            dateFormat="yyyy-MM-dd HH:mm"
-            className="input"
-            placeholderText="Select filming date and time"
-            popperPlacement="bottom-start"
-          />
-
-          <input
-            type="text"
-            name="location"
-            placeholder="Location"
-            className="input"
-            value={formData.location}
-            onChange={handleChange}
-          />
-
-          <label className="block font-semibold">Departure Time</label>
-          <input
-            type="time"
-            name="departureTime"
-            value={formData.departureTime}
-            onChange={handleChange}
-            className="input"
-            step="300"
-          />
-
-         {formData.type !== "Technical" && (
-  <select
-    name="priority"
-    value={formData.priority}
-    onChange={handleChange}
-    className="input"
-  >
-    <option value="Normal">Normal</option>
-    <option value="Urgent">Urgent</option>
-  </select>
-)}
-
-
-          {/* Camera Ops Section */}
-          {["News", "Sports", "Production"].includes(formData.type) && (
-  <div className="space-y-2">
-    <label className="block font-semibold mb-1">Number of Cameras Required</label>
-
-    <div className="space-y-2">
-      <select
-        name="camCount"
-        value={isCustomCamCount ? "custom" : formData.camCount}
-        onChange={(e) => {
-          if (e.target.value === "custom") {
-            setIsCustomCamCount(true);
-            setFormData({ ...formData, camCount: 1 });
-          } else {
-            setIsCustomCamCount(false);
-            setFormData({ ...formData, camCount: parseInt(e.target.value) });
-          }
-        }}
-        className="input"
-      >
-        {[1, 2, 3, 4, 5, 6].map((num) => (
-          <option key={num} value={num}>
-            {num}
-          </option>
-        ))}
-        <option value="custom">Custom</option>
-      </select>
-
-      {isCustomCamCount && (
-        <input
-          type="number"
-          min="1"
-          max="20"
-          placeholder="Enter number"
-          className="input"
-          value={formData.camCount}
-          onChange={(e) =>
-            setFormData({
-              ...formData,
-              camCount: parseInt(e.target.value) || 1,
-            })
-          }
-        />
-      )}
-    </div>
-
-    <div className="flex items-center gap-4">
-      <label className="flex items-center space-x-2">
-        <input
-          type="checkbox"
-          checked={formData.onlyOneCamOp}
-          onChange={(e) =>
-            setFormData({
-              ...formData,
-              onlyOneCamOp: e.target.checked,
-              expectedCamOps: e.target.checked ? 1 : formData.expectedCamOps || 1,
-              camAssignments: {
-                ...formData.camAssignments,
-                cam2: "",
-                cam3: "",
-              },
-            })
-          }
-        />
-        <span>Only 1 Cam Op Required (Even For Multiple Cameras)</span>
-      </label>
-
-      {!formData.onlyOneCamOp && (
-        <div className="flex items-center space-x-2">
-          <label className="text-sm font-medium">Cam Ops Needed:</label>
-          <select
-            className="border rounded px-2 py-1 text-sm"
-            value={formData.expectedCamOps || 1}
-            onChange={(e) =>
-              setFormData({
-                ...formData,
-                expectedCamOps: parseInt(e.target.value),
-              })
-            }
-          >
-            {Array.from({ length: 8 }, (_, i) => i + 1).map((num) => (
-              <option key={num} value={num}>
-                {num}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-    </div>
-
-      <div className="space-y-2">
-        <label className="block font-semibold">Assign Camera Operators:</label>
-        <MultiSelectCombobox
-          options={camOpOptionsDecorated}
-          selected={formData.assignedCamOps}
-          onChange={(next) => {
-            const values = (next || [])
-              .map((v) => (typeof v === "string" ? v : v?.value))
-              .filter((val) => val && !val.startsWith("__divider")); // ignore divider markers
-            setFormData({
-              ...formData,
-              assignedCamOps: values,
-            });
-          }}
-        />
-      </div>
-    </div>
-  )}
-          {/* ❌ Removed “Require Driver” block entirely */}
-
-     {formData.type !== "Technical" && (
-  <div className="space-y-4">
-    <div className="space-y-2">
-      <label className="block font-semibold mb-1">Shoot Type</label>
-
-      <select
-        name="shootType"
-        value={formData.shootType}
-        onChange={(e) => {
-          const nextShoot = e.target.value;
-          // Seed templates when switching into EFP/Live (if empty)
-          setFormData((prev) => {
-            const shouldSeed =
-              (nextShoot === "EFP" || nextShoot === "Live") &&
-              (!Array.isArray(prev.crewAssignments) || prev.crewAssignments.length === 0);
-            return {
-              ...prev,
-              shootType: nextShoot,
-              crewAssignments: shouldSeed ? [...EFP_LIVE_TEMPLATES] : (prev.crewAssignments || []),
-            };
-          });
-        }}
-        className="input"
-      >
-        <option value="">-- Select Shoot Type --</option>
-        <option value="ENG">ENG</option>
-        <option value="EFP">EFP</option>
-        <option value="Live">Live</option>
-        <option value="B-roll">B-roll Only</option>
-      </select>
-    </div>
-
-    {/* 👉 NEW: EFP/Live Crew Assignments (TicketPage will show in expanded view) */}
-    {(formData.shootType === "EFP" || formData.shootType === "Live") && (
-      <div className="rounded-xl border p-4 space-y-4">
-        <div className="font-semibold">Crew Assignments (EFP/Live)</div>
-        <p className="text-sm text-gray-600">
-          These roles will appear in the <span className="font-medium">expanded view</span> of the ticket.
-          You can assign multiple people per role and add custom roles.
-        </p>
-
-        <div className="space-y-3">
-          {(formData.crewAssignments || []).map((row, idx) => (
-            <div key={`${row.role}-${idx}`} className="grid md:grid-cols-2 gap-3">
-              <div className="flex items-center">
-                <label className="mr-3 min-w-32 font-medium">{row.role}</label>
-              </div>
-              <MultiSelectCombobox
-                options={userOptionsCrew}
-                selected={Array.isArray(row.assignees) ? row.assignees : []}
-                onChange={(next) => {
-                  const values = (next || [])
-                    .map((v) => (typeof v === "string" ? v : v?.value))
-                    .filter(Boolean);
-                  setFormData((prev) => {
-                    const arr = Array.isArray(prev.crewAssignments) ? [...prev.crewAssignments] : [];
-                    const i = arr.findIndex((r) => r.role === row.role);
-                    if (i >= 0) arr[i] = { ...arr[i], assignees: values };
-                    return { ...prev, crewAssignments: arr };
-                  });
-                }}
-                placeholder="Assign team members…"
-              />
-            </div>
-          ))}
-
-          {/* Add custom role */}
-          <AddCustomCrewRole
-            onAdd={(roleName) => {
-              const role = String(roleName || "").trim();
-              if (!role) return;
-              setFormData((prev) => {
-                const arr = Array.isArray(prev.crewAssignments) ? [...prev.crewAssignments] : [];
-                const exists = arr.some((r) => r.role.toLowerCase() === role.toLowerCase());
-                if (!exists) arr.push({ role, assignees: [] });
-                return { ...prev, crewAssignments: arr };
-              });
-            }}
-          />
-        </div>
-      </div>
-    )}
-  </div>
-)}
-          {can("canAddNotes") && (
-            <textarea
-              name="notes"
-              placeholder="Additional notes or instructions"
-              className="input h-24"
-              value={formData.notes}
-              onChange={handleChange}
-            />
-          )}
-
-          {can("canAssignVehicle") && (
-            <div className="space-y-4 border-t pt-4 mt-6">
-              <h3 className="text-lg font-semibold text-gray-800">Fleet Section</h3>
-
-              <div>
-                <label className="block font-medium mb-1">Assigned Vehicle</label>
-                <select
-                  name="vehicle"
-                  value={formData.vehicle}
+              {/* Title */}
+              <div className="space-y-2">
+                <label className="block font-semibold">Title</label>
+                <input
+                  type="text"
+                  name="title"
+                  placeholder="Title"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  value={formData.title}
                   onChange={handleChange}
-                  className="input"
-                >
-                  <option value="">Select a vehicle</option>
-                  {vehicles.map((v) => (
-                    <option key={v.id} value={v.name}>
-                      {v.name}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
 
-              {formData.vehicle && (() => {
-                const selectedVehicle = vehicles.find(
-                  (v) => v.name === formData.vehicle
-                );
-                if (!selectedVehicle) return null;
+              {/* Type + Reporter */}
+              <div className="grid md:grid-cols-2 gap-4">
+                {/* Job Type */}
+                <div className="space-y-2">
+                  <label className="block font-semibold">Request Type</label>
+                  <div className="flex items-center gap-2">
+                    <select
+                      name="type"
+                      value={formData.type}
+                      onChange={(e) => {
+                        const newType = e.target.value;
+                        const userRoles =
+                          loggedInUser?.roles?.map((r) => r.toLowerCase()) || [];
+                        let detectedRole = "journalist";
 
-                const today = new Date();
-                const threeMonthsFromNow = new Date();
-                threeMonthsFromNow.setMonth(today.getMonth() + 3);
+                        if (userRoles.includes("producer")) detectedRole = "producer";
+                        else if (userRoles.includes("admin")) detectedRole = "admin";
+                        else if (
+                          (loggedInUser?.description || "")
+                            .toLowerCase()
+                            .includes("sport")
+                        )
+                          detectedRole = "sports_journalist";
+                        else if (userRoles.includes("journalist"))
+                          detectedRole = "journalist";
 
-                const isInsuranceExpiring =
-                  selectedVehicle.insuranceDue &&
-                  new Date(selectedVehicle.insuranceDue) <= threeMonthsFromNow;
+                        const newShootType = getDefaultShootType(detectedRole, newType);
+                        const existingDate =
+                          formData.date || new Date().toISOString().slice(0, 16);
 
-                const isTestExpiring =
-                  selectedVehicle.testDue &&
-                  new Date(selectedVehicle.testDue) <= threeMonthsFromNow;
-
-                const isPatentExpiring =
-                  selectedVehicle.patentDue &&
-                  new Date(selectedVehicle.patentDue) <= threeMonthsFromNow;
-
-                return (
-                  <div className="mt-2 text-sm space-y-1">
-                    {selectedVehicle.status && selectedVehicle.status !== "Available" && (
-                      <div className="text-red-600 font-semibold">
-                        Status: {selectedVehicle.status}
-                      </div>
-                    )}
-
-                    {isInsuranceExpiring && (
-                      <div className="text-yellow-600">
-                        ⚠ Insurance expires on {selectedVehicle.insuranceDue}
-                      </div>
-                    )}
-
-                    {isTestExpiring && (
-                      <div className="text-yellow-600">
-                        ⚠ Vehicle Test due on {selectedVehicle.testDue}
-                      </div>
-                    )}
-
-                    {isPatentExpiring && (
-                      <div className="text-yellow-600">
-                        ⚠ Patent expires on {selectedVehicle.patentDue}
-                      </div>
-                    )}
+                        if (newType === "Technical") {
+                          // Clear non-tech + also clear crewAssignments
+                          setFormData({
+                            ...formData,
+                            type: newType,
+                            shootType: "",
+                            category: "",
+                            subtype: "",
+                            priority: "",
+                            assignedCamOps: [],
+                            camCount: 1,
+                            onlyOneCamOp: true,
+                            camAssignments: { cam1: "", cam2: "", cam3: "" },
+                            crewAssignments: [], // 🔄 reset crew when going Technical
+                            scopeOfWork: "",
+                            assignedTechnicians: [],
+                            date: existingDate,
+                          });
+                        } else {
+                          // Non-technical
+                          setFormData({
+                            ...formData,
+                            type: newType,
+                            shootType: newShootType,
+                            category: "",
+                            subtype: "",
+                            priority: formData.priority || "Normal",
+                            date: existingDate,
+                          });
+                        }
+                      }}
+                      className="input flex-1"
+                    >
+                      <option value="">Select Type</option>
+                      {jobTypes.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newItem = prompt("Enter new type:");
+                        if (newItem && !jobTypes.includes(newItem)) {
+                          setJobTypes([...jobTypes, newItem]);
+                        }
+                      }}
+                      className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                    >
+                      + Add
+                    </button>
                   </div>
-                );
-              })()}
-            </div>
+                </div>
+
+                {/* Assigned Reporter (hidden in Technical) */}
+                {formData.type !== "Technical" ? (
+                  <div className="space-y-2">
+                    <label className="block font-semibold">
+                      Assigned Journalist/Producer
+                    </label>
+                    <select
+                      name="assignedReporter"
+                      value={formData.assignedReporter}
+                      onChange={(e) =>
+                        setFormData({ ...formData, assignedReporter: e.target.value })
+                      }
+                      className="input"
+                    >
+                      <option value="">-- Select Reporter --</option>
+
+                      {/* Logged-in user shown first if relevant */}
+                      {(() => {
+                        const isJournalist = loggedInUser?.roles?.some(
+                          (r) => r.toLowerCase() === "journalist"
+                        );
+                        const isSports =
+                          (loggedInUser?.description || "")
+                            .toLowerCase()
+                            .includes("sport") ||
+                          loggedInUser?.roles?.some(
+                            (r) => r.toLowerCase() === "sports_journalist"
+                          );
+                        const isProducer = loggedInUser?.roles?.some(
+                          (r) => r.toLowerCase() === "producer"
+                        );
+
+                        if (isJournalist)
+                          return (
+                            <option value={`Journalist: ${loggedInUser.name}`}>
+                              Journalist: {loggedInUser.name} (You)
+                            </option>
+                          );
+                        if (isSports)
+                          return (
+                            <option value={`Sports Journalist: ${loggedInUser.name}`}>
+                              Sports Journalist: {loggedInUser.name} (You)
+                            </option>
+                          );
+                        if (isProducer)
+                          return (
+                            <option value={`Producer: ${loggedInUser.name}`}>
+                              Producer: {loggedInUser.name} (You)
+                            </option>
+                          );
+
+                        return null;
+                      })()}
+
+                      <optgroup label="Journalists">
+                        {(effectiveUsers || [])
+                          .filter((u) => {
+                            const roles = (u.roles || []).map((r) =>
+                              String(r).toLowerCase()
+                            );
+                            const desc = (u.description || "").toLowerCase();
+                            return (
+                              roles.includes("journalist") &&
+                              !desc.includes("sports") &&
+                              u.name !== loggedInUser?.name
+                            );
+                          })
+                          .map((u) => (
+                            <option
+                              key={`journalist-${u.name}`}
+                              value={`Journalist: ${u.name}`}
+                            >
+                              Journalist: {u.name}
+                            </option>
+                          ))}
+                      </optgroup>
+
+                      <optgroup label="Sports Journalists">
+                        {(effectiveUsers || [])
+                          .filter(
+                            (u) =>
+                              (u.description || "")
+                                .toLowerCase()
+                                .includes("sport") ||
+                              (u.roles || []).some(
+                                (r) =>
+                                  String(r).toLowerCase() === "sports_journalist"
+                              )
+                          )
+                          .filter((u) => u.name !== loggedInUser?.name)
+                          .map((u) => (
+                            <option
+                              key={`sports-${u.name}`}
+                              value={`Sports Journalist: ${u.name}`}
+                            >
+                              Sports Journalist: {u.name}
+                            </option>
+                          ))}
+                      </optgroup>
+
+                      <optgroup label="Producers">
+                        {(effectiveUsers || [])
+                          .filter((u) =>
+                            (u.roles || []).some(
+                              (r) => String(r).toLowerCase() === "producer"
+                            )
+                          )
+                          .filter((u) => u.name !== loggedInUser?.name)
+                          .map((u) => (
+                            <option
+                              key={`producer-${u.name}`}
+                              value={`Producer: ${u.name}`}
+                            >
+                              Producer: {u.name}
+                            </option>
+                          ))}
+                      </optgroup>
+                    </select>
+                  </div>
+                ) : (
+                  <div className="hidden md:block" />
+                )}
+              </div>
+
+              {/* Technical-only fields */}
+              {formData.type === "Technical" && (
+                <div className="rounded-xl border bg-gray-50/50 p-4 space-y-4">
+                  {/* Scope of Work */}
+                  <div className="space-y-2">
+                    <label className="block font-semibold">Scope of Work</label>
+                    <div className="flex items-center gap-2">
+                      <select
+                        className="input flex-1"
+                        value={formData.scopeOfWork || ""}
+                        onChange={(e) =>
+                          setFormData({ ...formData, scopeOfWork: e.target.value })
+                        }
+                      >
+                        <option value="">Select scope</option>
+                        <option value="Recce">Recce</option>
+                        <option value="Setup">Setup</option>
+                        <option value="Signal Test">Signal Test</option>
+                        <option value="Tech Rehearsal">Tech Rehearsal</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const val = prompt("Enter a custom scope of work:");
+                          if (val && val.trim()) {
+                            setFormData({ ...formData, scopeOfWork: val.trim() });
+                          }
+                        }}
+                        className="px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                      >
+                        + Add
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Assigned Technicians */}
+                  <div className="space-y-2">
+                    <label className="block font-semibold">
+                      Assigned Technician(s)
+                    </label>
+                    {(() => {
+                      const techTop = [
+                        "Christopher Gabriel",
+                        "Gilmer Philoe",
+                        "Darino Esther",
+                      ];
+                      const allNames = (effectiveUsers || [])
+                        .map((u) => u?.name)
+                        .filter(Boolean);
+                      const rest = Array.from(
+                        new Set(allNames.filter((n) => !techTop.includes(n)))
+                      ).sort();
+                      const ordered = [
+                        ...techTop.filter((n) => allNames.includes(n)),
+                        ...rest,
+                      ];
+                      const techOptions = ordered.map((name) => ({
+                        label: name,
+                        value: name,
+                      }));
+
+                      return (
+                        <MultiSelectCombobox
+                          options={techOptions}
+                          selected={formData.assignedTechnicians}
+                          onChange={(next) => {
+                            const values = (next || [])
+                              .map((v) => (typeof v === "string" ? v : v?.value))
+                              .filter(Boolean);
+                            setFormData({
+                              ...formData,
+                              assignedTechnicians: values,
+                            });
+                          }}
+                        />
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* Categories (News / Sports) */}
+              <div className="grid md:grid-cols-2 gap-4">
+                {/* News Dropdown */}
+                {formData.type === "News" && (
+                  <div className="space-y-1 relative z-10">
+                    <label className="block font-semibold mb-1">News Category</label>
+                    <div className="relative inline-block w-full">
+                      <div
+                        className="input cursor-pointer"
+                        onClick={() => setShowNewsDropdown((prev) => !prev)}
+                      >
+                        {formData.category || "Select News Category"}
+                      </div>
+
+                      {showNewsDropdown && (
+                        <div className="absolute mt-1 w-full bg-white border rounded shadow-md max-h-60 overflow-y-auto z-10">
+                          {newsCategories.map((item) => (
+                            <div
+                              key={item}
+                              className="flex justify-between items-center px-4 py-2 hover:bg-gray-100 cursor-pointer group"
+                              onClick={() => {
+                                setFormData({ ...formData, category: item });
+                                setShowNewsDropdown(false);
+                              }}
+                            >
+                              <span>{item}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeFromList(item, setNewsCategories);
+                                }}
+                                className="text-red-500 text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                              >
+                                ❌
+                              </button>
+                            </div>
+                          ))}
+                          <div
+                            className="px-4 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer font-medium"
+                            onClick={() => {
+                              const newItem = prompt("Enter new news category:");
+                              if (newItem && !newsCategories.includes(newItem)) {
+                                setNewsCategories([...newsCategories, newItem]);
+                                setFormData({ ...formData, category: newItem });
+                                setShowNewsDropdown(false);
+                              }
+                            }}
+                          >
+                            ➕ Add new category
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sports Dropdown */}
+                {formData.type === "Sports" && (
+                  <div className="space-y-1 relative z-10">
+                    <label className="block font-semibold mb-1">Sport Subtype</label>
+                    <div className="relative inline-block w-full">
+                      <div
+                        className="input cursor-pointer"
+                        onClick={() => setShowSportsDropdown((prev) => !prev)}
+                      >
+                        {formData.subtype || "Select Sport Subtype"}
+                      </div>
+
+                      {showSportsDropdown && (
+                        <div className="absolute mt-1 w-full bg-white border rounded shadow-md max-h-60 overflow-y-auto z-10">
+                          {sportsCategories.map((item) => (
+                            <div
+                              key={item}
+                              className="flex justify-between items-center px-4 py-2 hover:bg-gray-100 cursor-pointer group"
+                              onClick={() => {
+                                setFormData({ ...formData, subtype: item });
+                                setShowSportsDropdown(false);
+                              }}
+                            >
+                              <span>{item}</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeFromList(item, setSportsCategories);
+                                }}
+                                className="text-red-500 text-sm opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                              >
+                                ❌
+                              </button>
+                            </div>
+                          ))}
+                          <div
+                            className="px-4 py-2 text-blue-600 hover:bg-blue-50 cursor-pointer font-medium"
+                            onClick={() => {
+                              const newItem = prompt("Enter new sport subtype:");
+                              if (newItem && !sportsCategories.includes(newItem)) {
+                                setSportsCategories([...sportsCategories, newItem]);
+                                setFormData({ ...formData, subtype: newItem });
+                                setShowSportsDropdown(false);
+                              }
+                            }}
+                          >
+                            ➕ Add new subtype
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Spacer to keep grid consistent */}
+                {(formData.type !== "News" && formData.type !== "Sports") && (
+                  <div className="hidden md:block" />
+                )}
+              </div>
+
+              {/* Date + Departure + Filming (same row) */}
+              <div className="grid md:grid-cols-3 gap-4 items-end">
+                <div className="space-y-2 md:col-span-2">
+                  <label className="block font-semibold">Filming Date & Time</label>
+                  <DatePicker
+                    selected={selectedDate}
+                    onChange={(date) => {
+                      setSelectedDate(date);
+
+                      const pad = (n) => String(n).padStart(2, "0");
+                      const filmingISO = `${date.getFullYear()}-${pad(
+                        date.getMonth() + 1
+                      )}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(
+                        date.getMinutes()
+                      )}`;
+
+                      const departureDate = new Date(date.getTime() - 30 * 60000);
+                      departureDate.setSeconds(0);
+                      departureDate.setMilliseconds(0);
+                      const roundedMinutes =
+                        Math.floor(departureDate.getMinutes() / 5) * 5;
+                      departureDate.setMinutes(roundedMinutes);
+                      const departureStr = departureDate
+                        .toTimeString()
+                        .slice(0, 5); // HH:mm
+
+                      setFormData({
+                        ...formData,
+                        date: filmingISO, // filming datetime in local time
+                        filmingTime: filmingISO.split("T")[1], // HH:mm for legacy
+                        departureTime: departureStr,
+                      });
+                    }}
+                    showTimeSelect
+                    timeIntervals={5}
+                    dateFormat="yyyy-MM-dd HH:mm"
+                    className="input"
+                    placeholderText="Select filming date and time"
+                    popperPlacement="bottom-start"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block font-semibold">Departure Time</label>
+                  <input
+                    type="time"
+                    name="departureTime"
+                    value={formData.departureTime}
+                    onChange={handleChange}
+                    className="input"
+                    step="300"
+                  />
+                  {/* ✅ Visual only: shows filming time next to departure without changing logic */}
+                  <div className="text-xs text-gray-500">
+                    Filming:{" "}
+                    <span className="font-medium text-gray-700">
+                      {String(formData?.filmingTime || "").slice(0, 5) || "—"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Location + Priority */}
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="block font-semibold">Location</label>
+                  <input
+                    type="text"
+                    name="location"
+                    placeholder="Location"
+                    className="input"
+                    value={formData.location}
+                    onChange={handleChange}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block font-semibold">Priority</label>
+                  {formData.type !== "Technical" ? (
+                    <select
+                      name="priority"
+                      value={formData.priority}
+                      onChange={handleChange}
+                      className="input"
+                    >
+                      <option value="Normal">Normal</option>
+                      <option value="Urgent">Urgent</option>
+                    </select>
+                  ) : (
+                    <div className="input bg-gray-50 text-gray-500 cursor-not-allowed">
+                      (Technical requests do not use Priority)
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Camera Ops Section */}
+              {["News", "Sports", "Production"].includes(formData.type) && (
+                <div className="rounded-xl border bg-gray-50/50 p-4 space-y-4">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="block font-semibold mb-1">
+                        Number of Cameras Required
+                      </label>
+
+                      <div className="space-y-2">
+                        <select
+                          name="camCount"
+                          value={isCustomCamCount ? "custom" : formData.camCount}
+                          onChange={(e) => {
+                            if (e.target.value === "custom") {
+                              setIsCustomCamCount(true);
+                              setFormData({ ...formData, camCount: 1 });
+                            } else {
+                              setIsCustomCamCount(false);
+                              setFormData({
+                                ...formData,
+                                camCount: parseInt(e.target.value),
+                              });
+                            }
+                          }}
+                          className="input"
+                        >
+                          {[1, 2, 3, 4, 5, 6].map((num) => (
+                            <option key={num} value={num}>
+                              {num}
+                            </option>
+                          ))}
+                          <option value="custom">Custom</option>
+                        </select>
+
+                        {isCustomCamCount && (
+                          <input
+                            type="number"
+                            min="1"
+                            max="20"
+                            placeholder="Enter number"
+                            className="input"
+                            value={formData.camCount}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                camCount: parseInt(e.target.value) || 1,
+                              })
+                            }
+                          />
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block font-semibold mb-1">
+                        Operator Rule
+                      </label>
+
+                      <div className="flex flex-col gap-3">
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={formData.onlyOneCamOp}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                onlyOneCamOp: e.target.checked,
+                                expectedCamOps: e.target.checked
+                                  ? 1
+                                  : formData.expectedCamOps || 1,
+                                camAssignments: {
+                                  ...formData.camAssignments,
+                                  cam2: "",
+                                  cam3: "",
+                                },
+                              })
+                            }
+                          />
+                          <span>
+                            Only 1 Cam Op Required (Even For Multiple Cameras)
+                          </span>
+                        </label>
+
+                        {!formData.onlyOneCamOp && (
+                          <div className="flex items-center space-x-2">
+                            <label className="text-sm font-medium">
+                              Cam Ops Needed:
+                            </label>
+                            <select
+                              className="border rounded px-2 py-1 text-sm"
+                              value={formData.expectedCamOps || 1}
+                              onChange={(e) =>
+                                setFormData({
+                                  ...formData,
+                                  expectedCamOps: parseInt(e.target.value),
+                                })
+                              }
+                            >
+                              {Array.from({ length: 8 }, (_, i) => i + 1).map(
+                                (num) => (
+                                  <option key={num} value={num}>
+                                    {num}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block font-semibold">
+                      Assign Camera Operators
+                    </label>
+                    <MultiSelectCombobox
+                      options={camOpOptionsDecorated}
+                      selected={formData.assignedCamOps}
+                      onChange={(next) => {
+                        const values = (next || [])
+                          .map((v) => (typeof v === "string" ? v : v?.value))
+                          .filter((val) => val && !val.startsWith("__divider")); // ignore divider markers
+                        setFormData({
+                          ...formData,
+                          assignedCamOps: values,
+                        });
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Shoot Type + Crew */}
+              {formData.type !== "Technical" && (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="block font-semibold mb-1">Shoot Type</label>
+
+                    <select
+                      name="shootType"
+                      value={formData.shootType}
+                      onChange={(e) => {
+                        const nextShoot = e.target.value;
+                        // Seed templates when switching into EFP/Live (if empty)
+                        setFormData((prev) => {
+                          const shouldSeed =
+                            (nextShoot === "EFP" || nextShoot === "Live") &&
+                            (!Array.isArray(prev.crewAssignments) ||
+                              prev.crewAssignments.length === 0);
+                          return {
+                            ...prev,
+                            shootType: nextShoot,
+                            crewAssignments: shouldSeed
+                              ? [...EFP_LIVE_TEMPLATES]
+                              : prev.crewAssignments || [],
+                          };
+                        });
+                      }}
+                      className="input"
+                    >
+                      <option value="">-- Select Shoot Type --</option>
+                      <option value="ENG">ENG</option>
+                      <option value="EFP">EFP</option>
+                      <option value="Live">Live</option>
+                      <option value="B-roll">B-roll Only</option>
+                    </select>
+                  </div>
+
+                  {/* 👉 NEW: EFP/Live Crew Assignments (TicketPage will show in expanded view) */}
+                  {(formData.shootType === "EFP" ||
+                    formData.shootType === "Live") && (
+                    <div className="rounded-xl border p-4 space-y-4 bg-white">
+                      <div className="font-semibold">
+                        Crew Assignments (EFP/Live)
+                      </div>
+                      <p className="text-sm text-gray-600">
+                        These roles will appear in the{" "}
+                        <span className="font-medium">expanded view</span> of the
+                        ticket. You can assign multiple people per role and add
+                        custom roles.
+                      </p>
+
+                      <div className="space-y-3">
+                        {(formData.crewAssignments || []).map((row, idx) => (
+                          <div
+                            key={`${row.role}-${idx}`}
+                            className="grid md:grid-cols-2 gap-3 items-start"
+                          >
+                            <div className="flex items-center">
+                              <label className="mr-3 min-w-32 font-medium">
+                                {row.role}
+                              </label>
+                            </div>
+                            <MultiSelectCombobox
+                              options={userOptionsCrew}
+                              selected={
+                                Array.isArray(row.assignees) ? row.assignees : []
+                              }
+                              onChange={(next) => {
+                                const values = (next || [])
+                                  .map((v) =>
+                                    typeof v === "string" ? v : v?.value
+                                  )
+                                  .filter(Boolean);
+                                setFormData((prev) => {
+                                  const arr = Array.isArray(prev.crewAssignments)
+                                    ? [...prev.crewAssignments]
+                                    : [];
+                                  const i = arr.findIndex(
+                                    (r) => r.role === row.role
+                                  );
+                                  if (i >= 0) arr[i] = { ...arr[i], assignees: values };
+                                  return { ...prev, crewAssignments: arr };
+                                });
+                              }}
+                              placeholder="Assign team members…"
+                            />
+                          </div>
+                        ))}
+
+                        {/* Add custom role */}
+                        <AddCustomCrewRole
+                          onAdd={(roleName) => {
+                            const role = String(roleName || "").trim();
+                            if (!role) return;
+                            setFormData((prev) => {
+                              const arr = Array.isArray(prev.crewAssignments)
+                                ? [...prev.crewAssignments]
+                                : [];
+                              const exists = arr.some(
+                                (r) => r.role.toLowerCase() === role.toLowerCase()
+                              );
+                              if (!exists) arr.push({ role, assignees: [] });
+                              return { ...prev, crewAssignments: arr };
+                            });
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Notes */}
+              {can("canAddNotes") && (
+                <div className="space-y-2">
+                  <label className="block font-semibold">Notes</label>
+                  <textarea
+                    name="notes"
+                    placeholder="Additional notes or instructions"
+                    className="input h-24"
+                    value={formData.notes}
+                    onChange={handleChange}
+                  />
+                </div>
+              )}
+
+              {/* Fleet */}
+              {can("canAssignVehicle") && (
+                <div className="space-y-4 border-t pt-4">
+                  <h3 className="text-lg font-semibold text-gray-800">
+                    Fleet Section
+                  </h3>
+
+                  <div className="space-y-2">
+                    <label className="block font-medium">Assigned Vehicle</label>
+                    <select
+                      name="vehicle"
+                      value={formData.vehicle}
+                      onChange={handleChange}
+                      className="input"
+                    >
+                      <option value="">Select a vehicle</option>
+                      {vehicles.map((v) => (
+                        <option key={v.id} value={v.name}>
+                          {v.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {formData.vehicle &&
+                    (() => {
+                      const selectedVehicle = vehicles.find(
+                        (v) => v.name === formData.vehicle
+                      );
+                      if (!selectedVehicle) return null;
+
+                      const today = new Date();
+                      const threeMonthsFromNow = new Date();
+                      threeMonthsFromNow.setMonth(today.getMonth() + 3);
+
+                      const isInsuranceExpiring =
+                        selectedVehicle.insuranceDue &&
+                        new Date(selectedVehicle.insuranceDue) <= threeMonthsFromNow;
+
+                      const isTestExpiring =
+                        selectedVehicle.testDue &&
+                        new Date(selectedVehicle.testDue) <= threeMonthsFromNow;
+
+                      const isPatentExpiring =
+                        selectedVehicle.patentDue &&
+                        new Date(selectedVehicle.patentDue) <= threeMonthsFromNow;
+
+                      return (
+                        <div className="mt-2 text-sm space-y-1">
+                          {selectedVehicle.status &&
+                            selectedVehicle.status !== "Available" && (
+                              <div className="text-red-600 font-semibold">
+                                Status: {selectedVehicle.status}
+                              </div>
+                            )}
+
+                          {isInsuranceExpiring && (
+                            <div className="text-yellow-600">
+                              ⚠ Insurance expires on {selectedVehicle.insuranceDue}
+                            </div>
+                          )}
+
+                          {isTestExpiring && (
+                            <div className="text-yellow-600">
+                              ⚠ Vehicle Test due on {selectedVehicle.testDue}
+                            </div>
+                          )}
+
+                          {isPatentExpiring && (
+                            <div className="text-yellow-600">
+                              ⚠ Patent expires on {selectedVehicle.patentDue}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                </div>
+              )}
+
+              {/* Submit */}
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  className="w-full md:w-auto bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
+                >
+                  Submit Request
+                </button>
+              </div>
+            </form>
           )}
 
-          <button
-            type="submit"
-            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
-          >Submit Request</button>
-        </form>
-      )}
+          {/* === Show Only 7 Most Recent Tickets (Better Layout + Status + See More) === */}
+          {showRecent && (
+            <div className="mt-8 bg-white p-4 rounded-2xl shadow border space-y-2">
+              <h2 className="text-lg font-semibold mb-2">Recent Request Forms</h2>
+              <ul className="space-y-4">
+                {[...tickets].reverse().slice(0, 7).map((ticket) => (
+                  <li
+                    key={ticket.id}
+                    className="bg-white p-4 rounded-xl shadow-sm border"
+                  >
+                    <a className="text-blue-600 font-semibold text-lg">
+                      {ticket.title}
+                    </a>
+                    <p className="text-sm text-gray-700 mt-1">
+                      <strong>Type:</strong> {ticket.type} |{" "}
+                      <strong>Location:</strong> {ticket.location} |{" "}
+                      <strong>Time:</strong> {ticket.departureTime} |{" "}
+                      <strong>Priority:</strong> {ticket.priority} |{" "}
+                      <strong>Shoot:</strong> {ticket.shootType}
+                    </p>
+                    <div className="flex flex-wrap items-center justify-between gap-2 mt-1 text-sm">
+                      <StatusBadge status={ticket.status} />
+                      <AssignmentBadge status={ticket.assignmentStatus} />
+                      <span className="text-gray-500">
+                        Created by: {ticket.createdBy} <br />
+                        {new Date(ticket.createdAt).toLocaleString("en-GB")}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
 
-      {/* === Show Only 7 Most Recent Tickets (Better Layout + Status + See More) === */}
-      {showRecent && (
-        <div className="mt-10 bg-white p-4 rounded-lg shadow space-y-2">
-          <h2 className="text-lg font-semibold mb-2">Recent Request Forms</h2>
-          <ul className="space-y-4">
-            {[...tickets].reverse().slice(0, 7).map((ticket) => (
-              <li key={ticket.id} className="bg-white p-4 rounded shadow-sm border">
-                <a className="text-blue-600 font-semibold text-lg">{ticket.title}</a>
-                <p className="text-sm text-gray-700 mt-1">
-                  <strong>Type:</strong> {ticket.type} |{" "}
-                  <strong>Location:</strong> {ticket.location} |{" "}
-                  <strong>Time:</strong> {ticket.departureTime} |{" "}
-                  <strong>Priority:</strong> {ticket.priority} |{" "}
-                  <strong>Shoot:</strong> {ticket.shootType}
-                </p>
-                <div className="flex flex-wrap items-center justify-between gap-2 mt-1 text-sm">
-                  <StatusBadge status={ticket.status} />
-                  <AssignmentBadge status={ticket.assignmentStatus} />
-                  <span className="text-gray-500">
-                    Created by: {ticket.createdBy} <br />
-                    {new Date(ticket.createdAt).toLocaleString("en-GB")}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-
-          <button
-            type="button"
-            onClick={() => navigate("/tickets")}
-            className="mt-4 px-4 py-2 bg-blue-700 text-white rounded hover:bg-blue-800"
-          >
-            See More
-          </button>
+              <button
+                type="button"
+                onClick={() => navigate("/tickets")}
+                className="mt-4 px-4 py-2 bg-blue-700 text-white rounded hover:bg-blue-800"
+              >
+                See More
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

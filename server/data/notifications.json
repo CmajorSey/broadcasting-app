@@ -2267,5 +2267,39 @@
     "timestamp": "2026-02-20T10:24:10.597Z",
     "category": "fleet",
     "urgent": true
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Not To Be Used → Available",
+    "recipients": [
+      "Christopher Gabriel",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-23T04:55:00.901Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Not To Be Used → Available",
+    "recipients": [
+      "Christopher Gabriel",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-23T04:55:00.918Z",
+    "category": "fleet",
+    "urgent": false
   }
 ]
