@@ -1584,23 +1584,69 @@ app.post("/notifications/send", async (req, res) => {
         }
       }
 
-      const withinWindow = now - last < 2000;
+           const withinWindow = now - last < 2000;
       if (withinWindow) {
         console.log("🟡 /notifications/send: push deduped (duplicate request window)");
-        // Skip push only (notification already saved)
-        // eslint-disable-next-line no-useless-return
-        return;
+        // ✅ Do NOT return from the route handler.
+        // Just skip sending push this time; the in-app notification save above already happened.
+      } else {
+        global.__loBoardNotifDedupe.set(dedupeKey, now);
+
+        // ---------- 👤 Resolve recipients[] (ids/names) -> user objects ----------
+        const allUsers = typeof readUsersSafe === "function" ? readUsersSafe() : [];
+        const targets = (Array.isArray(allUsers) ? allUsers : []).filter((u) => {
+          const id = String(u?.id ?? "").trim();
+          const name = String(u?.name ?? "").trim();
+          return recipients.includes(id) || recipients.includes(name);
+        });
+
+        if (targets.length > 0) {
+          // ---------- 📌 One channel per user ----------
+          const hasWebPushSub = (u) => {
+            const a = u?.webpushSubscriptions;
+            const b = u?.webPushSubscriptions;
+            const c = u?.webpushSubs;
+            const d = u?.pushSubscriptions;
+            return (
+              (Array.isArray(a) && a.length > 0) ||
+              (Array.isArray(b) && b.length > 0) ||
+              (Array.isArray(c) && c.length > 0) ||
+              (Array.isArray(d) && d.length > 0)
+            );
+          };
+
+          const webpushTargets = targets.filter((u) => hasWebPushSub(u));
+          const fcmTargets = targets.filter((u) => !hasWebPushSub(u));
+
+          const payloadMeta = {
+            category,
+            urgent: !!urgent,
+            url: actionUrl,
+            kind: body?.kind || body?.category || "admin",
+          };
+
+          if (webpushTargets.length > 0 && typeof sendWebPushToUsers === "function") {
+            await sendWebPushToUsers(webpushTargets, title, message, payloadMeta);
+          }
+
+          if (fcmTargets.length > 0 && typeof sendPushToUsers === "function") {
+            await sendPushToUsers(fcmTargets, title, message, payloadMeta);
+          }
+
+          if (
+            typeof sendPushToUsers !== "function" &&
+            typeof sendWebPushToUsers !== "function"
+          ) {
+            console.log(
+              "ℹ️ /notifications/send: push not configured (in-app notification still saved)."
+            );
+          }
+        } else {
+          console.log(
+            "ℹ️ /notifications/send: No matching users for push (in-app notification still saved)."
+          );
+        }
       }
-
-      global.__loBoardNotifDedupe.set(dedupeKey, now);
-
-      // ---------- 👤 Resolve recipients[] (ids/names) -> user objects ----------
-      const allUsers = typeof readUsersSafe === "function" ? readUsersSafe() : [];
-      const targets = (Array.isArray(allUsers) ? allUsers : []).filter((u) => {
-        const id = String(u?.id ?? "").trim();
-        const name = String(u?.name ?? "").trim();
-        return recipients.includes(id) || recipients.includes(name);
-      });
 
       if (targets.length > 0) {
         // ---------- 📌 One channel per user ----------

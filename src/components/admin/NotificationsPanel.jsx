@@ -328,111 +328,68 @@ export default function NotificationsPanel({ loggedInUser }) {
       return;
     }
 
-    // Use a single timestamp for backend + App-level emit
     const ts = new Date().toISOString();
 
-    const payload = {
+    // ✅ One payload shape that your backend alias already understands
+    // Backend reads: title, message, recipients, createdAt (optional), category, urgent, action.url
+    const sendPayload = {
       title,
       message,
       recipients,
-
-      // ✅ align with stored schema + App expects this too
+      createdAt: ts,
       timestamp: ts,
       category: "admin",
-
-      // ✅ urgent flag
       urgent: urgent === true,
-
-      // keep for backward compatibility (if anything uses createdAt)
-      createdAt: ts,
+      action: { url: "/profile" },
     };
 
-    // PUSH body kept flexible (backend can ignore unknown fields)
-    const pushBody = {
-      title,
-      body: message,
-      message,
-      recipients,
-      category: "admin",
-      urgent: urgent === true,
-      data: {
-        category: "admin",
-        urgent: urgent === true,
-      },
-    };
-
-       const tryPost = async (url) => {
-      const r = await fetch(url, {
+    const postJson = async (url, body) => {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pushBody),
+        body: JSON.stringify(body),
       });
-      if (!r.ok) {
-        const txt = await r.text().catch(() => "");
-        throw new Error(txt || `HTTP ${r.status}`);
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(txt || `HTTP ${res.status}`);
       }
-      return true;
+
+      return res.json().catch(() => ({}));
     };
 
     try {
-      const res = await fetch(`${API_BASE}/notifications`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      // ✅ Primary path: /notifications/send (save + push attempt)
+      // If this route is missing/unavailable, fallback to /notifications (save only)
+      try {
+        await postJson(`${API_BASE}/notifications/send`, sendPayload);
+      } catch (e) {
+        // fallback (still ensures inbox history works even if push is down)
+        await postJson(`${API_BASE}/notifications`, sendPayload);
+      }
 
-      if (!res.ok) throw new Error("Failed to send message");
+      toast({ title: "Message sent!" });
 
-      // ✅ Try PUSH (non-fatal) — use backend-known route
-      await (async () => {
-        try {
-          // Backend route used elsewhere in the app for FCM send attempts
-          await tryPost(`${API_BASE}/notifications/send`);
-          return true;
-        } catch {
-          // keep non-fatal (feed/toasts still OK)
-          if (import.meta.env.DEV) {
-            console.warn(
-              "Admin push not sent (POST /notifications/send not available). Feed/toasts still OK."
-            );
-          }
-          return false;
-        }
-      })();
-
-        toast({ title: "Message sent!" });
-
-      /* ===========================
-         🔊 Local preview rule starts here
-         - If admin sends to THEMSELVES, skip local preview to avoid duplicates:
-           (push + inbox toast + preview)
-         - Admin still gets "Message sent!" toast above.
-         =========================== */
+      // ✅ Local preview rules unchanged
       const me = String(loggedInUser?.name || "").trim();
       const isSendingToSelf =
-        !!me && Array.isArray(payload.recipients) && payload.recipients.includes(me);
+        !!me && Array.isArray(sendPayload.recipients) && sendPayload.recipients.includes(me);
 
       if (!isSendingToSelf) {
-        // ✅ Immediately hand off to App.jsx for local preview only (non-recipients)
         emitAdminNotification({
-          title: payload.title,
-          message: payload.message,
-          recipients: payload.recipients,
-          timestamp: payload.timestamp,
-          category: payload.category,
-          urgent: payload.urgent,
+          title: sendPayload.title,
+          message: sendPayload.message,
+          recipients: sendPayload.recipients,
+          timestamp: sendPayload.timestamp,
+          category: sendPayload.category,
+          urgent: sendPayload.urgent,
         });
       }
-      /* ===========================
-         🔊 Local preview rule ends here
-         =========================== */
 
       setTitle("");
       setMessage("");
       setSelectedUsers([]);
       setSelectedSections([]);
-
-      // ✅ reset meta
       setUrgent(false);
 
       fetchHistory();
