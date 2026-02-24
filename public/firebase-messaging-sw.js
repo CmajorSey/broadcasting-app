@@ -10,12 +10,7 @@
  * IMPORTANT:
  * - Use compat scripts inside service worker (simplest + stable on Netlify)
  * - Your React app is responsible for requesting permission + saving FCM token
- * - This SW is ONLY for background messages and notification clicks
- *
- * NOTE (Safari/iOS):
- * - This file ONLY helps browsers that support Firebase Messaging on web (Chrome/Edge/Firefox).
- * - iOS Safari installed web apps do NOT receive background push via Firebase Messaging.
- * - For iOS Safari background push, you need a separate standard Web Push SW (e.g. /webpush-sw.js).
+ * - This SW handles background messages + notification click behavior
  */
 
 // ✅ Firebase compat libs (SW-friendly)
@@ -39,34 +34,18 @@ const messaging = firebase.messaging();
 
 /* ===========================
    📩 Background message handler (FCM-supported browsers)
+   ✅ Always shows a notification (restores delivery)
    =========================== */
-/**
- * ✅ Duplicate-fix rule:
- * If the server sends an FCM "notification" payload, many browsers will display it automatically.
- * If we ALSO call showNotification(), you can get 2 notifications.
- *
- * So:
- * - If payload.notification exists → DO NOT manually showNotification().
- * - If it's data-only → we DO showNotification().
- */
 messaging.onBackgroundMessage(function (payload) {
   try {
-    const hasNotificationPayload =
-      !!payload?.notification?.title || !!payload?.notification?.body;
-
-    // If notification payload exists, the browser may auto-display it.
-    // Avoid double notifications by NOT calling showNotification here.
-    if (hasNotificationPayload) {
-      return;
-    }
-
-    // Data-only message fallback
     const title =
+      payload?.notification?.title ||
       payload?.data?.title ||
       payload?.data?.notificationTitle ||
       "Lo Board";
 
     const body =
+      payload?.notification?.body ||
       payload?.data?.body ||
       payload?.data?.message ||
       payload?.data?.notificationBody ||
@@ -74,10 +53,19 @@ messaging.onBackgroundMessage(function (payload) {
 
     const url = payload?.data?.url || payload?.fcmOptions?.link || "/tickets";
 
+    // Best-effort dedupe tag (won’t block delivery)
+    const tag =
+      payload?.data?.dedupeKey ||
+      payload?.data?.notificationId ||
+      payload?.messageId ||
+      `${title}:${body}:${url}`;
+
     const options = {
       body,
       icon: "/icon-192.png",
       data: { url },
+      tag,
+      renotify: false,
     };
 
     self.registration.showNotification(title, options);
@@ -89,7 +77,6 @@ messaging.onBackgroundMessage(function (payload) {
 
 /* ===========================
    🖱️ Notification click handler
-   - Opens the app (or focuses it) and navigates to url if provided
    =========================== */
 self.addEventListener("notificationclick", function (event) {
   event.notification.close();
@@ -103,14 +90,12 @@ self.addEventListener("notificationclick", function (event) {
         includeUncontrolled: true,
       });
 
-      // If a tab is already open, focus it
       for (const client of allClients) {
         if ("focus" in client) {
           try {
             await client.focus();
           } catch {}
 
-          // Optional: navigate open tab
           if ("navigate" in client) {
             try {
               await client.navigate(url);
@@ -120,7 +105,6 @@ self.addEventListener("notificationclick", function (event) {
         }
       }
 
-      // Otherwise open a new tab
       if (clients.openWindow) {
         return clients.openWindow(url);
       }
