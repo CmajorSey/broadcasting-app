@@ -1500,6 +1500,8 @@ const handleCreateNotification = async (req, res) => {
 
     /* ===========================
        🔔 Push delivery starts here (POST /notifications | /notifications/send)
+       - Adds: token/subscription discovery logs
+       - Adds: push summary returned in response (non-breaking extra field)
        =========================== */
 
     const actionUrl =
@@ -1507,18 +1509,125 @@ const handleCreateNotification = async (req, res) => {
       (body?.url && String(body.url)) ||
       "/profile";
 
+    const pushSummary = {
+      matchedUsers: 0,
+      recipientsCount: recipients.length,
+
+      // discovery
+      fcmTokensFound: 0,
+      webpushSubsFound: 0,
+
+      // attempted
+      fcmAttempted: false,
+      webpushAttempted: false,
+
+      // results (best-effort)
+      fcmSuccess: 0,
+      fcmFailure: 0,
+      webpushSuccess: 0,
+      webpushFailure: 0,
+
+      // config visibility
+      hasSendPushToUsers: typeof sendPushToUsers === "function",
+      hasSendWebPushToUsers: typeof sendWebPushToUsers === "function",
+
+      // errors
+      errors: [],
+      warnings: [],
+    };
+
+    const safeErr = (e) =>
+      String(e?.message || e?.error || e || "Unknown error").slice(0, 300);
+
     try {
       const allUsers = typeof readUsersSafe === "function" ? readUsersSafe() : [];
-      const targets = (Array.isArray(allUsers) ? allUsers : []).filter((u) => {
+      const usersArr = Array.isArray(allUsers) ? allUsers : [];
+
+      const targets = usersArr.filter((u) => {
         const id = String(u?.id ?? "").trim();
         const name = String(u?.name ?? "").trim();
         return recipients.includes(id) || recipients.includes(name);
       });
 
+      pushSummary.matchedUsers = targets.length;
+
+      // Helpers: discover tokens/subscriptions across common field names
+      const getWebPushSubs = (u) => {
+        const a = u?.webpushSubscriptions;
+        const b = u?.webPushSubscriptions;
+        const c = u?.webpushSubs;
+        const d = u?.pushSubscriptions;
+        const e = u?.webPushSubs;
+        const f = u?.webpush; // sometimes { subscriptions: [] }
+        const g = u?.webPush;
+
+        const pick = (x) => (Array.isArray(x) ? x : []);
+
+        const fromObj = (obj) => {
+          if (!obj) return [];
+          if (Array.isArray(obj)) return obj;
+          const arr =
+            (Array.isArray(obj?.subscriptions) && obj.subscriptions) ||
+            (Array.isArray(obj?.subs) && obj.subs) ||
+            [];
+          return Array.isArray(arr) ? arr : [];
+        };
+
+        return [
+          ...pick(a),
+          ...pick(b),
+          ...pick(c),
+          ...pick(d),
+          ...pick(e),
+          ...fromObj(f),
+          ...fromObj(g),
+        ].filter(Boolean);
+      };
+
+      const getFcmTokens = (u) => {
+        const single =
+          u?.fcmToken ||
+          u?.fcm_token ||
+          u?.firebaseToken ||
+          u?.firebaseMessagingToken;
+
+        const arr =
+          u?.fcmTokens ||
+          u?.fcm_tokens ||
+          u?.firebaseTokens ||
+          u?.firebaseMessagingTokens;
+
+        const list = [];
+        if (single) list.push(String(single));
+        if (Array.isArray(arr)) list.push(...arr.map(String));
+
+        // Some apps store per-device objects: { token: "..." }
+        const devices =
+          u?.devices ||
+          u?.deviceTokens ||
+          u?.fcmDevices ||
+          u?.pushDevices ||
+          null;
+
+        if (Array.isArray(devices)) {
+          for (const d of devices) {
+            const t = d?.fcmToken || d?.token || d?.fcm_token;
+            if (t) list.push(String(t));
+          }
+        }
+
+        // clean/dedupe
+        return Array.from(new Set(list.filter(Boolean).map((x) => String(x).trim()))).filter(
+          (x) => x.length > 20 // basic sanity
+        );
+      };
+
       if (targets.length === 0) {
         console.log(
-          "ℹ️ /notifications: No matching users for push (in-app notification still saved)."
+          "ℹ️ /notifications: No matching users for push (in-app notification still saved).",
+          { recipients }
         );
+        pushSummary.warnings.push("No matching users for recipients (push skipped).");
       } else {
         const dedupeKey = JSON.stringify({
           title,
@@ -1544,24 +1653,9 @@ const handleCreateNotification = async (req, res) => {
         const withinWindow = now - last < 2000;
         if (withinWindow) {
           console.log("🟡 /notifications: push deduped (duplicate request window)");
+          pushSummary.warnings.push("Push deduped (duplicate request window).");
         } else {
           global.__loBoardNotifDedupe.set(dedupeKey, now);
-
-          const hasWebPushSub = (u) => {
-            const a = u?.webpushSubscriptions;
-            const b = u?.webPushSubscriptions;
-            const c = u?.webpushSubs;
-            const d = u?.pushSubscriptions;
-            return (
-              (Array.isArray(a) && a.length > 0) ||
-              (Array.isArray(b) && b.length > 0) ||
-              (Array.isArray(c) && c.length > 0) ||
-              (Array.isArray(d) && d.length > 0)
-            );
-          };
-
-          const webpushTargets = targets.filter((u) => hasWebPushSub(u));
-          const fcmTargets = targets.filter((u) => !hasWebPushSub(u));
 
           const payloadMeta = {
             category,
@@ -1570,20 +1664,116 @@ const handleCreateNotification = async (req, res) => {
             kind: body?.kind || body?.category || "admin",
           };
 
-          console.log("✅ /notifications targets:", {
-            total: targets.length,
+          // Split targets by presence of web push subs (Safari PWA path)
+          const webpushTargets = targets.filter((u) => getWebPushSubs(u).length > 0);
+          const fcmTargets = targets.filter((u) => getWebPushSubs(u).length === 0);
+
+          // Discover totals for visibility (THIS is what will reveal your problem)
+          const allWebSubs = webpushTargets.flatMap((u) => getWebPushSubs(u));
+          const allFcmTokens = fcmTargets.flatMap((u) => getFcmTokens(u));
+
+          const dedupedWebSubs = Array.from(new Set(allWebSubs.map((s) => JSON.stringify(s)))).map(
+            (s) => {
+              try {
+                return JSON.parse(s);
+              } catch {
+                return null;
+              }
+            }
+          ).filter(Boolean);
+
+          const dedupedFcmTokens = Array.from(new Set(allFcmTokens.map(String)));
+
+          pushSummary.webpushSubsFound = dedupedWebSubs.length;
+          pushSummary.fcmTokensFound = dedupedFcmTokens.length;
+
+          console.log("✅ /notifications push discovery:", {
+            recipients,
+            matchedUsers: targets.length,
             webpushTargets: webpushTargets.length,
             fcmTargets: fcmTargets.length,
+            webpushSubsFound: pushSummary.webpushSubsFound,
+            fcmTokensFound: pushSummary.fcmTokensFound,
             sendPushToUsers: typeof sendPushToUsers === "function",
             sendWebPushToUsers: typeof sendWebPushToUsers === "function",
           });
 
-          if (webpushTargets.length > 0 && typeof sendWebPushToUsers === "function") {
-            await sendWebPushToUsers(webpushTargets, title, message, payloadMeta);
+          // If there are NO tokens/subs, push can’t happen (this is the most common issue)
+          if (pushSummary.webpushSubsFound === 0 && pushSummary.fcmTokensFound === 0) {
+            pushSummary.warnings.push(
+              "No push tokens/subscriptions found for matched users (push skipped)."
+            );
           }
 
-          if (fcmTargets.length > 0 && typeof sendPushToUsers === "function") {
-            await sendPushToUsers(fcmTargets, title, message, payloadMeta);
+          // Attempt Web Push first (Safari PWA)
+          if (pushSummary.webpushSubsFound > 0) {
+            if (typeof sendWebPushToUsers === "function") {
+              pushSummary.webpushAttempted = true;
+              try {
+                const r = await sendWebPushToUsers(
+                  webpushTargets,
+                  title,
+                  message,
+                  payloadMeta
+                );
+
+                // Best-effort: accept common result shapes if your helper returns them
+                const okCount =
+                  Number(r?.successCount) ||
+                  Number(r?.sent) ||
+                  Number(r?.ok) ||
+                  0;
+                const failCount =
+                  Number(r?.failureCount) ||
+                  Number(r?.failed) ||
+                  Number(r?.fail) ||
+                  0;
+
+                pushSummary.webpushSuccess += okCount;
+                pushSummary.webpushFailure += failCount;
+              } catch (e) {
+                pushSummary.errors.push(`WebPush failed: ${safeErr(e)}`);
+                pushSummary.webpushFailure += pushSummary.webpushSubsFound || 1;
+              }
+            } else {
+              pushSummary.warnings.push(
+                "WebPush subscriptions exist but sendWebPushToUsers is not configured."
+              );
+            }
+          }
+
+          // Attempt FCM (Chrome/Android)
+          if (pushSummary.fcmTokensFound > 0) {
+            if (typeof sendPushToUsers === "function") {
+              pushSummary.fcmAttempted = true;
+              try {
+                const r = await sendPushToUsers(fcmTargets, title, message, payloadMeta);
+
+                // Best-effort: accept common result shapes if your helper returns them
+                const okCount =
+                  Number(r?.successCount) ||
+                  Number(r?.sent) ||
+                  Number(r?.ok) ||
+                  Number(r?.success) ||
+                  0;
+                const failCount =
+                  Number(r?.failureCount) ||
+                  Number(r?.failed) ||
+                  Number(r?.fail) ||
+                  Number(r?.failure) ||
+                  0;
+
+                pushSummary.fcmSuccess += okCount;
+                pushSummary.fcmFailure += failCount;
+              } catch (e) {
+                pushSummary.errors.push(`FCM failed: ${safeErr(e)}`);
+                pushSummary.fcmFailure += pushSummary.fcmTokensFound || 1;
+              }
+            } else {
+              pushSummary.warnings.push(
+                "FCM tokens exist but sendPushToUsers is not configured."
+              );
+            }
           }
 
           if (
@@ -1597,6 +1787,7 @@ const handleCreateNotification = async (req, res) => {
         }
       }
     } catch (pushErr) {
+      pushSummary.errors.push(`Push skipped/failed (non-fatal): ${safeErr(pushErr)}`);
       console.warn(
         "Push skipped/failed for /notifications (non-fatal):",
         pushErr?.message || pushErr
@@ -1607,14 +1798,16 @@ const handleCreateNotification = async (req, res) => {
        🔔 Push delivery ends here
        =========================== */
 
-    if (!ok) return res.status(200).json(newNotification);
-    return res.status(201).json(newNotification);
+    // Return saved notification + push summary (extra fields are safe for frontend)
+    const responseBody = { ...newNotification, push: pushSummary };
+
+    if (!ok) return res.status(200).json(responseBody);
+    return res.status(201).json(responseBody);
   } catch (err) {
     console.error("Failed to create notification:", err);
     return res.status(200).json([]); // keep frontend contract
   }
 };
-
 // ✅ Canonical
 app.post("/notifications", handleCreateNotification);
 
