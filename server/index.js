@@ -3195,40 +3195,54 @@ app.post("/send-push", async (req, res) => {
     const results = [];
 
     for (const t of list) {
-      const payload = {
-        message: {
-          token: t,
-          notification: { title, body },
-          data: Object.fromEntries(
-            Object.entries(data || {}).map(([k, v]) => [String(k), String(v)])
-          ),
-          webpush: {
-            headers: { Urgency: "high" },
-            notification: { icon: "/icon.png" },
-          },
-        },
-      };
+  // ✅ DATA-ONLY message to prevent duplicate notifications
+  // The service worker (firebase-messaging-sw.js) should be the ONLY place
+  // that calls showNotification().
+  const safeData = Object.fromEntries(
+    Object.entries(data || {}).map(([k, v]) => [String(k), String(v)])
+  );
 
-      const resp = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
+  const payload = {
+    message: {
+      token: t,
 
-      const text = await resp.text();
-      let json;
-      try {
-        json = JSON.parse(text);
-      } catch {
-        json = { raw: text };
-      }
+      // ✅ Put all display fields into data (strings only)
+      data: {
+        ...safeData,
+        title: String(title || "Lo Board"),
+        body: String(body || ""),
+        icon: String(safeData.icon || "/icon.png"),
+        url: String(safeData.url || "/tickets"),
+      },
 
-      results.push({ token: t, status: resp.status, ok: resp.ok, body: json });
-    }
+      // ✅ Keep headers, but REMOVE "webpush.notification" to avoid auto-display duplicates
+      webpush: {
+        headers: { Urgency: "high" },
+        // Optional: link opens when user clicks the notification (works best with your SW click handler too)
+        fcm_options: { link: String(safeData.url || "/tickets") },
+      },
+    },
+  };
 
+  const resp = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const text = await resp.text();
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = { raw: text };
+  }
+
+  results.push({ token: t, status: resp.status, ok: resp.ok, body: json });
+}
     const failures = results.filter((r) => !r.ok);
     if (failures.length) {
       return res.status(207).json({
