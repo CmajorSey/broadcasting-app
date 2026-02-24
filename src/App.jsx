@@ -641,12 +641,31 @@ function App() {
       }
 
       if (toastEnabled) {
-        const extras = buildTicketToastExtras(note);
-        const base = note.message || "";
+        // ✅ Always prefer the actual notification message for toast body
+        // Some callers might pass non-string values; normalize safely.
+        const rawBase =
+          typeof note?.message === "string"
+            ? note.message
+            : typeof note?.body === "string"
+            ? note.body
+            : typeof note?.content === "string"
+            ? note.content
+            : "";
 
-        // ✅ If it's a ticket-related notification, append structured info
+        const base = String(rawBase || "").trim();
+
+        // ✅ Only append ticket-style extras for ticket notifications
+        // (Prevents admin notifications showing filming request previews)
+        const isTicketToast =
+          String(category || "").toLowerCase() === "ticket" ||
+          !!note?.ticketId ||
+          !!note?.__ticket;
+
+        const extras = isTicketToast ? buildTicketToastExtras(note) : "";
+        const extrasStr = String(extras || "").trim();
+
         const description =
-          extras && base ? `${base}\n${extras}` : extras ? extras : base;
+          base && extrasStr ? `${base}\n${extrasStr}` : base ? base : extrasStr;
 
         const route = resolveToastRoute(note, category);
 

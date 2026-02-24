@@ -1455,68 +1455,7 @@ const normalizeNotifMeta = (body = {}) => {
 };
 
 // ✉️ POST /notifications — create new notification (normalized meta)
-app.post("/notifications", (req, res) => {
-  try {
-    const body = req.body || {};
-    const title = String(body.title || "").trim();
-    const message = String(body.message || "").trim();
-    const recipients = Array.isArray(body.recipients)
-      ? Array.from(new Set(body.recipients.filter(Boolean).map(String)))
-      : [];
-
-    const createdAt =
-      body.createdAt && !Number.isNaN(new Date(body.createdAt).getTime())
-        ? new Date(body.createdAt).toISOString()
-        : new Date().toISOString();
-
-    if (!title || !message || recipients.length === 0) {
-      return res.status(400).json({ error: "Missing title, message, or recipients" });
-    }
-
-    const all = readNotifsSafe();
-
-    // ✅ NEW: normalized fields used by frontend rules
-    const { category, urgent } = normalizeNotifMeta(body);
-
-    const newNotification = {
-      title,
-      message,
-      recipients,
-      timestamp: createdAt,
-
-      // ✅ normalized meta (frontend can rely on these)
-      category, // "fleet" | "leave" | "admin" | "suggestion" | "ticket" | "system"
-      urgent,   // boolean
-    };
-
-    all.push(newNotification);
-
-    const ok = writeNotifsSafe(all);
-    if (!ok) {
-      // ✅ Never break the frontend shape
-      return res.status(200).json(newNotification);
-    }
-
-    return res.status(201).json(newNotification);
-  } catch (err) {
-    console.error("Failed to create notification:", err);
-    // ✅ Never break the frontend shape
-    return res.status(200).json([]);
-  }
-});
-
-
-/* ===========================
-   📩 Notifications send alias starts here
-   - LeaveManager currently calls:
-       POST /notifications/send
-   - Backend already supports:
-       POST /notifications
-   - This alias keeps old clients working.
-   - ✅ Attempts FCM push (non-fatal) if push sender exists.
-   - ✅ Attempts Safari Web Push (non-fatal) if webpush sender exists.
-   =========================== */
-app.post("/notifications/send", async (req, res) => {
+app.post("/notifications", async (req, res) => {
   try {
     const body = req.body || {};
     const title = String(body.title || "").trim();
@@ -1537,6 +1476,8 @@ app.post("/notifications/send", async (req, res) => {
     }
 
     const all = readNotifsSafe();
+
+    // ✅ NEW: normalized fields used by frontend rules
     const { category, urgent } = normalizeNotifMeta(body);
 
     const newNotification = {
@@ -1544,8 +1485,10 @@ app.post("/notifications/send", async (req, res) => {
       message,
       recipients,
       timestamp: createdAt,
-      category,
-      urgent,
+
+      // ✅ normalized meta (frontend can rely on these)
+      category, // "fleet" | "leave" | "admin" | "suggestion" | "ticket" | "system"
+      urgent, // boolean
     };
 
     all.push(newNotification);
@@ -1553,21 +1496,20 @@ app.post("/notifications/send", async (req, res) => {
     const ok = writeNotifsSafe(all);
 
     /* ===========================
-       🔔 Push delivery starts here
-       - Fixes: "NO PUSH AT ALL" caused by duplicated code + out-of-scope targets
-       - Strategy:
-         1) Resolve recipients -> user objects ONCE
-         2) Short dedupe window (skip push only, never exit route)
-         3) Prefer WebPush if user has subscriptions; otherwise FCM
+       🔔 Push delivery starts here (POST /notifications)
+       - Notification Panel uses POST /notifications (NOT /notifications/send)
+       - Ticket pushes work, so we reuse the same push strategy as /notifications/send
+       - Non-fatal: never blocks saving or response
        =========================== */
 
     const actionUrl =
-      (body?.action?.url && String(body.action.url)) || "/profile";
+      (body?.action?.url && String(body.action.url)) ||
+      (body?.url && String(body.url)) ||
+      "/profile";
 
     try {
       // Resolve recipients[] (ids/names) -> user objects (ONE TIME)
-      const allUsers =
-        typeof readUsersSafe === "function" ? readUsersSafe() : [];
+      const allUsers = typeof readUsersSafe === "function" ? readUsersSafe() : [];
       const targets = (Array.isArray(allUsers) ? allUsers : []).filter((u) => {
         const id = String(u?.id ?? "").trim();
         const name = String(u?.name ?? "").trim();
@@ -1576,7 +1518,7 @@ app.post("/notifications/send", async (req, res) => {
 
       if (targets.length === 0) {
         console.log(
-          "ℹ️ /notifications/send: No matching users for push (in-app notification still saved)."
+          "ℹ️ /notifications: No matching users for push (in-app notification still saved)."
         );
       } else {
         // ---------- 🔁 Server-side dedupe (short window) ----------
@@ -1604,9 +1546,7 @@ app.post("/notifications/send", async (req, res) => {
 
         const withinWindow = now - last < 2000;
         if (withinWindow) {
-          console.log(
-            "🟡 /notifications/send: push deduped (duplicate request window)"
-          );
+          console.log("🟡 /notifications: push deduped (duplicate request window)");
           // ✅ Skip push only; do NOT exit route.
         } else {
           global.__loBoardNotifDedupe.set(dedupeKey, now);
@@ -1634,8 +1574,7 @@ app.post("/notifications/send", async (req, res) => {
             kind: body?.kind || body?.category || "admin",
           };
 
-          // Helpful logs (won’t crash anything)
-          console.log("✅ /notifications/send targets:", {
+          console.log("✅ /notifications targets:", {
             total: targets.length,
             webpushTargets: webpushTargets.length,
             fcmTargets: fcmTargets.length,
@@ -1661,14 +1600,14 @@ app.post("/notifications/send", async (req, res) => {
             typeof sendWebPushToUsers !== "function"
           ) {
             console.log(
-              "ℹ️ /notifications/send: push not configured (in-app notification still saved)."
+              "ℹ️ /notifications: push not configured (in-app notification still saved)."
             );
           }
         }
       }
     } catch (pushErr) {
       console.warn(
-        "Push skipped/failed for /notifications/send (non-fatal):",
+        "Push skipped/failed for /notifications (non-fatal):",
         pushErr?.message || pushErr
       );
     }
@@ -1677,77 +1616,18 @@ app.post("/notifications/send", async (req, res) => {
        🔔 Push delivery ends here
        =========================== */
 
-    // Preserve exact response behavior
-    if (!ok) return res.status(200).json(newNotification);
+    if (!ok) {
+      // ✅ Never break the frontend shape
+      return res.status(200).json(newNotification);
+    }
+
     return res.status(201).json(newNotification);
   } catch (err) {
-    console.error("Failed to create notification (/notifications/send):", err);
+    console.error("Failed to create notification:", err);
     // ✅ Never break the frontend shape
     return res.status(200).json([]);
   }
 });
-/* ===========================
-   📩 Notifications send alias ends here
-   =========================== */
-
-// 🧭 GET /notifications  (polling supported via ?after=<ISO>)
-app.get("/notifications", (req, res) => {
-  // ✅ debug log MUST be inside the handler (req exists here)
-  console.log("✅ HIT /notifications", new Date().toISOString(), req.query);
-
-  // ✅ absolute safety: this route must NEVER 500 and must ALWAYS return an array
-  const safeIsoSec = (v) => {
-    try {
-      const d = new Date(v);
-      if (isNaN(d)) return null;
-      // normalize to second precision ISO (matches your isoSec intent)
-      return d.toISOString().split(".")[0];
-    } catch {
-      return null;
-    }
-  };
-
-  let all = [];
-  try {
-    const raw = typeof readNotifsSafe === "function" ? readNotifsSafe() : [];
-    // Accept either an array OR an object wrapper (just in case)
-    if (Array.isArray(raw)) all = raw;
-    else if (raw && Array.isArray(raw.notifications)) all = raw.notifications;
-    else all = [];
-  } catch (err) {
-    console.error("Failed to read notifications:", err);
-    all = [];
-  }
-
-  try {
-    const after = req.query?.after;
-
-    // Normalize/filter support:
-    // - stored field may be timestamp OR createdAt
-    // - query after can be full ISO; we compare at second precision ISO
-    if (after) {
-      const a =
-        typeof isoSec === "function" ? isoSec(after) : safeIsoSec(after);
-      if (!a) return res.status(200).json([]); // ✅ keep array shape
-
-      const filtered = all.filter((n) => {
-        const ts = n?.timestamp || n?.createdAt || null;
-        const t = typeof isoSec === "function" ? isoSec(ts) : safeIsoSec(ts);
-        return t && t > a;
-      });
-
-      return res.status(200).json(filtered);
-    }
-
-    return res.status(200).json(all);
-  } catch (err) {
-    console.error("Failed to process notifications:", err);
-    // ✅ CRITICAL: never break the frontend contract
-    return res.status(200).json([]);
-  }
-});
-
-
 
 // ✏️ PATCH /notifications/:timestamp
 app.patch("/notifications/:timestamp", (req, res) => {
