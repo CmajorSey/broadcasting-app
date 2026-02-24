@@ -1629,6 +1629,37 @@ app.post("/notifications", async (req, res) => {
   }
 });
 
+/* ===========================
+   📥 GET /notifications — history + polling
+   - Supports: /notifications?after=<ISO>
+   - Returns ARRAY always
+   =========================== */
+app.get("/notifications", (req, res) => {
+  try {
+    const all = readNotifsSafe();
+
+    const afterRaw = req.query?.after;
+    const afterKey = afterRaw ? isoSec(afterRaw) : null;
+
+    let out = Array.isArray(all) ? all : [];
+
+    if (afterKey) {
+      out = out.filter((n) => {
+        const t = isoSec(n?.timestamp);
+        return t && t > afterKey;
+      });
+    }
+
+    // Keep newest first (helps UI)
+    out.sort((a, b) => String(b?.timestamp || "").localeCompare(String(a?.timestamp || "")));
+
+    return res.json(out);
+  } catch (err) {
+    console.error("Failed to read notifications:", err);
+    return res.status(200).json([]); // keep array contract
+  }
+});
+
 // ✏️ PATCH /notifications/:timestamp
 app.patch("/notifications/:timestamp", (req, res) => {
   try {
@@ -1641,7 +1672,7 @@ app.patch("/notifications/:timestamp", (req, res) => {
     const idx = all.findIndex((n) => isoSec(n?.timestamp) === targetKey);
     if (idx === -1) return res.status(404).json({ error: "Notification not found" });
 
-      const body = req.body || {};
+    const body = req.body || {};
     const allowed = [
       "title",
       "message",
