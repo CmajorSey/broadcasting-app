@@ -816,6 +816,10 @@ const poll = async () => {
        =========================== */
     const LAST_SEEN_KEY = "loBoard.lastSeenNotifTs.global";
 
+    // ✅ In-memory session dedupe (prevents 2x toasts if backend returns inclusive results)
+    if (!window.__loBoardPollSeenKeys) window.__loBoardPollSeenKeys = new Set();
+    const seenKeys = window.__loBoardPollSeenKeys;
+
     const now = Date.now();
     let lastSeen = Number(localStorage.getItem(LAST_SEEN_KEY) || 0);
 
@@ -826,6 +830,10 @@ const poll = async () => {
       localStorage.setItem(LAST_SEEN_KEY, "0");
     }
 
+    // ✅ IMPORTANT:
+    // Many backends treat `after` as ">= after" (inclusive).
+    // If we send lastSeen exactly, the newest item can re-appear -> duplicate alert.
+    // So we query from lastSeen (same as before), but we will ADVANCE watermark by +1ms.
     const afterISO =
       lastSeen > 0
         ? new Date(lastSeen).toISOString()
@@ -891,14 +899,34 @@ const poll = async () => {
     // ✅ Update unread bubble count from what we got
     syncUnread(visible);
 
-    // ✅ Fire alerts for the NEW batch only
+    // ✅ Fire alerts ONLY for truly-new items
+    // - ts must be > lastSeen
+    // - key must not have been shown already in this session
     let maxTs = lastSeen;
 
     for (const n of visible) {
       if (cancelled) break;
 
       const ts = new Date(n?.timestamp || n?._ts || n?.ts || 0).getTime();
-      if (Number.isFinite(ts) && ts > maxTs) maxTs = ts;
+
+      // If the notification doesn't have a valid timestamp, don't spam alerts.
+      if (!Number.isFinite(ts) || ts <= 0) continue;
+
+      // ✅ Strict "new only" gate (prevents duplicates)
+      if (ts <= lastSeen) continue;
+
+      const k = makeNotifKey({
+        timestamp: n?.timestamp,
+        title: n?.title,
+        message: n?.message,
+        fallbackTs: n?._ts || n?.ts,
+      });
+
+      // ✅ In-session dedupe (covers inclusive backend queries + quick refresh)
+      if (seenKeys.has(k)) continue;
+      seenKeys.add(k);
+
+      if (ts > maxTs) maxTs = ts;
 
       await fireGlobalAlert({
         ...n,
@@ -908,15 +936,16 @@ const poll = async () => {
     }
 
     // ✅ Advance watermark based on what we processed
+    // ✅ +1ms is CRITICAL to avoid inclusive "after" duplication
     if (Number.isFinite(maxTs) && maxTs > lastSeen) {
-      localStorage.setItem(LAST_SEEN_KEY, String(maxTs));
+      localStorage.setItem(LAST_SEEN_KEY, String(maxTs + 1));
     }
 
     setDebugBanner((prev) => ({
       ...(prev || {}),
       at: new Date().toISOString(),
       source: "poll",
-      note: `OK (+${visible.length} new)`,
+      note: `OK (+${visible.length} fetched)`,
     }));
   } catch (err) {
     setDebugBanner((prev) => ({
