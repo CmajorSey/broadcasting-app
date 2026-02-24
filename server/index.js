@@ -3194,7 +3194,21 @@ app.post("/send-push", async (req, res) => {
     const endpoint = `https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send`; // <-- uses top PROJECT_ID
     const results = [];
 
-    for (const t of list) {
+    // ✅ HARD DEDUPE: stop "2 pushes for everything" even if tokens are duplicated in storage
+const rawList = Array.isArray(list) ? list : [];
+const uniqueList = Array.from(new Set(rawList.filter(Boolean).map((x) => String(x).trim()))).filter(Boolean);
+
+try {
+  console.log("📨 Push send: token counts", {
+    raw: rawList.length,
+    unique: uniqueList.length,
+    dupes: rawList.length - uniqueList.length,
+  });
+} catch {
+  // ignore
+}
+
+for (const t of uniqueList) {
   // ✅ DATA-ONLY message to prevent duplicate notifications
   // The service worker (firebase-messaging-sw.js) should be the ONLY place
   // that calls showNotification().
@@ -3243,22 +3257,23 @@ app.post("/send-push", async (req, res) => {
 
   results.push({ token: t, status: resp.status, ok: resp.ok, body: json });
 }
-    const failures = results.filter((r) => !r.ok);
-    if (failures.length) {
-      return res.status(207).json({
-        successCount: results.length - failures.length,
-        failureCount: failures.length,
-        results,
-      });
-    }
 
-    return res.json({ successCount: results.length, failureCount: 0, results });
-  } catch (err) {
-    console.error("❌ Failed to send push:", err);
-    return res
-      .status(500)
-      .json({ error: "Failed to send push notification", details: String(err) });
-  }
+const failures = results.filter((r) => !r.ok);
+if (failures.length) {
+  return res.status(207).json({
+    successCount: results.length - failures.length,
+    failureCount: failures.length,
+    results,
+  });
+}
+
+return res.json({ successCount: results.length, failureCount: 0, results });
+} catch (err) {
+  console.error("❌ Failed to send push:", err);
+  return res
+    .status(500)
+    .json({ error: "Failed to send push notification", details: String(err) });
+}
 });
 
 console.log("🚨 ROUTE CHECKPOINT 18");
