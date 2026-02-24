@@ -1454,8 +1454,13 @@ const normalizeNotifMeta = (body = {}) => {
   return { category, urgent };
 };
 
-// ✉️ POST /notifications — create new notification (normalized meta)
-app.post("/notifications", async (req, res) => {
+/* ===========================
+   🔔 Notifications create endpoint
+   - Canonical: POST /notifications
+   - Legacy alias: POST /notifications/send (older frontend builds)
+   =========================== */
+
+const handleCreateNotification = async (req, res) => {
   try {
     const body = req.body || {};
     const title = String(body.title || "").trim();
@@ -1477,7 +1482,7 @@ app.post("/notifications", async (req, res) => {
 
     const all = readNotifsSafe();
 
-    // ✅ NEW: normalized fields used by frontend rules
+    // ✅ normalized fields used by frontend rules
     const { category, urgent } = normalizeNotifMeta(body);
 
     const newNotification = {
@@ -1485,10 +1490,8 @@ app.post("/notifications", async (req, res) => {
       message,
       recipients,
       timestamp: createdAt,
-
-      // ✅ normalized meta (frontend can rely on these)
-      category, // "fleet" | "leave" | "admin" | "suggestion" | "ticket" | "system"
-      urgent, // boolean
+      category,
+      urgent,
     };
 
     all.push(newNotification);
@@ -1496,10 +1499,7 @@ app.post("/notifications", async (req, res) => {
     const ok = writeNotifsSafe(all);
 
     /* ===========================
-       🔔 Push delivery starts here (POST /notifications)
-       - Notification Panel uses POST /notifications (NOT /notifications/send)
-       - Ticket pushes work, so we reuse the same push strategy as /notifications/send
-       - Non-fatal: never blocks saving or response
+       🔔 Push delivery starts here (POST /notifications | /notifications/send)
        =========================== */
 
     const actionUrl =
@@ -1508,7 +1508,6 @@ app.post("/notifications", async (req, res) => {
       "/profile";
 
     try {
-      // Resolve recipients[] (ids/names) -> user objects (ONE TIME)
       const allUsers = typeof readUsersSafe === "function" ? readUsersSafe() : [];
       const targets = (Array.isArray(allUsers) ? allUsers : []).filter((u) => {
         const id = String(u?.id ?? "").trim();
@@ -1521,7 +1520,6 @@ app.post("/notifications", async (req, res) => {
           "ℹ️ /notifications: No matching users for push (in-app notification still saved)."
         );
       } else {
-        // ---------- 🔁 Server-side dedupe (short window) ----------
         const dedupeKey = JSON.stringify({
           title,
           message,
@@ -1537,7 +1535,6 @@ app.post("/notifications", async (req, res) => {
         const now = Date.now();
         const last = global.__loBoardNotifDedupe.get(dedupeKey) || 0;
 
-        // clean old keys occasionally (keep map small)
         if (global.__loBoardNotifDedupe.size > 500) {
           for (const [k, t] of global.__loBoardNotifDedupe.entries()) {
             if (now - t > 60_000) global.__loBoardNotifDedupe.delete(k);
@@ -1547,7 +1544,6 @@ app.post("/notifications", async (req, res) => {
         const withinWindow = now - last < 2000;
         if (withinWindow) {
           console.log("🟡 /notifications: push deduped (duplicate request window)");
-          // ✅ Skip push only; do NOT exit route.
         } else {
           global.__loBoardNotifDedupe.set(dedupeKey, now);
 
@@ -1582,15 +1578,10 @@ app.post("/notifications", async (req, res) => {
             sendWebPushToUsers: typeof sendWebPushToUsers === "function",
           });
 
-          // 1) Safari / Web Push (only users with subscriptions)
-          if (
-            webpushTargets.length > 0 &&
-            typeof sendWebPushToUsers === "function"
-          ) {
+          if (webpushTargets.length > 0 && typeof sendWebPushToUsers === "function") {
             await sendWebPushToUsers(webpushTargets, title, message, payloadMeta);
           }
 
-          // 2) FCM (only users WITHOUT webpush subs)
           if (fcmTargets.length > 0 && typeof sendPushToUsers === "function") {
             await sendPushToUsers(fcmTargets, title, message, payloadMeta);
           }
@@ -1616,19 +1607,19 @@ app.post("/notifications", async (req, res) => {
        🔔 Push delivery ends here
        =========================== */
 
-    if (!ok) {
-      // ✅ Never break the frontend shape
-      return res.status(200).json(newNotification);
-    }
-
+    if (!ok) return res.status(200).json(newNotification);
     return res.status(201).json(newNotification);
   } catch (err) {
     console.error("Failed to create notification:", err);
-    // ✅ Never break the frontend shape
-    return res.status(200).json([]);
+    return res.status(200).json([]); // keep frontend contract
   }
-});
+};
 
+// ✅ Canonical
+app.post("/notifications", handleCreateNotification);
+
+// ✅ Legacy alias (your frontend is calling this right now)
+app.post("/notifications/send", handleCreateNotification);
 /* ===========================
    📥 GET /notifications — history + polling
    - Supports: /notifications?after=<ISO>
