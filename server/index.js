@@ -1573,7 +1573,7 @@ const handleCreateNotification = async (req, res) => {
           return Array.isArray(arr) ? arr : [];
         };
 
-        return [
+        const all = [
           ...pick(a),
           ...pick(b),
           ...pick(c),
@@ -1582,6 +1582,22 @@ const handleCreateNotification = async (req, res) => {
           ...fromObj(f),
           ...fromObj(g),
         ].filter(Boolean);
+
+        /**
+         * ✅ KEY FIX:
+         * Lo Board uses WebPush for Safari iOS PWA.
+         * Chrome/Android can also create Push API subscriptions, which would cause
+         * TWO notifications (WebPush + FCM).
+         *
+         * So we only accept Apple Safari endpoints here.
+         */
+        const isAppleSafariEndpoint = (sub) => {
+          const ep = String(sub?.endpoint || "").toLowerCase();
+          // Apple Web Push endpoints
+          return ep.includes("web.push.apple.com") || ep.includes("api.push.apple.com");
+        };
+
+        return all.filter(isAppleSafariEndpoint);
       };
 
       const getFcmTokens = (u) => {
