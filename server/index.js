@@ -1664,23 +1664,28 @@ const handleCreateNotification = async (req, res) => {
             kind: body?.kind || body?.category || "admin",
           };
 
-          // Split targets by presence of web push subs (Safari PWA path)
+          // ✅ IMPORTANT:
+          // Send WebPush to users that have WebPush subs (Safari PWA)
+          // AND ALSO send FCM to users that have FCM tokens (Chrome/Android)
+          // A user may have BOTH (multi-device) — we should not exclude them from FCM.
           const webpushTargets = targets.filter((u) => getWebPushSubs(u).length > 0);
-          const fcmTargets = targets.filter((u) => getWebPushSubs(u).length === 0);
+          const fcmTokenTargets = targets.filter((u) => getFcmTokens(u).length > 0);
 
-          // Discover totals for visibility (THIS is what will reveal your problem)
+          // Discover totals for visibility (THIS reveals your real blocker)
           const allWebSubs = webpushTargets.flatMap((u) => getWebPushSubs(u));
-          const allFcmTokens = fcmTargets.flatMap((u) => getFcmTokens(u));
+          const allFcmTokens = fcmTokenTargets.flatMap((u) => getFcmTokens(u));
 
-          const dedupedWebSubs = Array.from(new Set(allWebSubs.map((s) => JSON.stringify(s)))).map(
-            (s) => {
+          const dedupedWebSubs = Array.from(
+            new Set(allWebSubs.map((s) => JSON.stringify(s)))
+          )
+            .map((s) => {
               try {
                 return JSON.parse(s);
               } catch {
                 return null;
               }
-            }
-          ).filter(Boolean);
+            })
+            .filter(Boolean);
 
           const dedupedFcmTokens = Array.from(new Set(allFcmTokens.map(String)));
 
@@ -1691,21 +1696,20 @@ const handleCreateNotification = async (req, res) => {
             recipients,
             matchedUsers: targets.length,
             webpushTargets: webpushTargets.length,
-            fcmTargets: fcmTargets.length,
+            fcmTokenTargets: fcmTokenTargets.length,
             webpushSubsFound: pushSummary.webpushSubsFound,
             fcmTokensFound: pushSummary.fcmTokensFound,
             sendPushToUsers: typeof sendPushToUsers === "function",
             sendWebPushToUsers: typeof sendWebPushToUsers === "function",
           });
 
-          // If there are NO tokens/subs, push can’t happen (this is the most common issue)
           if (pushSummary.webpushSubsFound === 0 && pushSummary.fcmTokensFound === 0) {
             pushSummary.warnings.push(
               "No push tokens/subscriptions found for matched users (push skipped)."
             );
           }
 
-          // Attempt Web Push first (Safari PWA)
+          // Attempt Web Push (Safari PWA)
           if (pushSummary.webpushSubsFound > 0) {
             if (typeof sendWebPushToUsers === "function") {
               pushSummary.webpushAttempted = true;
@@ -1717,17 +1721,10 @@ const handleCreateNotification = async (req, res) => {
                   payloadMeta
                 );
 
-                // Best-effort: accept common result shapes if your helper returns them
                 const okCount =
-                  Number(r?.successCount) ||
-                  Number(r?.sent) ||
-                  Number(r?.ok) ||
-                  0;
+                  Number(r?.successCount) || Number(r?.sent) || Number(r?.ok) || 0;
                 const failCount =
-                  Number(r?.failureCount) ||
-                  Number(r?.failed) ||
-                  Number(r?.fail) ||
-                  0;
+                  Number(r?.failureCount) || Number(r?.failed) || Number(r?.fail) || 0;
 
                 pushSummary.webpushSuccess += okCount;
                 pushSummary.webpushFailure += failCount;
@@ -1742,14 +1739,18 @@ const handleCreateNotification = async (req, res) => {
             }
           }
 
-          // Attempt FCM (Chrome/Android)
+          // Attempt FCM (Chrome/Android) — DO NOT exclude users just because they also have WebPush
           if (pushSummary.fcmTokensFound > 0) {
             if (typeof sendPushToUsers === "function") {
               pushSummary.fcmAttempted = true;
               try {
-                const r = await sendPushToUsers(fcmTargets, title, message, payloadMeta);
+                const r = await sendPushToUsers(
+                  fcmTokenTargets,
+                  title,
+                  message,
+                  payloadMeta
+                );
 
-                // Best-effort: accept common result shapes if your helper returns them
                 const okCount =
                   Number(r?.successCount) ||
                   Number(r?.sent) ||
