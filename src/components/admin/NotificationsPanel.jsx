@@ -383,22 +383,7 @@ export default function NotificationsPanel({ loggedInUser }) {
 
       if (!res.ok) throw new Error("Failed to send message");
 
-      // ✅ Try PUSH (non-fatal) — use backend-known route
-      await (async () => {
-        try {
-          // Backend route used elsewhere in the app for FCM send attempts
-          await tryPost(`${API_BASE}/notifications/send`);
-          return true;
-        } catch {
-          // keep non-fatal (feed/toasts still OK)
-          if (import.meta.env.DEV) {
-            console.warn(
-              "Admin push not sent (POST /notifications/send not available). Feed/toasts still OK."
-            );
-          }
-          return false;
-        }
-      })();
+      
 
       toast({ title: "Message sent!" });
 
