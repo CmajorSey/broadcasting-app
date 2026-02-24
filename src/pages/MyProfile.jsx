@@ -620,16 +620,35 @@ useEffect(() => {
     // ✅ Wiring: refresh inbox when app-wide notifications arrive
     // - AdminGlobalToasts dispatches: "notifications:new"
     // - App-level dispatcher uses: "loBoard:notify"
-    const handler = () => {
+    //
+    // ✅ DEDUPE GUARD:
+    // - Ignore loBoard:notify events that are LOCAL PREVIEW ONLY
+    //   (those are meant for the sender/admin UI, not for inbox refresh fan-out)
+    const onNotificationsNew = () => {
       loadInboxNotifications();
     };
 
-    window.addEventListener("notifications:new", handler);
-    window.addEventListener("loBoard:notify", handler);
+    const onLoBoardNotify = (evt) => {
+      try {
+        const note = evt?.detail || null;
+
+        // If this is a sender/admin local preview event, do NOT trigger inbox refresh.
+        if (note?.__localPreview === true || note?.__mode === "admin_preview") {
+          return;
+        }
+
+        loadInboxNotifications();
+      } catch {
+        loadInboxNotifications();
+      }
+    };
+
+    window.addEventListener("notifications:new", onNotificationsNew);
+    window.addEventListener("loBoard:notify", onLoBoardNotify);
 
     return () => {
-      window.removeEventListener("notifications:new", handler);
-      window.removeEventListener("loBoard:notify", handler);
+      window.removeEventListener("notifications:new", onNotificationsNew);
+      window.removeEventListener("loBoard:notify", onLoBoardNotify);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.name]);

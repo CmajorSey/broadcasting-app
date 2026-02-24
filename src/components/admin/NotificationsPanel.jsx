@@ -383,11 +383,49 @@ export default function NotificationsPanel({ loggedInUser }) {
 
       if (!res.ok) throw new Error("Failed to send message");
 
-      
+      // ✅ Try PUSH (non-fatal) — use backend-known route
+      await (async () => {
+        try {
+          // Backend route used elsewhere in the app for FCM send attempts
+          await tryPost(`${API_BASE}/notifications/send`);
+          return true;
+        } catch {
+          // keep non-fatal (feed/toasts still OK)
+          if (import.meta.env.DEV) {
+            console.warn(
+              "Admin push not sent (POST /notifications/send not available). Feed/toasts still OK."
+            );
+          }
+          return false;
+        }
+      })();
 
-      toast({ title: "Message sent!" });
+        toast({ title: "Message sent!" });
 
-      
+      /* ===========================
+         🔊 Local preview rule starts here
+         - If admin sends to THEMSELVES, skip local preview to avoid duplicates:
+           (push + inbox toast + preview)
+         - Admin still gets "Message sent!" toast above.
+         =========================== */
+      const me = String(loggedInUser?.name || "").trim();
+      const isSendingToSelf =
+        !!me && Array.isArray(payload.recipients) && payload.recipients.includes(me);
+
+      if (!isSendingToSelf) {
+        // ✅ Immediately hand off to App.jsx for local preview only (non-recipients)
+        emitAdminNotification({
+          title: payload.title,
+          message: payload.message,
+          recipients: payload.recipients,
+          timestamp: payload.timestamp,
+          category: payload.category,
+          urgent: payload.urgent,
+        });
+      }
+      /* ===========================
+         🔊 Local preview rule ends here
+         =========================== */
 
       setTitle("");
       setMessage("");
