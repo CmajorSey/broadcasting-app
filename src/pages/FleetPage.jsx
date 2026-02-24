@@ -45,6 +45,7 @@ const sendFleetNotification = async ({ title, message, urgent = false }) => {
 
       // Driver buckets
       "Drivers",
+      "Driver",
       "drivers",
       "driver",
       "driver_limited",

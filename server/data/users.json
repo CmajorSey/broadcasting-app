@@ -7,8 +7,8 @@
       "admin"
     ],
     "offDayBalance": 5,
-    "updatedAt": "2026-02-24T16:14:10.500Z",
-    "lastOnline": "2026-02-24T16:14:10.157Z",
+    "updatedAt": "2026-02-24T16:49:10.498Z",
+    "lastOnline": "2026-02-24T16:49:10.154Z",
     "lastLoginAt": "2026-02-19T09:45:56.416Z",
     "lastLogin": "2026-02-19T09:45:56.428Z"
   },
@@ -458,15 +458,15 @@
     "leaveBalance": 42,
     "annualLeave": 42,
     "lastLeaveUpdate": "2026-02-03T08:14:04.889Z",
-    "updatedAt": "2026-02-11T08:59:28.079Z",
+    "updatedAt": "2026-02-24T16:48:29.489Z",
     "offDays": 10,
     "forcePasswordChange": false,
     "passwordIsTemp": false,
     "tempPasswordExpires": null,
     "passwordUpdatedAt": "2026-02-08T12:00:42.737Z",
-    "lastLoginAt": "2026-02-08T12:17:05.747Z",
-    "lastOnline": "2026-02-11T08:59:28.043Z",
-    "lastLogin": "2026-02-11T08:59:28.035Z"
+    "lastLoginAt": "2026-02-24T16:28:28.681Z",
+    "lastOnline": "2026-02-24T16:48:29.153Z",
+    "lastLogin": "2026-02-24T16:28:28.712Z"
   },
   {
     "id": "1756461558811",

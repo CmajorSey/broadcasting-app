@@ -2301,5 +2301,73 @@
     "timestamp": "2026-02-23T04:55:00.918Z",
     "category": "fleet",
     "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → In Garage",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-24T16:28:54.429Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: Available → In Garage",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-24T16:28:54.489Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-24T16:29:07.806Z",
+    "category": "fleet",
+    "urgent": false
+  },
+  {
+    "title": "Fleet updated",
+    "message": "Kia Niro status changed: In Garage → Available",
+    "recipients": [
+      "Admin",
+      "Drivers",
+      "drivers",
+      "driver",
+      "driver_limited",
+      "Admins",
+      "admins",
+      "admin"
+    ],
+    "timestamp": "2026-02-24T16:29:07.866Z",
+    "category": "fleet",
+    "urgent": false
   }
 ]
