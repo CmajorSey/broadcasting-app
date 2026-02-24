@@ -38,14 +38,21 @@ const messaging = firebase.messaging();
    =========================== */
 messaging.onBackgroundMessage(function (payload) {
   try {
+    const hasAutoNotification =
+      !!payload?.notification?.title || !!payload?.notification?.body;
+
+    // If FCM has a notification payload, let FCM handle it (prevents duplicates)
+    if (hasAutoNotification) {
+      return;
+    }
+
+    // Data-only fallback (manual display)
     const title =
-      payload?.notification?.title ||
       payload?.data?.title ||
       payload?.data?.notificationTitle ||
       "Lo Board";
 
     const body =
-      payload?.notification?.body ||
       payload?.data?.body ||
       payload?.data?.message ||
       payload?.data?.notificationBody ||
@@ -53,7 +60,7 @@ messaging.onBackgroundMessage(function (payload) {
 
     const url = payload?.data?.url || payload?.fcmOptions?.link || "/tickets";
 
-    // Best-effort dedupe tag (won’t block delivery)
+    // Best-effort dedupe tag
     const tag =
       payload?.data?.dedupeKey ||
       payload?.data?.notificationId ||
