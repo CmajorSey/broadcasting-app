@@ -1531,7 +1531,9 @@ app.post("/notifications/send", async (req, res) => {
         : new Date().toISOString();
 
     if (!title || !message || recipients.length === 0) {
-      return res.status(400).json({ error: "Missing title, message, or recipients" });
+      return res
+        .status(400)
+        .json({ error: "Missing title, message, or recipients" });
     }
 
     const all = readNotifsSafe();
@@ -1550,58 +1552,65 @@ app.post("/notifications/send", async (req, res) => {
 
     const ok = writeNotifsSafe(all);
 
-    // ✅ PUSH (non-fatal): FCM (Chrome/Android/etc) + Web Push (Safari installed web app)
-    // Goal: prevent duplicate pushes by:
-    // 1) Doing a tiny dedupe window on the server
-    // 2) Sending via ONLY ONE channel per user (WebPush preferred when a subscription exists)
+    /* ===========================
+       🔔 Push delivery starts here
+       - Fixes: "NO PUSH AT ALL" caused by duplicated code + out-of-scope targets
+       - Strategy:
+         1) Resolve recipients -> user objects ONCE
+         2) Short dedupe window (skip push only, never exit route)
+         3) Prefer WebPush if user has subscriptions; otherwise FCM
+       =========================== */
+
     const actionUrl =
-      (body?.action?.url && String(body.action.url)) ||
-      "/profile";
+      (body?.action?.url && String(body.action.url)) || "/profile";
 
     try {
-      // ---------- 🔁 Server-side dedupe (short window) ----------
-      // If the same exact send request is hit twice in ~2 seconds, skip push the 2nd time.
-      // (Still saves the in-app notification above; we only skip PUSH to avoid duplicate device alerts.)
-      const dedupeKey = JSON.stringify({
-        title,
-        message,
-        recipients: recipients.slice().sort(),
-        url: actionUrl,
-        category,
-        urgent: !!urgent,
-        kind: body?.kind || body?.category || "admin",
+      // Resolve recipients[] (ids/names) -> user objects (ONE TIME)
+      const allUsers =
+        typeof readUsersSafe === "function" ? readUsersSafe() : [];
+      const targets = (Array.isArray(allUsers) ? allUsers : []).filter((u) => {
+        const id = String(u?.id ?? "").trim();
+        const name = String(u?.name ?? "").trim();
+        return recipients.includes(id) || recipients.includes(name);
       });
 
-      if (!global.__loBoardNotifDedupe) global.__loBoardNotifDedupe = new Map();
-
-      const now = Date.now();
-      const last = global.__loBoardNotifDedupe.get(dedupeKey) || 0;
-
-      // clean old keys occasionally (keep map small)
-      if (global.__loBoardNotifDedupe.size > 500) {
-        for (const [k, t] of global.__loBoardNotifDedupe.entries()) {
-          if (now - t > 60_000) global.__loBoardNotifDedupe.delete(k);
-        }
-      }
-
-           const withinWindow = now - last < 2000;
-      if (withinWindow) {
-        console.log("🟡 /notifications/send: push deduped (duplicate request window)");
-        // ✅ Do NOT return from the route handler.
-        // Just skip sending push this time; the in-app notification save above already happened.
+      if (targets.length === 0) {
+        console.log(
+          "ℹ️ /notifications/send: No matching users for push (in-app notification still saved)."
+        );
       } else {
-        global.__loBoardNotifDedupe.set(dedupeKey, now);
-
-        // ---------- 👤 Resolve recipients[] (ids/names) -> user objects ----------
-        const allUsers = typeof readUsersSafe === "function" ? readUsersSafe() : [];
-        const targets = (Array.isArray(allUsers) ? allUsers : []).filter((u) => {
-          const id = String(u?.id ?? "").trim();
-          const name = String(u?.name ?? "").trim();
-          return recipients.includes(id) || recipients.includes(name);
+        // ---------- 🔁 Server-side dedupe (short window) ----------
+        const dedupeKey = JSON.stringify({
+          title,
+          message,
+          recipients: recipients.slice().sort(),
+          url: actionUrl,
+          category,
+          urgent: !!urgent,
+          kind: body?.kind || body?.category || "admin",
         });
 
-        if (targets.length > 0) {
-          // ---------- 📌 One channel per user ----------
+        if (!global.__loBoardNotifDedupe) global.__loBoardNotifDedupe = new Map();
+
+        const now = Date.now();
+        const last = global.__loBoardNotifDedupe.get(dedupeKey) || 0;
+
+        // clean old keys occasionally (keep map small)
+        if (global.__loBoardNotifDedupe.size > 500) {
+          for (const [k, t] of global.__loBoardNotifDedupe.entries()) {
+            if (now - t > 60_000) global.__loBoardNotifDedupe.delete(k);
+          }
+        }
+
+        const withinWindow = now - last < 2000;
+        if (withinWindow) {
+          console.log(
+            "🟡 /notifications/send: push deduped (duplicate request window)"
+          );
+          // ✅ Skip push only; do NOT exit route.
+        } else {
+          global.__loBoardNotifDedupe.set(dedupeKey, now);
+
           const hasWebPushSub = (u) => {
             const a = u?.webpushSubscriptions;
             const b = u?.webPushSubscriptions;
@@ -1625,10 +1634,24 @@ app.post("/notifications/send", async (req, res) => {
             kind: body?.kind || body?.category || "admin",
           };
 
-          if (webpushTargets.length > 0 && typeof sendWebPushToUsers === "function") {
+          // Helpful logs (won’t crash anything)
+          console.log("✅ /notifications/send targets:", {
+            total: targets.length,
+            webpushTargets: webpushTargets.length,
+            fcmTargets: fcmTargets.length,
+            sendPushToUsers: typeof sendPushToUsers === "function",
+            sendWebPushToUsers: typeof sendWebPushToUsers === "function",
+          });
+
+          // 1) Safari / Web Push (only users with subscriptions)
+          if (
+            webpushTargets.length > 0 &&
+            typeof sendWebPushToUsers === "function"
+          ) {
             await sendWebPushToUsers(webpushTargets, title, message, payloadMeta);
           }
 
+          // 2) FCM (only users WITHOUT webpush subs)
           if (fcmTargets.length > 0 && typeof sendPushToUsers === "function") {
             await sendPushToUsers(fcmTargets, title, message, payloadMeta);
           }
@@ -1641,62 +1664,7 @@ app.post("/notifications/send", async (req, res) => {
               "ℹ️ /notifications/send: push not configured (in-app notification still saved)."
             );
           }
-        } else {
-          console.log(
-            "ℹ️ /notifications/send: No matching users for push (in-app notification still saved)."
-          );
         }
-      }
-
-      if (targets.length > 0) {
-        // ---------- 📌 One channel per user ----------
-        // Prefer Web Push IF user has a web-push subscription field.
-        // (This prevents Chrome/Android getting BOTH FCM + WebPush if you store both.)
-        const hasWebPushSub = (u) => {
-          const a = u?.webpushSubscriptions;
-          const b = u?.webPushSubscriptions;
-          const c = u?.webpushSubs;
-          const d = u?.pushSubscriptions;
-          return (
-            (Array.isArray(a) && a.length > 0) ||
-            (Array.isArray(b) && b.length > 0) ||
-            (Array.isArray(c) && c.length > 0) ||
-            (Array.isArray(d) && d.length > 0)
-          );
-        };
-
-        const webpushTargets = targets.filter((u) => hasWebPushSub(u));
-        const fcmTargets = targets.filter((u) => !hasWebPushSub(u));
-
-        const payloadMeta = {
-          category,
-          urgent: !!urgent,
-          url: actionUrl,
-          kind: body?.kind || body?.category || "admin",
-        };
-
-        // 1) Safari / Web Push (only users with subscriptions)
-        if (webpushTargets.length > 0 && typeof sendWebPushToUsers === "function") {
-          await sendWebPushToUsers(webpushTargets, title, message, payloadMeta);
-        }
-
-        // 2) FCM (only users WITHOUT webpush subs)
-        if (fcmTargets.length > 0 && typeof sendPushToUsers === "function") {
-          await sendPushToUsers(fcmTargets, title, message, payloadMeta);
-        }
-
-        if (
-          typeof sendPushToUsers !== "function" &&
-          typeof sendWebPushToUsers !== "function"
-        ) {
-          console.log(
-            "ℹ️ /notifications/send: push not configured (in-app notification still saved)."
-          );
-        }
-      } else {
-        console.log(
-          "ℹ️ /notifications/send: No matching users for push (in-app notification still saved)."
-        );
       }
     } catch (pushErr) {
       console.warn(
@@ -1704,6 +1672,10 @@ app.post("/notifications/send", async (req, res) => {
         pushErr?.message || pushErr
       );
     }
+
+    /* ===========================
+       🔔 Push delivery ends here
+       =========================== */
 
     // Preserve exact response behavior
     if (!ok) return res.status(200).json(newNotification);

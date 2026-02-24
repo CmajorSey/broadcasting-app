@@ -370,21 +370,23 @@ export default function NotificationsPanel({ loggedInUser }) {
 
       toast({ title: "Message sent!" });
 
-      // ✅ Local preview rules unchanged
-      const me = String(loggedInUser?.name || "").trim();
-      const isSendingToSelf =
-        !!me && Array.isArray(sendPayload.recipients) && sendPayload.recipients.includes(me);
-
-      if (!isSendingToSelf) {
-        emitAdminNotification({
-          title: sendPayload.title,
-          message: sendPayload.message,
-          recipients: sendPayload.recipients,
-          timestamp: sendPayload.timestamp,
-          category: sendPayload.category,
-          urgent: sendPayload.urgent,
-        });
-      }
+      /* ===========================
+         🔊 Admin send preview starts here
+         ✅ ALWAYS preview what the admin just sent
+         - Prevents confusion where other toasts (suggestions, etc.) appear instead
+         - Still marked as __localPreview so App.jsx can treat as preview-only
+         =========================== */
+      emitAdminNotification({
+        title: sendPayload.title,
+        message: sendPayload.message,
+        recipients: sendPayload.recipients,
+        timestamp: sendPayload.timestamp,
+        category: sendPayload.category,
+        urgent: sendPayload.urgent,
+      });
+      /* ===========================
+         🔊 Admin send preview ends here
+         =========================== */
 
       setTitle("");
       setMessage("");
@@ -854,16 +856,9 @@ function UserSuggestionsSection({ suggestions, setSuggestions, fetchSuggestions 
         }
       })();
 
-      // 3) Also emit locally so App.jsx can alert immediately for the admin session if it matches.
-      try {
-        window.dispatchEvent(
-          new CustomEvent("loBoard:notify", {
-            detail: { ...payload, __source: "suggestions-panel" },
-          })
-        );
-      } catch {
-        // ignore
-      }
+      // 3) Local dispatch removed:
+      // Suggestions already persist into /notifications and will appear via inbox/polling.
+      // Removing this prevents suggestion toasts from overriding the admin send-preview.
     } catch {
       // ignore
     }
