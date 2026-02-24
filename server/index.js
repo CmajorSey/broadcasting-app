@@ -1505,7 +1505,7 @@ app.post("/notifications", (req, res) => {
   }
 });
 
-// REPLACE WITH (full block) — adds Safari Web Push hook (non-fatal) alongside FCM
+
 /* ===========================
    📩 Notifications send alias starts here
    - LeaveManager currently calls:
@@ -1551,13 +1551,50 @@ app.post("/notifications/send", async (req, res) => {
     const ok = writeNotifsSafe(all);
 
     // ✅ PUSH (non-fatal): FCM (Chrome/Android/etc) + Web Push (Safari installed web app)
-    // We intentionally do NOT crash if either push channel isn't configured.
+    // Goal: prevent duplicate pushes by:
+    // 1) Doing a tiny dedupe window on the server
+    // 2) Sending via ONLY ONE channel per user (WebPush preferred when a subscription exists)
     const actionUrl =
       (body?.action?.url && String(body.action.url)) ||
       "/profile";
 
     try {
-      // Resolve recipients[] (ids/names) -> user objects
+      // ---------- 🔁 Server-side dedupe (short window) ----------
+      // If the same exact send request is hit twice in ~2 seconds, skip push the 2nd time.
+      // (Still saves the in-app notification above; we only skip PUSH to avoid duplicate device alerts.)
+      const dedupeKey = JSON.stringify({
+        title,
+        message,
+        recipients: recipients.slice().sort(),
+        url: actionUrl,
+        category,
+        urgent: !!urgent,
+        kind: body?.kind || body?.category || "admin",
+      });
+
+      if (!global.__loBoardNotifDedupe) global.__loBoardNotifDedupe = new Map();
+
+      const now = Date.now();
+      const last = global.__loBoardNotifDedupe.get(dedupeKey) || 0;
+
+      // clean old keys occasionally (keep map small)
+      if (global.__loBoardNotifDedupe.size > 500) {
+        for (const [k, t] of global.__loBoardNotifDedupe.entries()) {
+          if (now - t > 60_000) global.__loBoardNotifDedupe.delete(k);
+        }
+      }
+
+      const withinWindow = now - last < 2000;
+      if (withinWindow) {
+        console.log("🟡 /notifications/send: push deduped (duplicate request window)");
+        // Skip push only (notification already saved)
+        // eslint-disable-next-line no-useless-return
+        return;
+      }
+
+      global.__loBoardNotifDedupe.set(dedupeKey, now);
+
+      // ---------- 👤 Resolve recipients[] (ids/names) -> user objects ----------
       const allUsers = typeof readUsersSafe === "function" ? readUsersSafe() : [];
       const targets = (Array.isArray(allUsers) ? allUsers : []).filter((u) => {
         const id = String(u?.id ?? "").trim();
@@ -1566,25 +1603,40 @@ app.post("/notifications/send", async (req, res) => {
       });
 
       if (targets.length > 0) {
-        // 1) FCM (if available)
-        if (typeof sendPushToUsers === "function") {
-          await sendPushToUsers(targets, title, message, {
-            category,
-            urgent: !!urgent,
-            url: actionUrl,
-            kind: body?.kind || body?.category || "admin",
-          });
+        // ---------- 📌 One channel per user ----------
+        // Prefer Web Push IF user has a web-push subscription field.
+        // (This prevents Chrome/Android getting BOTH FCM + WebPush if you store both.)
+        const hasWebPushSub = (u) => {
+          const a = u?.webpushSubscriptions;
+          const b = u?.webPushSubscriptions;
+          const c = u?.webpushSubs;
+          const d = u?.pushSubscriptions;
+          return (
+            (Array.isArray(a) && a.length > 0) ||
+            (Array.isArray(b) && b.length > 0) ||
+            (Array.isArray(c) && c.length > 0) ||
+            (Array.isArray(d) && d.length > 0)
+          );
+        };
+
+        const webpushTargets = targets.filter((u) => hasWebPushSub(u));
+        const fcmTargets = targets.filter((u) => !hasWebPushSub(u));
+
+        const payloadMeta = {
+          category,
+          urgent: !!urgent,
+          url: actionUrl,
+          kind: body?.kind || body?.category || "admin",
+        };
+
+        // 1) Safari / Web Push (only users with subscriptions)
+        if (webpushTargets.length > 0 && typeof sendWebPushToUsers === "function") {
+          await sendWebPushToUsers(webpushTargets, title, message, payloadMeta);
         }
 
-        // 2) Safari Web Push (if available)
-        // This requires you to implement sendWebPushToUsers() using standard Web Push subscriptions.
-        if (typeof sendWebPushToUsers === "function") {
-          await sendWebPushToUsers(targets, title, message, {
-            category,
-            urgent: !!urgent,
-            url: actionUrl,
-            kind: body?.kind || body?.category || "admin",
-          });
+        // 2) FCM (only users WITHOUT webpush subs)
+        if (fcmTargets.length > 0 && typeof sendPushToUsers === "function") {
+          await sendPushToUsers(fcmTargets, title, message, payloadMeta);
         }
 
         if (

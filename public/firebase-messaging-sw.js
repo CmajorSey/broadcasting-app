@@ -40,20 +40,51 @@ const messaging = firebase.messaging();
 /* ===========================
    📩 Background message handler (FCM-supported browsers)
    =========================== */
+/**
+ * ✅ Duplicate-fix rule:
+ * If the server sends an FCM "notification" payload, many browsers will display it automatically.
+ * If we ALSO call showNotification(), you can get 2 notifications.
+ *
+ * So:
+ * - If payload.notification exists → DO NOT manually showNotification().
+ * - If it's data-only → we DO showNotification().
+ */
 messaging.onBackgroundMessage(function (payload) {
-  const title = payload?.notification?.title || "Lo Board";
-  const body = payload?.notification?.body || "";
+  try {
+    const hasNotificationPayload =
+      !!payload?.notification?.title || !!payload?.notification?.body;
 
-  // Optional: attach a route so click can open correct page
-  const url = payload?.data?.url || payload?.fcmOptions?.link || "/tickets";
+    // If notification payload exists, the browser may auto-display it.
+    // Avoid double notifications by NOT calling showNotification here.
+    if (hasNotificationPayload) {
+      return;
+    }
 
-  const options = {
-    body,
-    icon: "/icon-192.png",
-    data: { url },
-  };
+    // Data-only message fallback
+    const title =
+      payload?.data?.title ||
+      payload?.data?.notificationTitle ||
+      "Lo Board";
 
-  self.registration.showNotification(title, options);
+    const body =
+      payload?.data?.body ||
+      payload?.data?.message ||
+      payload?.data?.notificationBody ||
+      "";
+
+    const url = payload?.data?.url || payload?.fcmOptions?.link || "/tickets";
+
+    const options = {
+      body,
+      icon: "/icon-192.png",
+      data: { url },
+    };
+
+    self.registration.showNotification(title, options);
+  } catch (err) {
+    // Never crash SW
+    console.warn("FCM onBackgroundMessage failed (non-fatal):", err);
+  }
 });
 
 /* ===========================
