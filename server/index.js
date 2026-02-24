@@ -1709,13 +1709,91 @@ const handleCreateNotification = async (req, res) => {
             );
           }
 
+          /* ===========================
+             🎯 NotificationsPanel de-dupe guard
+             - If this notification is being sent from NotificationsPanel,
+               send ONLY ONE delivery per user per channel (prevents 2x/3x spam).
+             - Other notification sources keep multi-device behavior.
+             =========================== */
+
+          const isNotificationsPanelSend =
+            String(body?.__source || body?.source || body?.origin || "")
+              .trim()
+              .toLowerCase() === "notifications-panel";
+
+          const pickLatestWebPushOnly = (u) => {
+            const subs = getWebPushSubs(u);
+            if (!Array.isArray(subs) || subs.length === 0) return u;
+
+            // Safari endpoints are unique; keep last (most recently stored)
+            const latest = subs[subs.length - 1];
+
+            return {
+              ...u,
+              webpushSubscriptions: [latest],
+              webPushSubscriptions: [latest],
+              webpushSubs: [latest],
+              pushSubscriptions: [latest],
+              webPushSubs: [latest],
+            };
+          };
+
+          const pickLatestFcmOnly = (u) => {
+            // Prefer the canonical single token if present
+            const single =
+              u?.fcmToken ||
+              u?.fcm_token ||
+              u?.firebaseToken ||
+              u?.firebaseMessagingToken;
+
+            if (single) {
+              return {
+                ...u,
+                fcmToken: String(single),
+                fcmTokens: [String(single)],
+              };
+            }
+
+            // Otherwise keep the last token in the array (most recent)
+            const arr =
+              u?.fcmTokens ||
+              u?.fcm_tokens ||
+              u?.firebaseTokens ||
+              u?.firebaseMessagingTokens;
+
+            if (Array.isArray(arr) && arr.length > 0) {
+              const last = String(arr[arr.length - 1]);
+              return {
+                ...u,
+                fcmToken: last,
+                fcmTokens: [last],
+              };
+            }
+
+            return u;
+          };
+
+          const webpushSendUsers = isNotificationsPanelSend
+            ? webpushTargets.map(pickLatestWebPushOnly)
+            : webpushTargets;
+
+          const fcmSendUsers = isNotificationsPanelSend
+            ? fcmTokenTargets.map(pickLatestFcmOnly)
+            : fcmTokenTargets;
+
+          if (isNotificationsPanelSend) {
+            pushSummary.warnings.push(
+              "NotificationsPanel: single-delivery guard enabled (1 WebPush + 1 FCM token max per user)."
+            );
+          }
+
           // Attempt Web Push (Safari PWA)
           if (pushSummary.webpushSubsFound > 0) {
             if (typeof sendWebPushToUsers === "function") {
               pushSummary.webpushAttempted = true;
               try {
                 const r = await sendWebPushToUsers(
-                  webpushTargets,
+                  webpushSendUsers,
                   title,
                   message,
                   payloadMeta
@@ -1739,13 +1817,13 @@ const handleCreateNotification = async (req, res) => {
             }
           }
 
-          // Attempt FCM (Chrome/Android) — DO NOT exclude users just because they also have WebPush
+          // Attempt FCM (Chrome/Android)
           if (pushSummary.fcmTokensFound > 0) {
             if (typeof sendPushToUsers === "function") {
               pushSummary.fcmAttempted = true;
               try {
                 const r = await sendPushToUsers(
-                  fcmTokenTargets,
+                  fcmSendUsers,
                   title,
                   message,
                   payloadMeta
