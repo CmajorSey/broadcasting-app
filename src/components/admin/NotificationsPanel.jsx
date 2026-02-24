@@ -386,15 +386,7 @@ export default function NotificationsPanel({ loggedInUser }) {
 
       toast({ title: "Message sent!" });
 
-      // ✅ Immediately hand off to App.jsx for toast/sound/push logic
-      emitAdminNotification({
-        title: payload.title,
-        message: payload.message,
-        recipients: payload.recipients,
-        timestamp: payload.timestamp,
-        category: payload.category,
-        urgent: payload.urgent,
-      });
+      
 
       setTitle("");
       setMessage("");
