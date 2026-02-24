@@ -45,8 +45,26 @@ export default function NotificationsPanel({ loggedInUser }) {
      - Mark this as a LOCAL PREVIEW ONLY.
      - Real delivery to recipients must come from backend (/notifications + push/poll).
      =========================== */
-  const emitAdminNotification = (note) => {
+    const emitAdminNotification = (note) => {
     try {
+      /**
+       * ✅ KEY FIX:
+       * Local preview events are OPTIONAL.
+       * If we always emit, the sender gets:
+       * 1) Local preview (event bridge)
+       * 2) Real delivery (backend push/poll)
+       * => double notifications.
+       *
+       * Default is OFF to guarantee only 1 notification.
+       *
+       * To re-enable preview intentionally:
+       * localStorage.setItem("loBoard.notificationsPanelLocalPreview", "true")
+       */
+      const previewEnabled =
+        localStorage.getItem("loBoard.notificationsPanelLocalPreview") === "true";
+
+      if (!previewEnabled) return;
+
       // Keep shape compatible with App.jsx fireGlobalAlert(note)
       window.dispatchEvent(
         new CustomEvent("loBoard:notify", {
@@ -64,7 +82,6 @@ export default function NotificationsPanel({ loggedInUser }) {
             /* ===========================
                🧪 Local preview flag starts here
                - App.jsx will ONLY show this event when this flag is true
-               - Prevents double notifications (event + push/poll)
                =========================== */
             __localPreview: true,
             __mode: "admin_preview",
