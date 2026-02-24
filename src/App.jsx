@@ -737,6 +737,11 @@ function App() {
    📣 NotificationsPanel → App.jsx event bridge starts here
    Listens for: window.dispatchEvent(new CustomEvent("loBoard:notify", { detail: note }))
    Routes into: fireGlobalAlert(note)
+
+   ✅ DEDUPE RULE (IMPORTANT):
+   - We ONLY use this bridge for *admin local preview* (the sender).
+   - Real delivery to recipients must come from backend (/notifications + push/poll).
+   - Prevents double notifications (event + push/poll).
    =========================== */
 const onLocalNotifyEvent = (evt) => {
   try {
@@ -747,14 +752,25 @@ const onLocalNotifyEvent = (evt) => {
 
     if (!note) return;
 
+    // ✅ Only allow "admin preview" events through this bridge.
+    // If not explicitly marked, skip to prevent duplicates.
+    const isAdminPreview =
+      note?.__localPreview === true ||
+      note?.__mode === "admin_preview" ||
+      note?.__recipientMatch === "admin_preview";
+
+    if (!isAdminPreview) {
+      // This notification will arrive via backend push/poll instead.
+      return;
+    }
+
     // ✅ CLASSIC MODE:
-    // Local events must ALWAYS show immediately.
-    // No recipient matching here (keeps bridge safe and avoids undefined helper issues).
+    // Preview events must ALWAYS show immediately (for the sender/admin).
     fireGlobalAlert({
       ...note,
       __source: note.__source || "event",
       __recipientMatch: true,
-      __note: "From loBoard:notify event (forced immediate)",
+      __note: "From loBoard:notify event (admin preview only)",
       __forceImmediate: true,
     });
   } catch (err) {
@@ -770,7 +786,6 @@ try {
 /* ===========================
    📣 NotificationsPanel → App.jsx event bridge ends here
    =========================== */
-
 
 const poll = async () => {
   // 💤 Skip when tab is hidden to reduce network/battery

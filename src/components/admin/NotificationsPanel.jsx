@@ -40,6 +40,10 @@ export default function NotificationsPanel({ loggedInUser }) {
      🔊 App-level notify emit starts here
      - Sends a shaped note to App.jsx (fireGlobalAlert)
      - App decides: toast / sound / browser notif / push, etc.
+
+     ✅ IMPORTANT:
+     - Mark this as a LOCAL PREVIEW ONLY.
+     - Real delivery to recipients must come from backend (/notifications + push/poll).
      =========================== */
   const emitAdminNotification = (note) => {
     try {
@@ -53,8 +57,20 @@ export default function NotificationsPanel({ loggedInUser }) {
             timestamp: note?.timestamp || new Date().toISOString(),
             category: note?.category || "admin",
             urgent: note?.urgent === true,
+
             // helpful metadata for debugging/dedup
             __source: "notifications-panel",
+
+            /* ===========================
+               🧪 Local preview flag starts here
+               - App.jsx will ONLY show this event when this flag is true
+               - Prevents double notifications (event + push/poll)
+               =========================== */
+            __localPreview: true,
+            __mode: "admin_preview",
+            /* ===========================
+               🧪 Local preview flag ends here
+               =========================== */
           },
         })
       );
