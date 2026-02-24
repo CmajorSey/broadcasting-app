@@ -311,11 +311,61 @@ function TicketForm({ users = [], loggedInUser, tickets = [], setTickets, vehicl
   const [selectedDate, setSelectedDate] = useState(
     formData.date ? new Date(formData.date) : new Date()
   );
+ /* ===========================
+     🧩 TicketForm picklists persistence starts here
+     - Persists News categories + Sports subtypes to localStorage
+     - So “Add new category/subtype” survives refresh
+     =========================== */
+
+  const LS_KEY_NEWS_CATEGORIES = "loboard_ticketForm_newsCategories_v1";
+  const LS_KEY_SPORTS_SUBTYPES = "loboard_ticketForm_sportsCategories_v1";
+
+  const safeLoadArray = (key, fallback) => {
+    try {
+      const raw = localStorage.getItem(key);
+      const arr = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(arr) && arr.length > 0) {
+        return arr.map((x) => String(x || "").trim()).filter(Boolean);
+      }
+    } catch {
+      // ignore
+    }
+    return fallback;
+  };
+
+  const safeSaveArray = (key, arr) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(Array.isArray(arr) ? arr : []));
+    } catch {
+      // ignore
+    }
+  };
+
   const [jobTypes, setJobTypes] = useState(["News", "Sports", "Production", "Technical"]);
-  const [newsCategories, setNewsCategories] = useState(["Press Conference", "Interview"]);
-  const [sportsCategories, setSportsCategories] = useState(["Football", "Basketball", "Training", "Match"]);
+
+  // ✅ Load saved lists (or fall back to defaults)
+  const [newsCategories, setNewsCategories] = useState(() =>
+    safeLoadArray(LS_KEY_NEWS_CATEGORIES, ["Press Conference", "Interview"])
+  );
+  const [sportsCategories, setSportsCategories] = useState(() =>
+    safeLoadArray(LS_KEY_SPORTS_SUBTYPES, ["Football", "Basketball", "Training", "Match"])
+  );
+
+  // ✅ Auto-save whenever they change
+  useEffect(() => {
+    safeSaveArray(LS_KEY_NEWS_CATEGORIES, newsCategories);
+  }, [newsCategories]);
+
+  useEffect(() => {
+    safeSaveArray(LS_KEY_SPORTS_SUBTYPES, sportsCategories);
+  }, [sportsCategories]);
+
   const [showNewsDropdown, setShowNewsDropdown] = useState(false);
   const [showSportsDropdown, setShowSportsDropdown] = useState(false);
+
+  /* ===========================
+     🧩 TicketForm picklists persistence ends here
+     =========================== */
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filterPriority, setFilterPriority] = useState("");

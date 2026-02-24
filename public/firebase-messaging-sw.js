@@ -1,4 +1,3 @@
-// REPLACE WITH (full block) — public/firebase-messaging-sw.js
 /* public/firebase-messaging-sw.js */
 
 /* ===========================
