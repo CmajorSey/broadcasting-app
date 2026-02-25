@@ -578,27 +578,7 @@ const saveBranding = () => {
         </select>
       </div>
 
-      <div className="bg-white rounded shadow p-6 space-y-4 mt-6">
-  <h2 className="text-lg font-semibold text-gray-700">Site Branding</h2>
-  <p className="text-sm text-gray-600">
-    Branding has moved to the Settings page to keep things tidy.
-  </p>
-  <div className="flex gap-3">
-    <button
-  onClick={() => navigate("/admin-settings")}
-  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
->
-  Open Settings
-</button>
-    <button
-      onClick={saveBranding}
-      className="bg-gray-200 text-gray-800 px-4 py-2 rounded hover:bg-gray-300"
-      title="If clicked, you’ll be redirected to the Settings page."
-    >
-      I’ll move it later
-    </button>
-  </div>
-</div>
+      
 
 
       {/* 🔑 Reset Password Dialog */}

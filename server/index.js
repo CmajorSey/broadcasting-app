@@ -123,6 +123,13 @@ async function getAccessToken() {
 async function sendPushToUsers(users, title, message, opts = {}) {
   const safeStr = (v) => (v === null || v === undefined ? "" : String(v));
 
+  /* ===========================
+     📦 Token collection starts
+     - Supports BOTH:
+       - user.fcmToken (legacy single token)
+       - user.fcmTokens (new array of tokens)
+     =========================== */
+
   // Collect tokens:
   // - Prefer fcmTokens[] if present
   // - Fallback to fcmToken
@@ -147,8 +154,18 @@ async function sendPushToUsers(users, title, message, opts = {}) {
 
   if (tokens.length === 0) {
     console.log("ℹ️ No FCM tokens found for recipients.");
-    return;
+    return {
+      attempted: 0,
+      successCount: 0,
+      failureCount: 0,
+      skipped: true,
+      reason: "No tokens",
+    };
   }
+
+  /* ===========================
+     📦 Token collection ends
+     =========================== */
 
   // Build recipient identity list for frontend filters
   const recipientIds = (Array.isArray(users) ? users : [])
@@ -174,7 +191,6 @@ async function sendPushToUsers(users, title, message, opts = {}) {
 
   // ✅ Important for Web Push icons:
   // Use an absolute URL to your Netlify site so the icon loads reliably.
-  // (Relative "/logo.png" from the FCM notification may not resolve as expected.)
   const icon = safeStr(opts.icon).trim() || "https://loboard.netlify.app/logo.png";
 
   // FCM data must be STRING values
@@ -204,6 +220,102 @@ async function sendPushToUsers(users, title, message, opts = {}) {
 
   const results = [];
 
+  /* ===========================
+     🧹 Token prune tracking starts
+     - Removes dead tokens when FCM says:
+       - 404 NotRegistered / Requested entity was not found
+       - 400 INVALID_ARGUMENT
+     - Best-effort: will NOT break sending if pruning fails
+     =========================== */
+  const badTokenSet = new Set();
+
+  const isTokenBad = (status, json) => {
+    const code = Number(status) || 0;
+
+    const errStatus = String(json?.error?.status || "").toUpperCase();
+    const errMsg = String(json?.error?.message || "").toLowerCase();
+
+    // Common "dead token" signals
+    const looksNotRegistered =
+      errMsg.includes("notregistered") ||
+      errMsg.includes("requested entity was not found") ||
+      errStatus === "NOT_FOUND";
+
+    const looksInvalidArg =
+      errStatus === "INVALID_ARGUMENT" || errMsg.includes("invalid argument");
+
+    // Most important cases
+    if (code === 404 && looksNotRegistered) return true;
+    if (code === 400 && looksInvalidArg) return true;
+
+    // Some backends report NOT_FOUND without helpful message
+    if (code === 404) return true;
+
+    return false;
+  };
+
+  const pruneBadTokensFromUsers = (badTokens) => {
+    try {
+      if (!badTokens || badTokens.size === 0) return 0;
+
+      const userArr = Array.isArray(users) ? users : [];
+      const userIds = userArr.map((u) => String(u?.id || "").trim()).filter(Boolean);
+
+      // If we cannot identify users, skip pruning
+      if (userIds.length === 0) return 0;
+
+      // Read full users list (so we don't accidentally mutate a partial object)
+      const allUsers = typeof readUsersSafe === "function" ? readUsersSafe() : [];
+      const allArr = Array.isArray(allUsers) ? allUsers : [];
+
+      let changed = 0;
+
+      for (let i = 0; i < allArr.length; i++) {
+        const u = allArr[i];
+        const id = String(u?.id || "").trim();
+        if (!id || !userIds.includes(id)) continue;
+
+        const beforeArr = Array.isArray(u?.fcmTokens) ? u.fcmTokens.map(String) : [];
+        const afterArr = beforeArr.filter((t) => !badTokens.has(String(t).trim()));
+
+        const beforeSingle = String(u?.fcmToken || "").trim();
+        const afterSingle =
+          beforeSingle && badTokens.has(beforeSingle) ? "" : beforeSingle;
+
+        const didChange =
+          beforeArr.length !== afterArr.length || beforeSingle !== afterSingle;
+
+        if (didChange) {
+          u.fcmTokens = afterArr;
+          if (afterSingle) u.fcmToken = afterSingle;
+          else delete u.fcmToken;
+
+          u.fcmTokenUpdatedAt = new Date().toISOString();
+          u.updatedAt = new Date().toISOString();
+
+          allArr[i] = u;
+          changed += 1;
+        }
+      }
+
+      if (changed > 0) {
+        // Persist
+        fs.writeFileSync(USERS_FILE, JSON.stringify(allArr, null, 2));
+      }
+
+      return changed;
+    } catch (e) {
+      console.warn("⚠️ FCM token prune failed (non-fatal):", e?.message || e);
+      return 0;
+    }
+  };
+  /* ===========================
+     🧹 Token prune tracking ends
+     =========================== */
+
+  let successCount = 0;
+  let failureCount = 0;
+
   for (const token of tokens) {
     const payload = {
       message: {
@@ -218,9 +330,7 @@ async function sendPushToUsers(users, title, message, opts = {}) {
         webpush: {
           headers: { Urgency: urgent ? "high" : "normal" },
 
-          // ✅ Correct way to set the click destination for Web Push via FCM v1:
-          // The browser opens this link when the notification is clicked.
-          // (More reliable than click_action inside notification.)
+          // ✅ Correct way to set the click destination for Web Push via FCM v1
           fcm_options: { link: url },
 
           notification: {
@@ -248,11 +358,22 @@ async function sendPushToUsers(users, title, message, opts = {}) {
     }
 
     if (!res.ok) {
+      failureCount += 1;
       console.error("❌ FCM send error:", res.status, json);
+
+      // mark for pruning if it looks like a dead token
+      if (isTokenBad(res.status, json)) {
+        badTokenSet.add(String(token).trim());
+      }
+    } else {
+      successCount += 1;
     }
 
     results.push({ token, status: res.status, ok: res.ok, body: json });
   }
+
+  // Best-effort pruning (won't affect response if it fails)
+  const prunedUsers = pruneBadTokensFromUsers(badTokenSet);
 
   console.log("✅ Push send summary:", {
     tokenCount: tokens.length,
@@ -262,7 +383,21 @@ async function sendPushToUsers(users, title, message, opts = {}) {
     url,
     kind: kind || null,
     notificationId: notificationId || null,
+    successCount,
+    failureCount,
+    badTokens: badTokenSet.size,
+    prunedUsers,
   });
+
+  // ✅ IMPORTANT: return counts so /notifications can fill pushSummary.fcmSuccess/fcmFailure
+  return {
+    attempted: tokens.length,
+    successCount,
+    failureCount,
+    badTokens: Array.from(badTokenSet),
+    prunedUsers,
+    skipped: false,
+  };
 }
 /* ===========================
    🔔 FCM push sender ends here
@@ -433,7 +568,14 @@ async function sendWebPushToUsers(users, title, message, opts = {}) {
   if (!WEBPUSH_READY) {
     // silent/non-fatal — keeps existing app behavior
     console.log("ℹ️ WebPush skipped (VAPID not configured).");
-    return;
+    return {
+      subs: 0,
+      ok: 0,
+      failed: 0,
+      url: String(opts?.url || "/tickets") || "/tickets",
+      skipped: true,
+      reason: "VAPID not configured",
+    };
   }
 
   const safeStr = (v) => (v === null || v === undefined ? "" : String(v));
@@ -459,11 +601,19 @@ async function sendWebPushToUsers(users, title, message, opts = {}) {
 
   if (subs.length === 0) {
     console.log("ℹ️ No Web Push subscriptions found for recipients.");
-    return;
+    return {
+      subs: 0,
+      ok: 0,
+      failed: 0,
+      url,
+      skipped: true,
+      reason: "No subscriptions",
+    };
   }
 
   let ok = 0;
   let failed = 0;
+  const errors = [];
 
   for (const sub of subs) {
     try {
@@ -471,12 +621,26 @@ async function sendWebPushToUsers(users, title, message, opts = {}) {
       ok += 1;
     } catch (e) {
       failed += 1;
+
+      const msg = String(e?.message || e || "Unknown error").slice(0, 300);
+      errors.push(msg);
+
       // Non-fatal: subscriptions can expire; you can prune later.
-      console.warn("❌ WebPush send error (non-fatal):", e?.message || e);
+      console.warn("❌ WebPush send error (non-fatal):", msg);
     }
   }
 
   console.log("✅ WebPush send summary:", { subs: subs.length, ok, failed, url });
+
+  // ✅ IMPORTANT: return counts so /notifications can fill pushSummary.webpushSuccess/webpushFailure
+  return {
+    subs: subs.length,
+    ok,
+    failed,
+    url,
+    skipped: false,
+    errors,
+  };
 }
 
 /* ===========================

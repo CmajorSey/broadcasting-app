@@ -79,13 +79,36 @@ export default function AdminPanel({
     <div className="bg-white p-4 rounded-xl shadow-md w-full max-w-6xl space-y-4">
       <h1 className="text-2xl font-bold">Admin Dashboard</h1>
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="flex flex-wrap gap-2 mb-4">
-          <TabsTrigger value="users">User Management</TabsTrigger>
-          <TabsTrigger value="leave">Leave Management</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
-          <TabsTrigger value="stats">Statistics</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
-        </TabsList>
+        {/* ===========================
+           📱 Mobile-friendly tab nav (fixed)
+           - Scroll is on a wrapper div (prevents first tab clipping)
+           - TabsList stays min-width-max so the first item is always reachable
+           - Desktop still wraps normally
+           =========================== */}
+        <div
+          className="
+            w-full overflow-x-auto mb-4 pb-1
+            [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden
+          "
+        >
+          <TabsList className="inline-flex min-w-max gap-2 whitespace-nowrap md:flex md:flex-wrap md:whitespace-normal">
+            <TabsTrigger className="shrink-0" value="users">
+              User Management
+            </TabsTrigger>
+            <TabsTrigger className="shrink-0" value="leave">
+              Leave Management
+            </TabsTrigger>
+            <TabsTrigger className="shrink-0" value="notifications">
+              Notifications
+            </TabsTrigger>
+            <TabsTrigger className="shrink-0" value="stats">
+              Statistics
+            </TabsTrigger>
+            <TabsTrigger className="shrink-0" value="settings">
+              Settings
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="users">
           <UserManagement
