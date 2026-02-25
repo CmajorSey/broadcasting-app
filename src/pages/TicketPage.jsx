@@ -5008,21 +5008,21 @@ await sendTicketPageNotification({
 </div>
 
 
-      {/* Recycle Bin */}
+           {/* Recycle Bin */}
       <div className="mt-6">
         <button
           onClick={() => setShowDeleted(!showDeleted)}
           className="flex items-center gap-1 text-sm underline"
         >
           {showDeleted ? (
-  <>
-    <ChevronUp size={16} /> Hide Recycle Bin ({deletedTickets.length})
-  </>
-) : (
-  <>
-    <ChevronDown size={16} /> Show Recycle Bin ({deletedTickets.length})
-  </>
-)}
+            <>
+              <ChevronUp size={16} /> Hide Recycle Bin ({deletedTickets.length})
+            </>
+          ) : (
+            <>
+              <ChevronDown size={16} /> Show Recycle Bin ({deletedTickets.length})
+            </>
+          )}
         </button>
 
         {showDeleted && (
@@ -5040,8 +5040,8 @@ await sendTicketPageNotification({
                 }}
               >
                 {selectedDeletedIds.length === deletedTickets.length
-                ? "Deselect All"
-                : "Select All in Recycle Bin"}
+                  ? "Deselect All"
+                  : "Select All in Recycle Bin"}
               </button>
 
               {selectedDeletedIds.length > 0 && (
@@ -5065,40 +5065,38 @@ await sendTicketPageNotification({
             {tickets.filter((t) => t.deleted).length === 0 ? (
               <p className="text-gray-500 px-2 py-2">No deleted requests.</p>
             ) : (
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-200">
-                  <tr>
-                    <th className="p-2 text-center">Select</th>
-                    <th className="p-2 text-center">Title</th>
-                    <th className="p-2 text-center">Filming</th>
-                    <th className="p-2 text-center">Departure</th>
-                    <th className="p-2 text-center">Location</th>
-                    <th className="p-2 text-center">Driver</th>
-                    <th className="p-2 text-center">Status</th>
-                    <th className="p-2 text-center">Priority</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <>
+                {/* ===========================
+                   📱 Recycle Bin mobile cards
+                   - Desktop table stays the same
+                   =========================== */}
+                <div className="md:hidden p-2 space-y-2">
                   {tickets
                     .filter((t) => t.deleted)
-                    .map((ticket, idx) => {
-                      const isSelected =
-                        selectedDeletedIds.includes(ticket.id);
-                                         const date = ticket.date?.trim?.();
+                    .map((ticket) => {
+                      const isSelected = selectedDeletedIds.includes(ticket.id);
+
+                      const date = ticket.date?.trim?.();
                       const formatted = date ? formatDDMMYYYY_HHMM(date) : "";
                       const safeFormatted = formatted || "-";
 
                       const isPH = isPublicHoliday(ticket?.date);
 
                       return (
-                        <tr
+                        <div
                           key={ticket.id}
-
-                          className={
-                            idx % 2 === 0 ? "bg-white" : "bg-gray-50"
-                          }
+                          className="border rounded-lg bg-white shadow-sm p-3"
                         >
-                          <td className="p-2 text-center">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="font-semibold truncate">
+                                {ticket.title || "-"}
+                              </div>
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                Recycle Bin Item
+                              </div>
+                            </div>
+
                             <input
                               type="checkbox"
                               checked={isSelected}
@@ -5110,95 +5108,157 @@ await sendTicketPageNotification({
                                 );
                               }}
                             />
-                          </td>
-                        <td className="p-2 text-center">{ticket.title}</td>
-                          <td className="p-2 text-center">
-                            <div className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
-                              <span>{safeFormatted}</span>
-                              {isPH ? (
-                                <Badge variant="outline" className="text-[10px] px-2 py-0.5">
-                                  (PH)
-                                </Badge>
-                              ) : null}
+                          </div>
+
+                          <div className="mt-3 space-y-2 text-sm">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-gray-500">Filming</span>
+                              <div className="inline-flex items-center gap-2">
+                                <span className="font-medium">{safeFormatted}</span>
+                                {isPH ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] px-2 py-0.5"
+                                  >
+                                    (PH)
+                                  </Badge>
+                                ) : null}
+                              </div>
                             </div>
-                          </td>
-                          <td className="p-2 text-center">
-                            {ticket.departureTime || "-"}
-                          </td>
-                          <td className="p-2 text-center">
-                            {ticket.location || "-"}
-                          </td>
-                          <td className="p-2 text-center">
-                            {ticket.assignedDriver || "-"}
-                          </td>
-                          <td className="p-2 text-center">
-                            <StatusBadge
-                              status={ticket.assignmentStatus || "Unassigned"}
-                            />
-                          </td>
-                          <td className="p-2 text-center">
-                            {ticket.priority || "Normal"}
-                          </td>
-                        </tr>
+
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-gray-500">Departure</span>
+                              <span className="font-medium">
+                                {ticket.departureTime || "-"}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-gray-500">Location</span>
+                              <span className="font-medium truncate max-w-[60%] text-right">
+                                {ticket.location || "-"}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-gray-500">Driver</span>
+                              <span className="font-medium truncate max-w-[60%] text-right">
+                                {ticket.assignedDriver || "-"}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-gray-500">Status</span>
+                              <span>
+                                <StatusBadge
+                                  status={ticket.assignmentStatus || "Unassigned"}
+                                />
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-gray-500">Priority</span>
+                              <span className="font-medium">
+                                {ticket.priority || "Normal"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                       );
                     })}
-                </tbody>
-              </table>
+                </div>
+
+                {/* ===========================
+                   🖥️ Recycle Bin desktop table (unchanged)
+                   =========================== */}
+                <div className="hidden md:block">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-200">
+                      <tr>
+                        <th className="p-2 text-center">Select</th>
+                        <th className="p-2 text-center">Title</th>
+                        <th className="p-2 text-center">Filming</th>
+                        <th className="p-2 text-center">Departure</th>
+                        <th className="p-2 text-center">Location</th>
+                        <th className="p-2 text-center">Driver</th>
+                        <th className="p-2 text-center">Status</th>
+                        <th className="p-2 text-center">Priority</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tickets
+                        .filter((t) => t.deleted)
+                        .map((ticket, idx) => {
+                          const isSelected = selectedDeletedIds.includes(ticket.id);
+
+                          const date = ticket.date?.trim?.();
+                          const formatted = date ? formatDDMMYYYY_HHMM(date) : "";
+                          const safeFormatted = formatted || "-";
+
+                          const isPH = isPublicHoliday(ticket?.date);
+
+                          return (
+                            <tr
+                              key={ticket.id}
+                              className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}
+                            >
+                              <td className="p-2 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {
+                                    setSelectedDeletedIds((prev) =>
+                                      prev.includes(ticket.id)
+                                        ? prev.filter((x) => x !== ticket.id)
+                                        : [...prev, ticket.id]
+                                    );
+                                  }}
+                                />
+                              </td>
+                              <td className="p-2 text-center">{ticket.title}</td>
+                              <td className="p-2 text-center">
+                                <div className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                                  <span>{safeFormatted}</span>
+                                  {isPH ? (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] px-2 py-0.5"
+                                    >
+                                      (PH)
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                              </td>
+                              <td className="p-2 text-center">
+                                {ticket.departureTime || "-"}
+                              </td>
+                              <td className="p-2 text-center">
+                                {ticket.location || "-"}
+                              </td>
+                              <td className="p-2 text-center">
+                                {ticket.assignedDriver || "-"}
+                              </td>
+                              <td className="p-2 text-center">
+                                <StatusBadge
+                                  status={ticket.assignmentStatus || "Unassigned"}
+                                />
+                              </td>
+                              <td className="p-2 text-center">
+                                {ticket.priority || "Normal"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         )}
       </div>
 
       {/* Recycle Modal */}
-      <AlertDialog open={showRecycleModal} onOpenChange={setShowRecycleModal}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              Send selected forms to Recycle Bin?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              These forms will be moved to the Recycle Bin. You can restore them
-              later.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700 text-white"
-              onClick={async () => {
-                try {
-                  const toDelete = tickets.filter(
-                    (t) =>
-                      !t.deleted &&
-                      !t.archived &&
-                      selectedCurrentIds.includes(t.id)
-                  );
-
-                  for (const ticket of toDelete) {
-                    await fetch(`${API_BASE}/tickets/${ticket.id}`, {
-                      method: "PATCH",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ deleted: true }),
-                    });
-                  }
-
-                  const res = await fetch(`${API_BASE}/tickets`);
-                  const updated = await res.json();
-                  setTickets(updated);
-                  setSelectedCurrentIds([]);
-                  setShowRecycleModal(false);
-                } catch (err) {
-                  console.error("Failed to recycle tickets:", err);
-                }
-              }}
-            >
-              Confirm
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Restore Modal */}
       <AlertDialog open={showRestoreModal} onOpenChange={setShowRestoreModal}>
         <AlertDialogContent>
           <AlertDialogHeader>
