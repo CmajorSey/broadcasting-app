@@ -3098,6 +3098,11 @@ await sendTicketPageNotification({
         </div>
       </div>
 
+{/* ===========================
+   🛠️ Technical Work (Responsive)
+   - Mobile: card layout
+   - Desktop: keep existing table
+   =========================== */}
 {/* Technical Work (only visible when there are active Technical tickets) */}
 {technicalCurrent.length > 0 && (
   <div className="mt-6">
@@ -3217,7 +3222,414 @@ await sendTicketPageNotification({
       </div>
     )}
 
-    <div className="overflow-x-auto">
+    {/* ===========================
+       📱 Mobile cards (md:hidden)
+       =========================== */}
+    <div className="md:hidden space-y-3">
+      {technicalCurrent
+        .filter((t) => {
+          const q = techSearch.trim().toLowerCase();
+          if (!q) return true;
+          const text = [
+            t.title,
+            t.location,
+            t.scopeOfWork,
+            ...(Array.isArray(t.assignedTechnicians) ? t.assignedTechnicians : []),
+          ]
+            .join(" ")
+            .toLowerCase();
+          return text.includes(q);
+        })
+        .sort((a, b) => {
+          const aIso = String(a?.date || "");
+          const bIso = String(b?.date || "");
+          return aIso.localeCompare(bIso);
+        })
+        .map((ticket) => {
+          const isExpanded = techExpandedIds.includes(ticket.id);
+          const isEditing = editingId === ticket.id;
+
+          const techArray =
+            Array.isArray(
+              isEditing ? editData?.assignedTechnicians : ticket.assignedTechnicians
+            )
+              ? isEditing
+                ? editData.assignedTechnicians
+                : ticket.assignedTechnicians
+              : [];
+
+          const technicians = techArray.length > 0 ? techArray.join(", ") : "-";
+
+          const hasTeam = techArray.length > 0;
+          const computedDefault = hasTeam ? "Assigned" : "Unassigned";
+          const effectiveStatus =
+            (isEditing ? editData?.assignmentStatus : ticket.assignmentStatus) ||
+            computedDefault;
+
+          return (
+            <div
+              key={ticket.id}
+              className="border rounded-lg bg-white p-3 shadow-sm"
+            >
+              {/* Top row: Select + Title */}
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={selectedTechIds.includes(ticket.id)}
+                  onChange={() =>
+                    setSelectedTechIds((prev) =>
+                      prev.includes(ticket.id)
+                        ? prev.filter((x) => x !== ticket.id)
+                        : [...prev, ticket.id]
+                    )
+                  }
+                />
+
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-gray-500">Title</div>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={editData?.title ?? ticket.title ?? ""}
+                      onChange={(e) =>
+                        setEditData((d) => ({
+                          ...(d || {}),
+                          title: e.target.value,
+                        }))
+                      }
+                      className="border px-2 py-1 rounded w-full mt-1"
+                    />
+                  ) : (
+                    <div className="font-semibold text-base leading-snug break-words">
+                      {ticket.title || "-"}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Middle info */}
+              <div className="mt-3 space-y-2 text-sm">
+                <div>
+                  <div className="text-xs text-gray-500">Scope of Work</div>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={editData?.scopeOfWork ?? ticket.scopeOfWork ?? ""}
+                      onChange={(e) =>
+                        setEditData((d) => ({
+                          ...(d || {}),
+                          scopeOfWork: e.target.value,
+                        }))
+                      }
+                      className="border px-2 py-1 rounded w-full mt-1"
+                    />
+                  ) : (
+                    <div className="break-words">{ticket.scopeOfWork || "-"}</div>
+                  )}
+                </div>
+
+                <div>
+                  <div className="text-xs text-gray-500">Technicians</div>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      value={
+                        Array.isArray(editData?.assignedTechnicians)
+                          ? editData.assignedTechnicians.join(", ")
+                          : ""
+                      }
+                      onChange={(e) => {
+                        const list = e.target.value
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean);
+                        setEditData((d) => ({
+                          ...(d || {}),
+                          assignedTechnicians: list,
+                        }));
+                      }}
+                      placeholder="e.g. Alice, Bob"
+                      className="border px-2 py-1 rounded w-full mt-1"
+                    />
+                  ) : (
+                    <div className="break-words">{technicians}</div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-xs text-gray-500">Departure Time</div>
+                    {isEditing ? (
+                      <input
+                        type="time"
+                        step="300"
+                        value={editData?.departureTime ?? (ticket.departureTime || "")}
+                        onChange={(e) =>
+                          setEditData((d) => ({
+                            ...(d || {}),
+                            departureTime: e.target.value,
+                          }))
+                        }
+                        className="border px-2 py-1 rounded w-full mt-1"
+                      />
+                    ) : (
+                      <div>{ticket.departureTime || "-"}</div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="text-xs text-gray-500">Location</div>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        value={editData?.location ?? ticket.location ?? ""}
+                        onChange={(e) =>
+                          setEditData((d) => ({
+                            ...(d || {}),
+                            location: e.target.value,
+                          }))
+                        }
+                        className="border px-2 py-1 rounded w-full mt-1"
+                      />
+                    ) : (
+                      <div className="break-words">{ticket.location || "-"}</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs text-gray-500">Status</div>
+
+                  {/* Status — same Popover UX as first table */}
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button type="button">
+                        <Badge
+                          variant={
+                            effectiveStatus === "Completed"
+                              ? "success"
+                              : effectiveStatus === "In Progress"
+                              ? "secondary"
+                              : effectiveStatus === "Cancelled"
+                              ? "destructive"
+                              : effectiveStatus === "Postponed"
+                              ? "outline"
+                              : hasTeam
+                              ? "default"
+                              : "outline"
+                          }
+                          className="text-xs cursor-pointer"
+                        >
+                          {effectiveStatus}
+                        </Badge>
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[180px] p-2">
+                      <div className="space-y-1">
+                        {[
+                          "Unassigned",
+                          "Assigned",
+                          "In Progress",
+                          "Completed",
+                          "Postponed",
+                          "Cancelled",
+                        ].map((status) => (
+                          <div
+                            key={status}
+                            onClick={() => {
+                              if (isEditing) {
+                                setEditData((d) => ({
+                                  ...(d || {}),
+                                  assignmentStatus: status,
+                                }));
+                              } else {
+                                handleStatusChange(ticket.id, status);
+                              }
+                            }}
+                            className="cursor-pointer px-2 py-1 hover:bg-accent rounded text-sm"
+                          >
+                            {status}
+                          </div>
+                        ))}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="mt-3 flex flex-wrap gap-2">
+                {isEditing ? (
+                  <>
+                    <button
+                      className="text-green-600 hover:underline text-sm"
+                      onClick={saveEditing}
+                    >
+                      Save
+                    </button>
+                    <button
+                      className="text-gray-600 hover:underline text-sm"
+                      onClick={cancelEditing}
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="text-blue-600 hover:underline text-sm"
+                      onClick={() => startEditing(ticket.id)}
+                    >
+                      Edit
+                    </button>
+
+                    <button
+                      className="text-yellow-600 hover:underline text-sm"
+                      onClick={() =>
+                        setTechExpandedIds((prev) =>
+                          prev.includes(ticket.id)
+                            ? prev.filter((x) => x !== ticket.id)
+                            : [...prev, ticket.id]
+                        )
+                      }
+                    >
+                      {isExpanded ? "Collapse" : "Expand"}
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Expanded content (same info as expanded row) */}
+              {isExpanded && (
+                <div className="mt-3 border-t pt-3 text-sm text-gray-700">
+                  {/* FULL TITLE */}
+                  <div className="mb-3">
+                    <strong className="block text-gray-600">Title</strong>
+                    <div className="text-base font-semibold leading-snug break-words">
+                      {(isEditing ? editData?.title : ticket.title) || "-"}
+                    </div>
+                  </div>
+
+                  <div className="mb-2 space-y-1">
+                    <div>
+                      <strong>Scope of Work:</strong>{" "}
+                      {(isEditing ? editData?.scopeOfWork : ticket.scopeOfWork) || "-"}
+                    </div>
+                    <div>
+                      <strong>Assigned Technicians:</strong>{" "}
+                      {techArray.length > 0 ? techArray.join(", ") : "-"}
+                    </div>
+                    <div>
+                      <strong>Departure Time:</strong>{" "}
+                      {(isEditing ? editData?.departureTime : ticket.departureTime) || "-"}
+                    </div>
+                    <div>
+                      <strong>Location:</strong>{" "}
+                      {(isEditing ? editData?.location : ticket.location) || "-"}
+                    </div>
+                    <div>
+                      <strong>Status:</strong> {effectiveStatus}
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <strong>Assigned By:</strong>{" "}
+                    <span className="text-gray-700 font-medium">
+                      {ticket.assignedBy || "Unknown"}
+                    </span>
+                  </div>
+
+                  {/* 🎬 Live Crew (Director / A1 / Graphics etc.) */}
+                  {(() => {
+                    const director = pickFirst(ticket, [
+                      "director",
+                      "directors",
+                      "assignedDirector",
+                    ]);
+                    const a1 = pickFirst(ticket, [
+                      "a1",
+                      "A1",
+                      "audioA1",
+                      "assignedA1",
+                      "soundA1",
+                    ]);
+                    const graphics = pickFirst(ticket, [
+                      "graphics",
+                      "graphicArtists",
+                      "graphicsArtists",
+                      "assignedGraphics",
+                      "gfx",
+                    ]);
+
+                    const hasAny =
+                      (Array.isArray(director) ? director.length : !!director) ||
+                      (Array.isArray(a1) ? a1.length : !!a1) ||
+                      (Array.isArray(graphics) ? graphics.length : !!graphics);
+
+                    if (!hasAny) return null;
+
+                    return (
+                      <div className="mt-3 space-y-1">
+                        <div className="font-bold text-gray-700">Live Crew</div>
+                        {renderField("Director", director)}
+                        {renderField("A1", a1)}
+                        {renderField("Graphics", graphics)}
+                      </div>
+                    );
+                  })()}
+
+                  <div className="mt-2">
+                    <strong>Notes:</strong>
+                    {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
+                      <ul className="list-disc list-inside ml-2 mt-1">
+                        {ticket.notes.map((note, noteIdx) => (
+                          <li key={noteIdx}>
+                            {note.text}{" "}
+                            <span className="text-gray-500 text-xs">
+                              — {note.author}, {note.timestamp}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-gray-500 italic">No notes</p>
+                    )}
+                  </div>
+
+                  {canAddNotes && (
+                    <div className="mt-2">
+                      <input
+                        type="text"
+                        placeholder="Add note"
+                        value={newNotes[ticket.id] || ""}
+                        onChange={(e) =>
+                          setNewNotes((prev) => ({
+                            ...prev,
+                            [ticket.id]: e.target.value,
+                          }))
+                        }
+                        className="border rounded p-1 w-full mr-2"
+                      />
+                      <button
+                        onClick={() => handleAddNote(ticket.id)}
+                        className="mt-2 text-sm text-blue-600 hover:underline"
+                      >
+                        Add Note
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+    </div>
+
+    {/* ===========================
+       🖥️ Desktop table (hidden on mobile)
+       =========================== */}
+    <div className="hidden md:block overflow-x-auto">
       <table className="min-w-full text-sm border border-gray-300 table-fixed">
         <thead className="bg-slate-800 text-white">
           <tr>
@@ -3515,35 +3927,36 @@ await sendTicketPageNotification({
                             {ticket.assignedBy || "Unknown"}
                           </span>
                         </div>
+
                         {/* 🎬 Live Crew (Director / A1 / Graphics etc.) */}
-{(() => {
-  // Try common field-name variants (safe even if some don’t exist)
-  const director = pickFirst(ticket, ["director", "directors", "assignedDirector"]);
-  const a1 = pickFirst(ticket, ["a1", "A1", "audioA1", "assignedA1", "soundA1"]);
-  const graphics = pickFirst(ticket, [
-    "graphics",
-    "graphicArtists",
-    "graphicsArtists",
-    "assignedGraphics",
-    "gfx",
-  ]);
+                        {(() => {
+                          // Try common field-name variants (safe even if some don’t exist)
+                          const director = pickFirst(ticket, ["director", "directors", "assignedDirector"]);
+                          const a1 = pickFirst(ticket, ["a1", "A1", "audioA1", "assignedA1", "soundA1"]);
+                          const graphics = pickFirst(ticket, [
+                            "graphics",
+                            "graphicArtists",
+                            "graphicsArtists",
+                            "assignedGraphics",
+                            "gfx",
+                          ]);
 
-  const hasAny =
-    (Array.isArray(director) ? director.length : !!director) ||
-    (Array.isArray(a1) ? a1.length : !!a1) ||
-    (Array.isArray(graphics) ? graphics.length : !!graphics);
+                          const hasAny =
+                            (Array.isArray(director) ? director.length : !!director) ||
+                            (Array.isArray(a1) ? a1.length : !!a1) ||
+                            (Array.isArray(graphics) ? graphics.length : !!graphics);
 
-  if (!hasAny) return null;
+                          if (!hasAny) return null;
 
-  return (
-    <div className="mt-3 space-y-1">
-      <div className="font-bold text-gray-700">Live Crew</div>
-      {renderField("Director", director)}
-      {renderField("A1", a1)}
-      {renderField("Graphics", graphics)}
-    </div>
-  );
-})()}
+                          return (
+                            <div className="mt-3 space-y-1">
+                              <div className="font-bold text-gray-700">Live Crew</div>
+                              {renderField("Director", director)}
+                              {renderField("A1", a1)}
+                              {renderField("Graphics", graphics)}
+                            </div>
+                          );
+                        })()}
 
                         <div className="mt-2">
                           <strong>Notes:</strong>
@@ -3892,333 +4305,699 @@ await sendTicketPageNotification({
 
   // Same columns as the main table, compact / table-fixed
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full text-sm border border-gray-300 table-fixed">
-        <thead className="bg-blue-800 text-white">
-          <tr>
-            <th className="px-2 py-1 text-center text-xs font-semibold">Select</th>
-            <th className="px-2 py-1 text-center text-xs font-semibold">Title</th>
-            <th
-  className="px-2 py-1 text-center text-xs font-semibold select-none cursor-pointer"
-  onClick={() => setArchSortAsc((v) => !v)}
-  title="Sort by Filming Date & Time"
->
-  <div className="inline-flex items-center justify-center gap-2">
-    <span>Filming Date &amp; Time</span>
-    <span aria-hidden="true">{archSortAsc ? "▲" : "▼"}</span>
-  </div>
-</th>
-            <th className="px-2 py-1 text-center text-xs font-semibold">Departure Time</th>
-            <th className="px-2 py-1 text-center text-xs font-semibold">Location</th>
-            <th className="px-2 py-1 text-center text-xs font-semibold">Cam Ops</th>
-            <th className="px-2 py-1 text-center text-xs font-semibold">Driver</th>
-            <th className="px-2 py-1 text-center text-xs font-semibold">Assigned Reporter</th>
-            <th className="px-2 py-1 text-center text-xs font-semibold">Status</th>
-            <th className="px-2 py-1 text-center text-xs font-semibold">Actions</th>
-          </tr>
-        </thead>
+    <div>
+      {/* ===========================
+         📱 Mobile cards view (fix mobile)
+         - Shows cards on small screens
+         - Keeps desktop table intact
+         =========================== */}
+      <div className="md:hidden space-y-3">
+        {archivedFiltered.map((ticket) => {
+          const isExpanded = archExpandedIds.includes(ticket.id);
 
-        <tbody>
-          {archivedFiltered.map((ticket, rowIdx) => {
-            const isExpanded = archExpandedIds.includes(ticket.id);
+          // date formatting identical to current table
+          const filmingISO = ticket.date?.trim?.();
+          let filmingDisplay = "-";
+          let filmingIsPH = false;
 
-             // date formatting identical to current table
-            const filmingISO = ticket.date?.trim?.();
-            let filmingDisplay = "-";
-            let filmingIsPH = false;
+          if (filmingISO) {
+            filmingIsPH = isPublicHoliday(filmingISO);
 
-                       if (filmingISO) {
-              filmingIsPH = isPublicHoliday(filmingISO);
-
-              const label = formatDDMMYYYY_HHMM(filmingISO);
-              if (label) {
-                filmingDisplay = label;
-              } else {
-                filmingDisplay = filmingISO;
-              }
+            const label = formatDDMMYYYY_HHMM(filmingISO);
+            if (label) {
+              filmingDisplay = label;
+            } else {
+              filmingDisplay = filmingISO;
             }
+          }
 
-            // compact driver summary (same logic you use in current table)
-            const main = ticket.assignedDriver || "";
-            const ret = ticket.assignedDriverFrom || "";
-            const extras = Array.isArray(ticket.additionalDrivers)
-              ? ticket.additionalDrivers.filter(Boolean)
-              : [];
-            const parts = [];
-            if (main) parts.push(main);
-            if (ret && ret !== main) parts.push(`Return: ${ret}`);
-            const extraCount = extras.filter((n) => n && n !== main && n !== ret).length;
-            if (extraCount > 0) parts.push(`+${extraCount}`);
-            const compactDriver = parts.length ? parts.join(" • ") : "-";
-            const driverTitle = [
-              main && `To: ${main}`,
-              ret && ret !== main && `From: ${ret}`,
-              ...extras.filter(Boolean).map((n, i) => `Additional ${i + 1}: ${n}`),
-            ]
+          // compact driver summary (same logic you use in current table)
+          const main = ticket.assignedDriver || "";
+          const ret = ticket.assignedDriverFrom || "";
+          const extras = Array.isArray(ticket.additionalDrivers)
+            ? ticket.additionalDrivers.filter(Boolean)
+            : [];
+          const parts = [];
+          if (main) parts.push(main);
+          if (ret && ret !== main) parts.push(`Return: ${ret}`);
+          const extraCount = extras.filter((n) => n && n !== main && n !== ret)
+            .length;
+          if (extraCount > 0) parts.push(`+${extraCount}`);
+          const compactDriver = parts.length ? parts.join(" • ") : "-";
+          const driverTitle = [
+            main && `To: ${main}`,
+            ret && ret !== main && `From: ${ret}`,
+            ...extras
               .filter(Boolean)
-              .join(" | ");
+              .map((n, i) => `Additional ${i + 1}: ${n}`),
+          ]
+            .filter(Boolean)
+            .join(" | ");
 
-            return (
-              <React.Fragment key={ticket.id}>
-                <tr
-  className={`${rowIdx % 2 === 0 ? "bg-white" : "bg-gray-50"} border-b ${
-    ticket.type === "Technical" ? "bg-slate-50" : ""
-  }`}
->
-                  <td className="px-2 py-1 text-center">
-                    <input
-                      type="checkbox"
-                      checked={selectedArchivedIds.includes(ticket.id)}
-                      onChange={() =>
-                        setSelectedArchivedIds((prev) =>
-                          prev.includes(ticket.id)
-                            ? prev.filter((x) => x !== ticket.id)
-                            : [...prev, ticket.id]
-                        )
-                      }
-                    />
-                  </td>
+          const titleText = ticket.title || "-";
+          const locationText = ticket.location || "-";
+          const camOpsText =
+            Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0
+              ? ticket.assignedCamOps.join(", ")
+              : "-";
 
-                  {/* Title (truncate like current table) */}
-                  <td className="px-2 py-1 text-center align-middle">
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="truncate max-w-[160px]">{ticket.title}</div>
+          const reporterText =
+            Array.isArray(ticket.assignedReporter) && ticket.assignedReporter.length > 0
+              ? ticket.assignedReporter.join(", ")
+              : typeof ticket.assignedReporter === "string" &&
+                ticket.assignedReporter.trim()
+              ? ticket.assignedReporter
+              : "-";
+
+          return (
+            <div
+              key={ticket.id}
+              className={`border rounded shadow-sm p-3 bg-white ${
+                ticket.type === "Technical" ? "border-slate-300" : "border-gray-200"
+              }`}
+            >
+              {/* Top row: checkbox + title + expand */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={selectedArchivedIds.includes(ticket.id)}
+                    onChange={() =>
+                      setSelectedArchivedIds((prev) =>
+                        prev.includes(ticket.id)
+                          ? prev.filter((x) => x !== ticket.id)
+                          : [...prev, ticket.id]
+                      )
+                    }
+                  />
+
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="font-semibold leading-snug break-words">
+                        {titleText}
+                      </div>
+
                       {(ticket.camCount > 1 || ticket.expectedCamOps > 1) && (
                         <Badge variant="secondary" className="text-[10px]">
                           👤{ticket.expectedCamOps || 1}🎥{ticket.camCount || 1}
                         </Badge>
                       )}
-                    </div>
-                  </td>
 
-                  {/* Filming Date & Time */}
-                  <td className="px-2 py-1 text-center align-middle">
-                    <div className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
-                      <span>{filmingDisplay}</span>
                       {filmingIsPH ? (
                         <Badge variant="outline" className="text-[10px] px-2 py-0.5">
                           (PH)
                         </Badge>
                       ) : null}
                     </div>
-                  </td>
 
-                  {/* Departure Time */}
-                  <td className="px-2 py-1 text-center align-middle">
-                    {ticket.departureTime || "-"}
-                  </td>
-
-                  {/* Location */}
-                  <td className="px-2 py-1 text-center align-middle">
-                    <div className="truncate max-w-[140px] mx-auto">
-                      {ticket.location || "-"}
+                    <div className="text-xs text-gray-600 mt-1">
+                      <span className="font-medium">Filming:</span>{" "}
+                      <span className="whitespace-nowrap">{filmingDisplay}</span>
                     </div>
-                  </td>
+                  </div>
+                </div>
 
-                  {/* Cam Ops */}
-                  <td className="px-2 py-1 text-center align-middle">
-                    {Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0
-                      ? ticket.assignedCamOps.join(", ")
-                      : "-"}
-                  </td>
+                <button
+                  className="text-blue-600 hover:underline text-xs whitespace-nowrap"
+                  onClick={() =>
+                    setArchExpandedIds((prev) =>
+                      prev.includes(ticket.id)
+                        ? prev.filter((x) => x !== ticket.id)
+                        : [...prev, ticket.id]
+                    )
+                  }
+                >
+                  {isExpanded ? "Collapse" : "Expand"}
+                </button>
+              </div>
 
-                  {/* Driver */}
-                  <td className="px-2 py-1 text-center align-middle">
-                    <div className="truncate max-w-[160px] mx-auto" title={driverTitle}>
-                      {compactDriver}
+              {/* Key fields */}
+              <div className="mt-3 space-y-2 text-sm">
+                <div>
+                  <span className="text-gray-600 font-medium">Departure:</span>{" "}
+                  <span>{ticket.departureTime || "-"}</span>
+                </div>
+
+                <div>
+                  <span className="text-gray-600 font-medium">Location:</span>{" "}
+                  <span className="break-words">{locationText}</span>
+                </div>
+
+                <div>
+                  <span className="text-gray-600 font-medium">Cam Ops:</span>{" "}
+                  <span className="break-words">{camOpsText}</span>
+                </div>
+
+                <div title={driverTitle}>
+                  <span className="text-gray-600 font-medium">Driver:</span>{" "}
+                  <span className="break-words">{compactDriver}</span>
+                </div>
+
+                <div>
+                  <span className="text-gray-600 font-medium">Reporter:</span>{" "}
+                  <span className="break-words">{reporterText}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-600 font-medium">Status:</span>
+                  <StatusBadge status={ticket.assignmentStatus || "Unassigned"} />
+                </div>
+              </div>
+
+              {/* Expanded content (same content as desktop expanded row) */}
+              {isExpanded && (
+                <div className="mt-4 bg-gray-50 border rounded p-3 text-sm text-gray-700">
+                  {/* FULL TITLE */}
+                  <div className="mb-3">
+                    <strong className="block text-gray-600">Title</strong>
+                    <div className="text-base font-semibold leading-snug break-words">
+                      {ticket.title || "-"}
                     </div>
-                  </td>
+                  </div>
 
-                  {/* Assigned Reporter */}
-                  <td className="px-2 py-1 text-center align-middle">
-                    {Array.isArray(ticket.assignedReporter) && ticket.assignedReporter.length > 0 ? (
-                      <div className="truncate max-w-[160px] mx-auto">
-                        {ticket.assignedReporter.join(", ")}
-                      </div>
-                    ) : typeof ticket.assignedReporter === "string" &&
-                      ticket.assignedReporter.trim() ? (
-                      <div className="truncate max-w-[160px] mx-auto">
-                        {ticket.assignedReporter}
-                      </div>
+                  <div className="mb-2 space-y-1">
+                    {ticket.type === "Technical" ? (
+                      <>
+                        <div>
+                          <strong>Scope of Work:</strong>{" "}
+                          {ticket.scopeOfWork || "-"}
+                        </div>
+                        <div>
+                          <strong>Assigned Technicians:</strong>{" "}
+                          {Array.isArray(ticket.assignedTechnicians) &&
+                          ticket.assignedTechnicians.length > 0
+                            ? ticket.assignedTechnicians.join(", ")
+                            : "-"}
+                        </div>
+                        <div>
+                          <strong>Departure Time:</strong> {ticket.departureTime || "-"}
+                        </div>
+                        <div>
+                          <strong>Location:</strong> {ticket.location || "-"}
+                        </div>
+                      </>
                     ) : (
-                      "-"
-                    )}
-                  </td>
-
-                  {/* Status */}
-                  <td className="px-2 py-1 text-center align-middle">
-                    <StatusBadge status={ticket.assignmentStatus || "Unassigned"} />
-                  </td>
-
-                  {/* Actions (Expand only for archives) */}
-                  <td className="px-2 py-1 text-center align-middle">
-                    <button
-                      className="text-blue-600 hover:underline text-xs"
-                      onClick={() =>
-                        setArchExpandedIds((prev) =>
-                          prev.includes(ticket.id)
-                            ? prev.filter((x) => x !== ticket.id)
-                            : [...prev, ticket.id]
-                        )
-                      }
-                    >
-                      {isExpanded ? "Collapse" : "Expand"}
-                    </button>
-                  </td>
-                </tr>
-
-                {/* Expanded Row (archives) */}
-                {isExpanded && (
-                  <tr className="bg-gray-100">
-                    <td colSpan={10} className="p-4 text-sm text-gray-700">
-                      {/* FULL TITLE */}
-                      <div className="mb-3">
-                        <strong className="block text-gray-600">Title</strong>
-                        <div className="text-base font-semibold leading-snug break-words">
-                          {ticket.title || "-"}
+                      <>
+                        <div>
+                          <strong>Number of Cameras:</strong> {ticket.camCount}
                         </div>
-                      </div>
-
-                                         <div className="mb-2 space-y-1">
-                        {ticket.type === "Technical" ? (
-                          <>
-                            <div>
-                              <strong>Scope of Work:</strong>{" "}
-                              {ticket.scopeOfWork || "-"}
-                            </div>
-                            <div>
-                              <strong>Assigned Technicians:</strong>{" "}
-                              {Array.isArray(ticket.assignedTechnicians) && ticket.assignedTechnicians.length > 0
-                                ? ticket.assignedTechnicians.join(", ")
-                                : "-"}
-                            </div>
-                            <div>
-                              <strong>Departure Time:</strong>{" "}
-                              {ticket.departureTime || "-"}
-                            </div>
-                            <div>
-                              <strong>Location:</strong>{" "}
-                              {ticket.location || "-"}
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div>
-                              <strong>Number of Cameras:</strong>{" "}
-                              {ticket.camCount}
-                            </div>
-                            <div>
-                              <strong>Cam Op Requirement:</strong>{" "}
-                              {ticket.expectedCamOps
-                                ? `${ticket.expectedCamOps} operator${ticket.expectedCamOps > 1 ? "s" : ""} expected`
-                                : ticket.onlyOneCamOp
-                                ? "Only one operator required"
-                                : "Multiple operators expected"}
-                            </div>
-                            <div>
-                              <strong>Assigned Cam Ops:</strong>{" "}
-                              {Array.isArray(ticket.assignedCamOps) && ticket.assignedCamOps.length > 0
-                                ? ticket.assignedCamOps.join(", ")
-                                : "-"}
-                            </div>
-                            {ticket.type === "News" && ticket.category && (
-                              <div>
-                                <strong>News Category:</strong> {ticket.category}
-                              </div>
-                            )}
-                            {ticket.type === "Sports" && ticket.subtype && (
-                              <div>
-                                <strong>Sports Subtype:</strong> {ticket.subtype}
-                              </div>
-                            )}
-                          </>
+                        <div>
+                          <strong>Cam Op Requirement:</strong>{" "}
+                          {ticket.expectedCamOps
+                            ? `${ticket.expectedCamOps} operator${
+                                ticket.expectedCamOps > 1 ? "s" : ""
+                              } expected`
+                            : ticket.onlyOneCamOp
+                            ? "Only one operator required"
+                            : "Multiple operators expected"}
+                        </div>
+                        <div>
+                          <strong>Assigned Cam Ops:</strong>{" "}
+                          {Array.isArray(ticket.assignedCamOps) &&
+                          ticket.assignedCamOps.length > 0
+                            ? ticket.assignedCamOps.join(", ")
+                            : "-"}
+                        </div>
+                        {ticket.type === "News" && ticket.category && (
+                          <div>
+                            <strong>News Category:</strong> {ticket.category}
+                          </div>
                         )}
-                      </div>
+                        {ticket.type === "Sports" && ticket.subtype && (
+                          <div>
+                            <strong>Sports Subtype:</strong> {ticket.subtype}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
 
-                      {/* Drivers detail */}
-                      <div className="mt-3">
-                        <strong>Drivers:</strong>
-                        <div className="mt-1 space-y-1">
-                          <div>
-                            <span className="text-gray-600">To (Destination):</span>{" "}
-                            <span className="font-medium">{ticket.assignedDriver || "-"}</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-600">From (Destination):</span>{" "}
-                            <span className="font-medium">{ticket.assignedDriverFrom || "-"}</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-600">Additional:</span>{" "}
-                            <span className="font-medium">
-                              {Array.isArray(ticket.additionalDrivers) && ticket.additionalDrivers.length > 0
-                                ? ticket.additionalDrivers.filter(Boolean).join(", ")
-                                : "-"}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-3">
-                        <strong>Assigned By:</strong>{" "}
-                        <span className="text-gray-700 font-medium">
-                          {ticket.assignedBy || "Unknown"}
+                  {/* Drivers detail */}
+                  <div className="mt-3">
+                    <strong>Drivers:</strong>
+                    <div className="mt-1 space-y-1">
+                      <div>
+                        <span className="text-gray-600">To (Destination):</span>{" "}
+                        <span className="font-medium">
+                          {ticket.assignedDriver || "-"}
                         </span>
                       </div>
-                      {/* 🎬 Live Crew (Director / A1 / Graphics etc.) */}
-{(() => {
-  // Try common field-name variants (safe even if some don’t exist)
-  const director = pickFirst(ticket, ["director", "directors", "assignedDirector"]);
-  const a1 = pickFirst(ticket, ["a1", "A1", "audioA1", "assignedA1", "soundA1"]);
-  const graphics = pickFirst(ticket, [
-    "graphics",
-    "graphicArtists",
-    "graphicsArtists",
-    "assignedGraphics",
-    "gfx",
-  ]);
+                      <div>
+                        <span className="text-gray-600">From (Destination):</span>{" "}
+                        <span className="font-medium">
+                          {ticket.assignedDriverFrom || "-"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-600">Additional:</span>{" "}
+                        <span className="font-medium">
+                          {Array.isArray(ticket.additionalDrivers) &&
+                          ticket.additionalDrivers.length > 0
+                            ? ticket.additionalDrivers.filter(Boolean).join(", ")
+                            : "-"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
 
-  const hasAny =
-    (Array.isArray(director) ? director.length : !!director) ||
-    (Array.isArray(a1) ? a1.length : !!a1) ||
-    (Array.isArray(graphics) ? graphics.length : !!graphics);
+                  <div className="mt-3">
+                    <strong>Assigned By:</strong>{" "}
+                    <span className="text-gray-700 font-medium">
+                      {ticket.assignedBy || "Unknown"}
+                    </span>
+                  </div>
 
-  if (!hasAny) return null;
+                  {/* 🎬 Live Crew (Director / A1 / Graphics etc.) */}
+                  {(() => {
+                    // Try common field-name variants (safe even if some don’t exist)
+                    const director = pickFirst(ticket, [
+                      "director",
+                      "directors",
+                      "assignedDirector",
+                    ]);
+                    const a1 = pickFirst(ticket, [
+                      "a1",
+                      "A1",
+                      "audioA1",
+                      "assignedA1",
+                      "soundA1",
+                    ]);
+                    const graphics = pickFirst(ticket, [
+                      "graphics",
+                      "graphicArtists",
+                      "graphicsArtists",
+                      "assignedGraphics",
+                      "gfx",
+                    ]);
 
-  return (
-    <div className="mt-3 space-y-1">
-      <div className="font-bold text-gray-700">Live Crew</div>
-      {renderField("Director", director)}
-      {renderField("A1", a1)}
-      {renderField("Graphics", graphics)}
-    </div>
-  );
-})()}
+                    const hasAny =
+                      (Array.isArray(director) ? director.length : !!director) ||
+                      (Array.isArray(a1) ? a1.length : !!a1) ||
+                      (Array.isArray(graphics) ? graphics.length : !!graphics);
 
-                      <div className="mt-2">
-                        <strong>Notes:</strong>
-                        {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
-                          <ul className="list-disc list-inside ml-2 mt-1">
-                            {ticket.notes.map((note, noteIdx) => (
-                              <li key={noteIdx}>
-                                {note.text}{" "}
-                                <span className="text-gray-500 text-xs">
-                                  — {note.author}, {note.timestamp}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-gray-500 italic">No notes</p>
+                    if (!hasAny) return null;
+
+                    return (
+                      <div className="mt-3 space-y-1">
+                        <div className="font-bold text-gray-700">Live Crew</div>
+                        {renderField("Director", director)}
+                        {renderField("A1", a1)}
+                        {renderField("Graphics", graphics)}
+                      </div>
+                    );
+                  })()}
+
+                  <div className="mt-2">
+                    <strong>Notes:</strong>
+                    {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
+                      <ul className="list-disc list-inside ml-2 mt-1">
+                        {ticket.notes.map((note, noteIdx) => (
+                          <li key={noteIdx}>
+                            {note.text}{" "}
+                            <span className="text-gray-500 text-xs">
+                              — {note.author}, {note.timestamp}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-gray-500 italic">No notes</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ===========================
+         🖥️ Desktop table view (keep desktop)
+         - Hidden on mobile
+         - Same exact table layout you already had
+         =========================== */}
+      <div className="hidden md:block overflow-x-auto">
+        <table className="min-w-full text-sm border border-gray-300 table-fixed">
+          <thead className="bg-blue-800 text-white">
+            <tr>
+              <th className="px-2 py-1 text-center text-xs font-semibold">Select</th>
+              <th className="px-2 py-1 text-center text-xs font-semibold">Title</th>
+              <th
+                className="px-2 py-1 text-center text-xs font-semibold select-none cursor-pointer"
+                onClick={() => setArchSortAsc((v) => !v)}
+                title="Sort by Filming Date & Time"
+              >
+                <div className="inline-flex items-center justify-center gap-2">
+                  <span>Filming Date &amp; Time</span>
+                  <span aria-hidden="true">{archSortAsc ? "▲" : "▼"}</span>
+                </div>
+              </th>
+              <th className="px-2 py-1 text-center text-xs font-semibold">
+                Departure Time
+              </th>
+              <th className="px-2 py-1 text-center text-xs font-semibold">Location</th>
+              <th className="px-2 py-1 text-center text-xs font-semibold">Cam Ops</th>
+              <th className="px-2 py-1 text-center text-xs font-semibold">Driver</th>
+              <th className="px-2 py-1 text-center text-xs font-semibold">
+                Assigned Reporter
+              </th>
+              <th className="px-2 py-1 text-center text-xs font-semibold">Status</th>
+              <th className="px-2 py-1 text-center text-xs font-semibold">Actions</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {archivedFiltered.map((ticket, rowIdx) => {
+              const isExpanded = archExpandedIds.includes(ticket.id);
+
+              // date formatting identical to current table
+              const filmingISO = ticket.date?.trim?.();
+              let filmingDisplay = "-";
+              let filmingIsPH = false;
+
+              if (filmingISO) {
+                filmingIsPH = isPublicHoliday(filmingISO);
+
+                const label = formatDDMMYYYY_HHMM(filmingISO);
+                if (label) {
+                  filmingDisplay = label;
+                } else {
+                  filmingDisplay = filmingISO;
+                }
+              }
+
+              // compact driver summary (same logic you use in current table)
+              const main = ticket.assignedDriver || "";
+              const ret = ticket.assignedDriverFrom || "";
+              const extras = Array.isArray(ticket.additionalDrivers)
+                ? ticket.additionalDrivers.filter(Boolean)
+                : [];
+              const parts = [];
+              if (main) parts.push(main);
+              if (ret && ret !== main) parts.push(`Return: ${ret}`);
+              const extraCount = extras.filter((n) => n && n !== main && n !== ret)
+                .length;
+              if (extraCount > 0) parts.push(`+${extraCount}`);
+              const compactDriver = parts.length ? parts.join(" • ") : "-";
+              const driverTitle = [
+                main && `To: ${main}`,
+                ret && ret !== main && `From: ${ret}`,
+                ...extras
+                  .filter(Boolean)
+                  .map((n, i) => `Additional ${i + 1}: ${n}`),
+              ]
+                .filter(Boolean)
+                .join(" | ");
+
+              return (
+                <React.Fragment key={ticket.id}>
+                  <tr
+                    className={`${
+                      rowIdx % 2 === 0 ? "bg-white" : "bg-gray-50"
+                    } border-b ${ticket.type === "Technical" ? "bg-slate-50" : ""}`}
+                  >
+                    <td className="px-2 py-1 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedArchivedIds.includes(ticket.id)}
+                        onChange={() =>
+                          setSelectedArchivedIds((prev) =>
+                            prev.includes(ticket.id)
+                              ? prev.filter((x) => x !== ticket.id)
+                              : [...prev, ticket.id]
+                          )
+                        }
+                      />
+                    </td>
+
+                    {/* Title (truncate like current table) */}
+                    <td className="px-2 py-1 text-center align-middle">
+                      <div className="flex items-center justify-center gap-2">
+                        <div className="truncate max-w-[160px]">{ticket.title}</div>
+                        {(ticket.camCount > 1 || ticket.expectedCamOps > 1) && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            👤{ticket.expectedCamOps || 1}🎥{ticket.camCount || 1}
+                          </Badge>
                         )}
                       </div>
                     </td>
+
+                    {/* Filming Date & Time */}
+                    <td className="px-2 py-1 text-center align-middle">
+                      <div className="inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                        <span>{filmingDisplay}</span>
+                        {filmingIsPH ? (
+                          <Badge variant="outline" className="text-[10px] px-2 py-0.5">
+                            (PH)
+                          </Badge>
+                        ) : null}
+                      </div>
+                    </td>
+
+                    {/* Departure Time */}
+                    <td className="px-2 py-1 text-center align-middle">
+                      {ticket.departureTime || "-"}
+                    </td>
+
+                    {/* Location */}
+                    <td className="px-2 py-1 text-center align-middle">
+                      <div className="truncate max-w-[140px] mx-auto">
+                        {ticket.location || "-"}
+                      </div>
+                    </td>
+
+                    {/* Cam Ops */}
+                    <td className="px-2 py-1 text-center align-middle">
+                      {Array.isArray(ticket.assignedCamOps) &&
+                      ticket.assignedCamOps.length > 0
+                        ? ticket.assignedCamOps.join(", ")
+                        : "-"}
+                    </td>
+
+                    {/* Driver */}
+                    <td className="px-2 py-1 text-center align-middle">
+                      <div className="truncate max-w-[160px] mx-auto" title={driverTitle}>
+                        {compactDriver}
+                      </div>
+                    </td>
+
+                    {/* Assigned Reporter */}
+                    <td className="px-2 py-1 text-center align-middle">
+                      {Array.isArray(ticket.assignedReporter) &&
+                      ticket.assignedReporter.length > 0 ? (
+                        <div className="truncate max-w-[160px] mx-auto">
+                          {ticket.assignedReporter.join(", ")}
+                        </div>
+                      ) : typeof ticket.assignedReporter === "string" &&
+                        ticket.assignedReporter.trim() ? (
+                        <div className="truncate max-w-[160px] mx-auto">
+                          {ticket.assignedReporter}
+                        </div>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+
+                    {/* Status */}
+                    <td className="px-2 py-1 text-center align-middle">
+                      <StatusBadge status={ticket.assignmentStatus || "Unassigned"} />
+                    </td>
+
+                    {/* Actions (Expand only for archives) */}
+                    <td className="px-2 py-1 text-center align-middle">
+                      <button
+                        className="text-blue-600 hover:underline text-xs"
+                        onClick={() =>
+                          setArchExpandedIds((prev) =>
+                            prev.includes(ticket.id)
+                              ? prev.filter((x) => x !== ticket.id)
+                              : [...prev, ticket.id]
+                          )
+                        }
+                      >
+                        {isExpanded ? "Collapse" : "Expand"}
+                      </button>
+                    </td>
                   </tr>
-                )}
-              </React.Fragment>
-            );
-          })}
-        </tbody>
-      </table>
+
+                  {/* Expanded Row (archives) */}
+                  {isExpanded && (
+                    <tr className="bg-gray-100">
+                      <td colSpan={10} className="p-4 text-sm text-gray-700">
+                        {/* FULL TITLE */}
+                        <div className="mb-3">
+                          <strong className="block text-gray-600">Title</strong>
+                          <div className="text-base font-semibold leading-snug break-words">
+                            {ticket.title || "-"}
+                          </div>
+                        </div>
+
+                        <div className="mb-2 space-y-1">
+                          {ticket.type === "Technical" ? (
+                            <>
+                              <div>
+                                <strong>Scope of Work:</strong>{" "}
+                                {ticket.scopeOfWork || "-"}
+                              </div>
+                              <div>
+                                <strong>Assigned Technicians:</strong>{" "}
+                                {Array.isArray(ticket.assignedTechnicians) &&
+                                ticket.assignedTechnicians.length > 0
+                                  ? ticket.assignedTechnicians.join(", ")
+                                  : "-"}
+                              </div>
+                              <div>
+                                <strong>Departure Time:</strong>{" "}
+                                {ticket.departureTime || "-"}
+                              </div>
+                              <div>
+                                <strong>Location:</strong> {ticket.location || "-"}
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div>
+                                <strong>Number of Cameras:</strong> {ticket.camCount}
+                              </div>
+                              <div>
+                                <strong>Cam Op Requirement:</strong>{" "}
+                                {ticket.expectedCamOps
+                                  ? `${ticket.expectedCamOps} operator${
+                                      ticket.expectedCamOps > 1 ? "s" : ""
+                                    } expected`
+                                  : ticket.onlyOneCamOp
+                                  ? "Only one operator required"
+                                  : "Multiple operators expected"}
+                              </div>
+                              <div>
+                                <strong>Assigned Cam Ops:</strong>{" "}
+                                {Array.isArray(ticket.assignedCamOps) &&
+                                ticket.assignedCamOps.length > 0
+                                  ? ticket.assignedCamOps.join(", ")
+                                  : "-"}
+                              </div>
+                              {ticket.type === "News" && ticket.category && (
+                                <div>
+                                  <strong>News Category:</strong> {ticket.category}
+                                </div>
+                              )}
+                              {ticket.type === "Sports" && ticket.subtype && (
+                                <div>
+                                  <strong>Sports Subtype:</strong> {ticket.subtype}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+
+                        {/* Drivers detail */}
+                        <div className="mt-3">
+                          <strong>Drivers:</strong>
+                          <div className="mt-1 space-y-1">
+                            <div>
+                              <span className="text-gray-600">
+                                To (Destination):
+                              </span>{" "}
+                              <span className="font-medium">
+                                {ticket.assignedDriver || "-"}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-gray-600">
+                                From (Destination):
+                              </span>{" "}
+                              <span className="font-medium">
+                                {ticket.assignedDriverFrom || "-"}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-gray-600">Additional:</span>{" "}
+                              <span className="font-medium">
+                                {Array.isArray(ticket.additionalDrivers) &&
+                                ticket.additionalDrivers.length > 0
+                                  ? ticket.additionalDrivers.filter(Boolean).join(", ")
+                                  : "-"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-3">
+                          <strong>Assigned By:</strong>{" "}
+                          <span className="text-gray-700 font-medium">
+                            {ticket.assignedBy || "Unknown"}
+                          </span>
+                        </div>
+
+                        {/* 🎬 Live Crew (Director / A1 / Graphics etc.) */}
+                        {(() => {
+                          // Try common field-name variants (safe even if some don’t exist)
+                          const director = pickFirst(ticket, [
+                            "director",
+                            "directors",
+                            "assignedDirector",
+                          ]);
+                          const a1 = pickFirst(ticket, [
+                            "a1",
+                            "A1",
+                            "audioA1",
+                            "assignedA1",
+                            "soundA1",
+                          ]);
+                          const graphics = pickFirst(ticket, [
+                            "graphics",
+                            "graphicArtists",
+                            "graphicsArtists",
+                            "assignedGraphics",
+                            "gfx",
+                          ]);
+
+                          const hasAny =
+                            (Array.isArray(director) ? director.length : !!director) ||
+                            (Array.isArray(a1) ? a1.length : !!a1) ||
+                            (Array.isArray(graphics)
+                              ? graphics.length
+                              : !!graphics);
+
+                          if (!hasAny) return null;
+
+                          return (
+                            <div className="mt-3 space-y-1">
+                              <div className="font-bold text-gray-700">Live Crew</div>
+                              {renderField("Director", director)}
+                              {renderField("A1", a1)}
+                              {renderField("Graphics", graphics)}
+                            </div>
+                          );
+                        })()}
+
+                        <div className="mt-2">
+                          <strong>Notes:</strong>
+                          {Array.isArray(ticket.notes) && ticket.notes.length > 0 ? (
+                            <ul className="list-disc list-inside ml-2 mt-1">
+                              {ticket.notes.map((note, noteIdx) => (
+                                <li key={noteIdx}>
+                                  {note.text}{" "}
+                                  <span className="text-gray-500 text-xs">
+                                    — {note.author}, {note.timestamp}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-gray-500 italic">No notes</p>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 })()}
